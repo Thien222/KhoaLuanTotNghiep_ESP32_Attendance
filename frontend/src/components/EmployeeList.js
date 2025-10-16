@@ -49,7 +49,7 @@ const EmployeeList = ({ onRefresh }) => {
     try {
       setEnrolling(prev => ({ ...prev, [employee._id]: true }));
       
-      const esp32Ip = '192.168.1.30'; // You can make this configurable
+      const esp32Ip = '192.168.2.52'; // You can make this configurable
       const esp32Url = `http://${esp32Ip}/enroll?id=${employee.fingerprintId}`;
       
       toast.info(`Enrolling fingerprint for ${employee.name}...`);

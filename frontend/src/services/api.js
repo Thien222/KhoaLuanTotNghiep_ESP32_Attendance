@@ -1,8 +1,8 @@
 import axios from 'axios';
 
 // Backend running on port 3000
-const API_URL = 'http://localhost:3000/api';
-
+export const API_URL = 'http://192.168.2.28:3000/api';
+export const ESP32_IP = '192.168.2.52';
 console.log('=================================');
 console.log('🔍 API Configuration:');
 console.log('API_URL:', API_URL);
