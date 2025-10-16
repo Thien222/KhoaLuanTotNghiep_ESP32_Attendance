@@ -1,10 +1,11 @@
-require('dotenv').config();
+require('dotenv').config({ path: './.env' });
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
 const morgan = require('morgan');
 const employeeRoutes = require('./routes/employeeRoutes');
 const attendanceRoutes = require('./routes/attendanceRoutes');
+const authRoutes = require('./routes/authRoutes');
 const errorHandler = require('./middleware/errorHandler');
 
 const app = express();
@@ -24,7 +25,7 @@ app.use(express.json());
 app.use(morgan('dev'));
 
 // Connect to MongoDB
-const mongoURI = process.env.MONGO_URI || 'mongodb://localhost:27017/fingerprint_db';
+const mongoURI = 'mongodb+srv://farenabc123:thien123@cluster0.l0erdhn.mongodb.net/fingerprint_db?retryWrites=true&w=majority&appName=Cluster0';
 console.log('Connecting to MongoDB with URI:', mongoURI);
 
 mongoose.connect(mongoURI, {
@@ -34,15 +35,33 @@ mongoose.connect(mongoURI, {
 .then(() => console.log('MongoDB connected successfully'))
 .catch(err => console.error('MongoDB connection error:', err));
 
+// ===== ESP32 state (in-memory) =====
+let esp32Info = {
+  ip: null,
+  lastSeen: null
+};
+
 // ESP32 registration endpoint (for ESP32 to register its IP)
 app.post('/esp32-register', (req, res) => {
   const { ip } = req.body;
   console.log(`=== ESP32 REGISTRATION ===`);
   console.log(`ESP32 registered with IP: ${ip}`);
   console.log(`Registration time: ${new Date().toISOString()}`);
-  // Here you might want to store the ESP32 IP in a database or a configuration file
-  // For now, we just acknowledge it.
-  res.status(200).json({ message: 'ESP32 registered successfully', ip });
+
+  // Update in-memory info
+  esp32Info.ip = ip;
+  esp32Info.lastSeen = new Date().toISOString();
+
+  // Optionally persist to DB or file later
+  res.status(200).json({ message: 'ESP32 registered successfully', ip, registeredAt: esp32Info.lastSeen });
+});
+
+// Debug route to inspect registered ESP32 info
+app.get('/api/esp32-info', (req, res) => {
+  res.json({
+    success: true,
+    data: esp32Info
+  });
 });
 
 // ESP32 attendance endpoint - handles both /api/attendance/add and /api/attendance/fingerprint
@@ -65,14 +84,169 @@ app.post('/api/attendance/fingerprint', async (req, res) => {
 });
 
 // Routes
+app.use('/api/auth', authRoutes);
 app.use('/api/employees', employeeRoutes);
 app.use('/api/attendance', attendanceRoutes);
+
+// ESP32 health check endpoint
+app.get('/healthz', (req, res) => {
+  res.json({ ok: true, timestamp: new Date().toISOString() });
+});
+
+// ESP32 enroll endpoint - handles GET /api/enroll?id=X
+app.get('/api/enroll', async (req, res) => {
+  try {
+    const { id } = req.query;
+    console.log('=== ESP32 ENROLL REQUEST ===');
+    console.log('Fingerprint ID:', id);
+
+    if (!id) {
+      return res.status(400).json({ success: false, message: 'Missing fingerprint ID' });
+    }
+
+    // Use registered ESP32 IP if available, otherwise fallback to configured IP but warn
+    const configuredIp = '192.168.2.52';
+    const esp32Ip = esp32Info.ip || configuredIp;
+
+    if (!esp32Info.ip) {
+      console.warn('ESP32 IP not registered; using configured fallback IP. Recommend calling /esp32-register from ESP32.');
+    }
+
+    const healthCheckUrl = `http://${esp32Ip}/healthz`;
+
+    // Health check with AbortController (no unsupported timeout option)
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000);
+      const healthResponse = await fetch(healthCheckUrl, { signal: controller.signal });
+      clearTimeout(timeoutId);
+
+      if (!healthResponse.ok) {
+        throw new Error(`ESP32 health check failed with status: ${healthResponse.status}`);
+      }
+      console.log(`ESP32 (${esp32Ip}) health check passed.`);
+      // update lastSeen when reachable
+      esp32Info.ip = esp32Ip;
+      esp32Info.lastSeen = new Date().toISOString();
+    } catch (healthError) {
+      console.error('ESP32 Health Check Error:', healthError);
+      return res.status(503).json({
+        success: false,
+        message: 'ESP32 device is unreachable. Ensure ESP32 is online and has called /esp32-register or check network/firewall.',
+        error: healthError.message,
+        esp32Info
+      });
+    }
+
+    // Proceed with enrollment
+    const esp32Url = `http://${esp32Ip}/enroll?id=${encodeURIComponent(id)}`;
+    const maxRetries = 3;
+    const baseTimeout = 10000;
+
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        console.log(`Attempt ${attempt} to communicate with ESP32 ${esp32Ip}...`);
+        const controller = new AbortController();
+        const timeoutDuration = baseTimeout * attempt;
+        const timeoutId = setTimeout(() => controller.abort(), timeoutDuration);
+
+        const response = await fetch(esp32Url, { signal: controller.signal });
+        clearTimeout(timeoutId);
+
+        if (!response.ok) {
+          throw new Error(`ESP32 returned status: ${response.status}`);
+        }
+
+        const data = await response.json();
+
+        const Employee = require('./models/Employee');
+        const updateResult = await Employee.findOneAndUpdate(
+          { fingerprintId: parseInt(id) },
+          { fingerprintEnrolled: true },
+          { new: true }
+        );
+
+        if (!updateResult) {
+          return res.status(404).json({
+            success: false,
+            message: 'Employee not found with given fingerprint ID'
+          });
+        }
+
+        return res.json({
+          success: true,
+          message: 'Enrollment successful',
+          data: {
+            employee: updateResult,
+            enrollStatus: data
+          }
+        });
+
+      } catch (esp32Error) {
+        console.error(`Attempt ${attempt} failed:`, esp32Error);
+
+        if (esp32Error.name === 'AbortError') {
+          console.error('ESP32 connection timeout on attempt', attempt);
+        }
+
+        if (attempt === maxRetries) {
+          return res.status(504).json({
+            success: false,
+            message: 'ESP32 connection failed after multiple attempts',
+            error: esp32Error.message,
+            esp32Info
+          });
+        }
+
+        // small delay before retry
+        await new Promise(r => setTimeout(r, 500));
+      }
+    }
+  } catch (error) {
+    console.error('Enrollment Error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error during enrollment',
+      error: error.message
+    });
+  }
+});
 
 // Special route for ESP32 fingerprint device
 app.post('/api/fingerprint', async (req, res) => {
   try {
-    const { fingerId, action } = req.body;
-    console.log('Received fingerprint data from ESP32:', { fingerId, action });
+    const { fingerId, action, template } = req.body;
+    console.log('Received fingerprint data from ESP32:', { fingerId, action, hasTemplate: !!template });
+    
+    // If this is a template upload (enrollment), update fingerprintEnrolled status
+    if (template && fingerId) {
+      console.log('Template received for fingerprint ID:', fingerId);
+      const Employee = require('./models/Employee');
+      const updateResult = await Employee.findOneAndUpdate(
+        { fingerprintId: parseInt(fingerId) },
+        { fingerprintEnrolled: true },
+        { new: true }
+      );
+      
+      if (updateResult) {
+        console.log('Updated employee fingerprint status:', updateResult.name, 'enrolled:', updateResult.fingerprintEnrolled);
+        return res.json({
+          success: true,
+          message: 'Fingerprint template received and employee enrolled',
+          data: {
+            employee: updateResult,
+            what: 'enrolled',
+            action: 'template-received'
+          }
+        });
+      } else {
+        return res.status(404).json({
+          success: false,
+          message: 'Employee not found with this fingerprint ID',
+          fingerId: fingerId
+        });
+      }
+    }
     
     // Forward the request to attendance handler with correct format
     const attendanceData = {
@@ -275,7 +449,7 @@ app.delete('/api/security/clear-unenrolled-attendance', async (req, res) => {
 app.get('/api/debug/employees', async (req, res) => {
   try {
     const Employee = require('./models/Employee');
-    const employees = await Employee.find({}, 'name employeeId fingerprintId fingerprintEnrolled');
+    const employees = await Employee.find({}, 'name employeeId fingerprintId fingerprintEnrolled position department email phone status');
     console.log('All employees:', employees);
     res.json({
       success: true,
@@ -286,6 +460,45 @@ app.get('/api/debug/employees', async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Error fetching employees',
+      error: error.message
+    });
+  }
+});
+
+// Debug: Add new employee
+app.post('/api/debug/employees', async (req, res) => {
+  try {
+    const Employee = require('./models/Employee');
+    const { name, position, department, email, phone, fingerprintId } = req.body;
+    
+    // Generate employee ID
+    const count = await Employee.countDocuments();
+    const employeeId = `EMP${String(count + 1).padStart(3, '0')}`;
+    
+    const newEmployee = new Employee({
+      name,
+      position,
+      department,
+      email,
+      phone,
+      employeeId,
+      fingerprintId: fingerprintId || (count + 1),
+      fingerprintEnrolled: false,
+      status: 'active'
+    });
+    
+    const savedEmployee = await newEmployee.save();
+    console.log('New employee created:', savedEmployee);
+    
+    res.json({
+      success: true,
+      data: savedEmployee
+    });
+  } catch (error) {
+    console.error('Error creating employee:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error creating employee',
       error: error.message
     });
   }
@@ -405,5 +618,5 @@ app.use((req, res) => {
 // Start server
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Server running on port ${PORT} in ${process.env.NODE_ENV} mode`);
-  console.log(`Server accessible at: http://192.168.1.29:${PORT}`);
+  console.log(`Server accessible at: http://192.168.2.28:${PORT}`);
 });
