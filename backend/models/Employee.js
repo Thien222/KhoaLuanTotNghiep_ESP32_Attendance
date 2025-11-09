@@ -44,10 +44,16 @@ const employeeSchema = new mongoose.Schema({
     type: String,
     required: true
   },
+    baseSalary: {
+    type: Number,
+    default: 0
+  },
+
   joinDate: {
     type: Date,
     default: Date.now
   },
+
   status: {
     type: String,
     enum: ['active', 'inactive'],

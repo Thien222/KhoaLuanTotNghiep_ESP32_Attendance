@@ -7,6 +7,7 @@ const employeeRoutes = require('./routes/employeeRoutes');
 const attendanceRoutes = require('./routes/attendanceRoutes');
 const authRoutes = require('./routes/authRoutes');
 const errorHandler = require('./middleware/errorHandler');
+const chatRoutes = require('./routes/chatRoutes');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -56,6 +57,9 @@ app.post('/esp32-register', (req, res) => {
   res.status(200).json({ message: 'ESP32 registered successfully', ip, registeredAt: esp32Info.lastSeen });
 });
 
+
+
+
 // Debug route to inspect registered ESP32 info
 app.get('/api/esp32-info', (req, res) => {
   res.json({
@@ -87,7 +91,14 @@ app.post('/api/attendance/fingerprint', async (req, res) => {
 app.use('/api/auth', authRoutes);
 app.use('/api/employees', employeeRoutes);
 app.use('/api/attendance', attendanceRoutes);
-
+app.use((req, res, next) => {
+  if (req.path.startsWith('/api/chat')) {
+    // giả lập user để các handler dùng req.user
+    req.user = { _id: 'demo', name: 'Tester', role: 'admin' }; 
+  }
+  next();
+});
+app.use('/api/chat', require('./routes/chatRoutes'));
 // ESP32 health check endpoint
 app.get('/healthz', (req, res) => {
   res.json({ ok: true, timestamp: new Date().toISOString() });
@@ -618,5 +629,5 @@ app.use((req, res) => {
 // Start server
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Server running on port ${PORT} in ${process.env.NODE_ENV} mode`);
-  console.log(`Server accessible at: http://192.168.2.28:${PORT}`);
+  console.log(`Server accessible at: http://192.168.1.17:${PORT}`);
 });
