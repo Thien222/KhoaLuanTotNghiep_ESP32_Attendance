@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 // Backend running on port 3000
-export const API_URL = 'http://192.168.2.28:3000/api';
+export const API_URL = 'http://192.168.1.17:3000/api';
 export const ESP32_IP = '192.168.2.52';
 console.log('=================================');
 console.log('🔍 API Configuration:');
@@ -28,6 +28,16 @@ api.interceptors.request.use(
     return Promise.reject(error);
   }
 );
+
+api.interceptors.request.use(
+  (config) => {
+    const token = localStorage.getItem('token');
+    if (token) config.headers.Authorization = `Bearer ${token}`;
+    return config;
+  },
+  (error) => Promise.reject(error)
+);
+
 
 // Response interceptor
 api.interceptors.response.use(
@@ -162,5 +172,12 @@ export const attendanceApi = {
     }
   }
 };
+export const chatApi = {
+  send: async (message) => {
+    const response = await api.post('/chat/message', { message });
+    return response.data; 
+  }
+};
+
 
 export default api;
