@@ -166,3 +166,4 @@ payrollSchema.index({ employee: 1, month: 1 });
 payrollSchema.index({ employee: 1, year: 1, monthNum: 1 });
 
 module.exports = mongoose.model('Payroll', payrollSchema);
+
