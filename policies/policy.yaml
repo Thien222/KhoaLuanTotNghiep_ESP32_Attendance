@@ -1,6 +1,0 @@
-# Chính sách nhân sự (demo)
-max_leave_days_per_month: 3
-leave_deduction_per_day: 1.0   # mỗi ngày nghỉ trừ 1 ngày công
-working_days_per_month_default: 26
-termination_if_exceed_leave: true
-currency: "VND"
