@@ -26,6 +26,7 @@ import {
 } from '@ant-design/icons';
 import axios from 'axios';
 import moment from 'moment';
+import { getESP32Url, getAPIUrl } from '../../utils/configManager';
 
 const { Title } = Typography;
 const { RangePicker } = DatePicker;
@@ -46,7 +47,8 @@ const AttendanceManagement = () => {
 
   const checkESP32Connection = async () => {
     try {
-      const response = await axios.get('http://192.168.2.52/healthz');
+      const esp32Url = getESP32Url();
+      const response = await axios.get(`${esp32Url}/healthz`);
       setEsp32Connected(response.status === 200);
     } catch (error) {
       setEsp32Connected(false);
@@ -56,39 +58,71 @@ const AttendanceManagement = () => {
   const fetchAttendances = async () => {
     setLoading(true);
     try {
-      // Mock data for demo
-      const mockAttendances = [
-        {
-          _id: '1',
-          date: new Date('2024-01-15'),
-          employee: { name: 'Nguyễn Văn A', fingerprintId: 1 },
-          checkIn: { time: new Date('2024-01-15T08:30:00') },
-          checkOut: { time: new Date('2024-01-15T17:30:00') },
-          workingHours: 8.5,
-          status: 'present'
-        },
-        {
-          _id: '2',
-          date: new Date('2024-01-15'),
-          employee: { name: 'Trần Thị B', fingerprintId: 2 },
-          checkIn: { time: new Date('2024-01-15T09:15:00') },
-          checkOut: { time: new Date('2024-01-15T18:00:00') },
-          workingHours: 8.25,
-          status: 'late'
-        },
-        {
-          _id: '3',
-          date: new Date('2024-01-16'),
-          employee: { name: 'Lê Văn C', fingerprintId: 3 },
-          checkIn: { time: new Date('2024-01-16T08:00:00') },
-          checkOut: null,
-          workingHours: null,
-          status: 'present'
+      const API_URL = getAPIUrl();
+      const token = localStorage.getItem('token');
+      
+      if (!token) {
+        message.error('Chưa đăng nhập. Vui lòng đăng nhập lại.');
+        setTimeout(() => {
+          window.location.href = '/login';
+        }, 1500);
+        return;
+      }
+      
+      // Check if token might be expired
+      try {
+        const payload = JSON.parse(atob(token.split('.')[1]));
+        const exp = payload.exp * 1000;
+        if (Date.now() >= exp) {
+          message.error('Token đã hết hạn. Vui lòng đăng nhập lại.');
+          localStorage.removeItem('token');
+          localStorage.removeItem('user');
+          setTimeout(() => {
+            window.location.href = '/login';
+          }, 1500);
+          return;
         }
-      ];
-      setAttendances(mockAttendances);
+      } catch (e) {
+        // Token format invalid, try anyway
+        console.warn('Could not parse token:', e);
+      }
+      
+      const startDate = dateRange[0].format('YYYY-MM-DD');
+      const endDate = dateRange[1].format('YYYY-MM-DD');
+      
+      console.log('📤 Fetching attendances:', { API_URL, startDate, endDate, hasToken: !!token });
+      
+      const response = await axios.get(`${API_URL}/attendance`, {
+        params: { startDate, endDate },
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      });
+      
+      console.log('✅ Attendance response:', response.data);
+      
+      if (response.data.success) {
+        setAttendances(response.data.data || []);
+      } else {
+        message.error(response.data.message || 'Lỗi khi tải dữ liệu');
+      }
     } catch (error) {
-      message.error('Lỗi khi tải dữ liệu chấm công');
+      console.error('Error fetching attendances:', error);
+      const errorMessage = error.response?.data?.message || 'Lỗi khi tải dữ liệu chấm công';
+      
+      // If 401, token is invalid or expired
+      if (error.response?.status === 401) {
+        message.error('Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.');
+        localStorage.removeItem('token');
+        localStorage.removeItem('user');
+        setTimeout(() => {
+          window.location.href = '/login';
+        }, 1500);
+      } else {
+        message.error(errorMessage);
+      }
+      
+      setAttendances([]); // Set empty array on error
     } finally {
       setLoading(false);
     }
@@ -144,45 +178,88 @@ const AttendanceManagement = () => {
       key: 'date',
       render: (date) => moment(date).format('DD/MM/YYYY'),
       sorter: (a, b) => moment(a.date).unix() - moment(b.date).unix(),
+      width: 100,
     },
     {
       title: 'Nhân viên',
       dataIndex: ['employee', 'name'],
       key: 'employeeName',
+      width: 150,
+      render: (name, record) => record.employee?.name || 'Không xác định',
     },
     {
-      title: 'ID Vân tay',
+      title: 'ID VT',
       dataIndex: ['employee', 'fingerprintId'],
       key: 'fingerprintId',
-      render: (id) => id ? `#${id}` : '-',
+      render: (id, record) => record.employee?.fingerprintId ? `#${record.employee.fingerprintId}` : '-',
+      width: 60,
     },
     {
       title: 'Giờ vào',
       dataIndex: ['checkIn', 'time'],
       key: 'checkIn',
       render: (time) => time ? moment(time).format('HH:mm:ss') : '-',
+      width: 90,
     },
     {
       title: 'Giờ ra',
       dataIndex: ['checkOut', 'time'],
       key: 'checkOut',
       render: (time) => time ? moment(time).format('HH:mm:ss') : '-',
+      width: 90,
     },
     {
-      title: 'Số giờ làm',
+      title: 'Số giờ',
       dataIndex: 'workingHours',
       key: 'workingHours',
       render: (hours) => hours ? `${hours}h` : '-',
+      width: 70,
+    },
+    {
+      title: 'Muộn',
+      dataIndex: 'lateMinutes',
+      key: 'lateMinutes',
+      render: (minutes) => minutes > 0 ? (
+        <Tag color="warning">{minutes} phút</Tag>
+      ) : '-',
+      width: 80,
+    },
+    {
+      title: 'Phạt',
+      dataIndex: 'latePenalty',
+      key: 'latePenalty',
+      render: (penalty) => penalty > 0 ? (
+        <Tag color="error">{new Intl.NumberFormat('vi-VN').format(penalty)} đ</Tag>
+      ) : '-',
+      width: 90,
+    },
+    {
+      title: 'OT',
+      dataIndex: 'overtimeHours',
+      key: 'overtimeHours',
+      render: (hours, record) => hours > 0 ? (
+        <Tag color="blue">{hours}h (x{record.overtimeRate || 1.0})</Tag>
+      ) : '-',
+      width: 100,
     },
     {
       title: 'Trạng thái',
       dataIndex: 'status',
       key: 'status',
-      render: (status) => (
-        <Tag color={getStatusColor(status)}>
-          {getStatusText(status)}
-        </Tag>
+      render: (status, record) => (
+        <Space direction="vertical" size="small">
+          <Tag color={getStatusColor(status)}>
+            {getStatusText(status)}
+          </Tag>
+          {record.isHoliday && (
+            <Tag color="purple">Ngày lễ (x{record.holidayRate || 1.0})</Tag>
+          )}
+          {record.autoCheckout && (
+            <Tag color="orange">Auto CO</Tag>
+          )}
+        </Space>
       ),
+      width: 120,
     },
   ];
 
@@ -219,7 +296,7 @@ const AttendanceManagement = () => {
             <Card size="small">
               <Statistic
                 title="Tổng nhân viên"
-                value={new Set(attendances.map(att => att.employee.name)).size}
+                value={new Set(attendances.filter(att => att.employee?.name).map(att => att.employee.name)).size}
                 prefix={<UserOutlined />}
                 valueStyle={{ color: '#722ed1' }}
               />
@@ -336,3 +413,4 @@ const AttendanceManagement = () => {
 };
 
 export default AttendanceManagement;
+

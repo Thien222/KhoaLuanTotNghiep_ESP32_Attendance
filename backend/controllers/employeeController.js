@@ -34,7 +34,7 @@ exports.addEmployee = async (req, res) => {
   try {
     console.log('Received request body:', req.body);
     
-    const { name } = req.body;
+    const { name, position, department, email, phone, contractType, salary } = req.body;
 
     // Validate required fields
     if (!name) {
@@ -52,7 +52,7 @@ exports.addEmployee = async (req, res) => {
     do {
       generatedEmployeeId = await getNextEmployeeId();
       generatedFingerprintId = await getNextFingerprintId();
-      generatedEmail = `employee${Date.now()}${retryCount}@company.com`;
+      generatedEmail = email || `employee${Date.now()}${retryCount}@company.com`;
       
       console.log('Generated IDs (attempt', retryCount + 1, '):', {
         employeeId: generatedEmployeeId,
@@ -68,10 +68,13 @@ exports.addEmployee = async (req, res) => {
           fingerprintId: generatedFingerprintId,
           fingerprintTemplate: 'not_enrolled',
           fingerprintEnrolled: false,
-          position: 'Staff',
-          department: 'General',
+          position: position || 'Staff',
+          department: department || 'General',
           email: generatedEmail,
-          phone: '0123456789'
+          phone: phone || '0123456789',
+          contractType: contractType || 'probation',
+          salary: salary || 0,
+          profileCompleted: false
         });
 
         console.log('Creating employee:', employee);
@@ -259,6 +262,95 @@ exports.deleteEmployee = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Error deleting employee',
+      error: error.message
+    });
+  }
+};
+
+// Complete employee profile (for new employees)
+exports.completeProfile = async (req, res) => {
+  try {
+    const { employeeId } = req.params;
+    const {
+      address,
+      citizenId,
+      socialInsuranceNumber,
+      dateOfBirth,
+      gender,
+      bankAccount
+    } = req.body;
+
+    // Get employee ID - support both employeeId param and user.employee
+    let finalEmployeeId = employeeId;
+    if (req.user && req.user.employee) {
+      // If user is accessing their own profile, use their employee ID
+      finalEmployeeId = req.user.employee._id || req.user.employee;
+    }
+
+    const employee = await Employee.findById(finalEmployeeId);
+    if (!employee) {
+      return res.status(404).json({
+        success: false,
+        message: 'Employee not found'
+      });
+    }
+
+    // Update profile fields
+    if (address) employee.address = address;
+    if (citizenId) employee.citizenId = citizenId;
+    if (socialInsuranceNumber) employee.socialInsuranceNumber = socialInsuranceNumber;
+    if (dateOfBirth) employee.dateOfBirth = dateOfBirth;
+    if (gender) employee.gender = gender;
+    if (bankAccount) employee.bankAccount = bankAccount;
+
+    // Mark profile as completed
+    employee.profileCompleted = true;
+
+    await employee.save();
+
+    res.status(200).json({
+      success: true,
+      message: 'Profile completed successfully',
+      data: employee
+    });
+  } catch (error) {
+    console.error('Error completing profile:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error completing profile',
+      error: error.message
+    });
+  }
+};
+
+// Get employee leave balance
+exports.getEmployeeLeaveBalance = async (req, res) => {
+  try {
+    const { employeeId } = req.params;
+
+    const employee = await Employee.findById(employeeId);
+    if (!employee) {
+      return res.status(404).json({
+        success: false,
+        message: 'Employee not found'
+      });
+    }
+
+    const remainingDays = employee.annualLeaveDays - employee.usedLeaveDays;
+
+    res.status(200).json({
+      success: true,
+      data: {
+        annualDays: employee.annualLeaveDays,
+        usedDays: employee.usedLeaveDays,
+        remainingDays: Math.max(0, remainingDays)
+      }
+    });
+  } catch (error) {
+    console.error('Error getting leave balance:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error getting leave balance',
       error: error.message
     });
   }

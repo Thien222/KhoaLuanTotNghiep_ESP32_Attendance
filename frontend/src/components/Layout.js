@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Layout as AntLayout, Menu, Button, Avatar, Dropdown, Space, Typography, Badge } from 'antd';
 import { 
   MenuFoldOutlined, 
@@ -26,11 +26,31 @@ const MainLayout = ({ children }) => {
   const navigate = useNavigate();
   const location = useLocation();
   
-  // Mock user data for demo
-  const user = {
-    email: 'demo@company.com',
-    role: 'manager'
+  // Get user from localStorage
+  const getUser = () => {
+    try {
+      const userData = localStorage.getItem('user');
+      if (userData) {
+        return JSON.parse(userData);
+      }
+    } catch (error) {
+      console.error('Error parsing user data:', error);
+    }
+    return null;
   };
+
+  const user = getUser();
+  
+  // Redirect to login if no user
+  React.useEffect(() => {
+    if (!user) {
+      navigate('/login');
+    }
+  }, [user, navigate]);
+  
+  if (!user) {
+    return null; // Will redirect to login
+  }
   
   const logout = () => {
     console.log('Logout clicked');
@@ -41,68 +61,76 @@ const MainLayout = ({ children }) => {
       key: '/dashboard',
       icon: <DashboardOutlined />,
       label: 'Dashboard',
-      roles: ['employee', 'accountant', 'manager']
+      roles: ['manager'] // Only admin
     },
     {
       key: '/attendance',
       icon: <ClockCircleOutlined />,
       label: 'Chấm công',
-      roles: ['employee', 'accountant', 'manager']
+      roles: ['manager'] // Only admin
     },
     {
       key: '/employees',
       icon: <TeamOutlined />,
       label: 'Quản lý nhân sự',
-      roles: ['manager']
+      roles: ['manager'] // Only admin
     },
     {
       key: '/leave-requests',
       icon: <FileTextOutlined />,
       label: 'Nghỉ phép',
-      roles: ['employee', 'accountant', 'manager']
+      roles: ['employee', 'manager'] // User và admin
     },
     {
       key: '/payroll',
       icon: <DollarOutlined />,
       label: 'Bảng lương',
-      roles: ['accountant', 'manager']
+      roles: ['employee', 'manager'] // User và admin
     },
     {
       key: '/reports',
       icon: <BarChartOutlined />,
       label: 'Báo cáo',
-      roles: ['manager']
+      roles: ['manager'] // Only admin
     },
     {
       key: '/chatbot',
       icon: <RobotOutlined />,
       label: 'ChatBot',
-      roles: ['employee', 'accountant', 'manager']
+      roles: ['employee', 'manager'] // User và admin
     },
     {
       key: '/esp32',
       icon: <WifiOutlined />,
       label: 'Quản lý ESP32',
-      roles: ['manager']
+      roles: ['manager'] // Only admin
     },
     {
       key: '/settings',
       icon: <SettingOutlined />,
       label: 'Cài đặt',
-      roles: ['manager']
+      roles: ['manager'] // Only admin
     }
   ];
 
-  // Show all menu items for demo
-  const filteredMenuItems = menuItems;
+  // Filter menu items based on user role
+  const filteredMenuItems = menuItems.filter(item => {
+    if (!user || !user.role) return false;
+    return item.roles.includes(user.role);
+  });
 
   const handleMenuClick = ({ key }) => {
     navigate(key);
   };
 
   const handleLogout = () => {
+    // Clear localStorage
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
     logout();
-    navigate('/login');
+    navigate('/');
+    // Reload page to clear state
+    window.location.href = '/';
   };
 
   const userMenu = (
@@ -177,11 +205,29 @@ const MainLayout = ({ children }) => {
               <Button type="text" icon={<BellOutlined />} />
             </Badge>
             
-            <Dropdown menu={{ items: userMenu }} trigger={['click']}>
+                        <Dropdown menu={{ 
+              items: [
+                {
+                  key: 'profile',
+                  icon: <UserOutlined />,
+                  label: 'Thông tin cá nhân',
+                  onClick: () => navigate('/profile')
+                },
+                {
+                  type: 'divider'
+                },
+                {
+                  key: 'logout',
+                  icon: <LogoutOutlined />,
+                  label: 'Đăng xuất',
+                  onClick: handleLogout
+                }
+              ]
+            }} trigger={['click']}>
               <Button type="text" style={{ height: 'auto', padding: '4px 8px' }}>
                 <Space>
                   <Avatar size="small" icon={<UserOutlined />} />
-                  <Text>{user?.email}</Text>
+                  <Text>{user?.name || user?.employee?.name || user?.email || user?.username || 'User'}</Text>
                 </Space>
               </Button>
             </Dropdown>
@@ -203,3 +249,7 @@ const MainLayout = ({ children }) => {
 };
 
 export default MainLayout;
+
+
+
+

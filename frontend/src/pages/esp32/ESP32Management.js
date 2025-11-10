@@ -25,13 +25,15 @@ import {
   ClockCircleOutlined
 } from '@ant-design/icons';
 import axios from 'axios';
+import { getESP32Url, getConfig, getAPIUrl } from '../../utils/configManager';
 
 const { Title } = Typography;
 
 const ESP32Management = () => {
+  const config = getConfig();
   const [esp32Status, setEsp32Status] = useState({
     connected: false,
-    ip: '192.168.2.52',
+    ip: config.esp32IP,
     lastSeen: null,
     enrolledFingerprints: 0,
     totalCapacity: 300
@@ -48,7 +50,8 @@ const ESP32Management = () => {
 
   const checkESP32Status = async () => {
     try {
-      const response = await axios.get(`http://${esp32Status.ip}/healthz`, {
+      const esp32Url = getESP32Url();
+      const response = await axios.get(`${esp32Url}/healthz`, {
         timeout: 5000
       });
       
@@ -74,8 +77,9 @@ const ESP32Management = () => {
       
       message.loading('Đang kết nối đến ESP32...', 2);
       
-      // Call ESP32 enroll endpoint
-      const response = await axios.get(`http://${esp32Status.ip}/enroll`, {
+      // Call ESP32 enroll endpoint via backend
+      const API_URL = getAPIUrl();
+      const response = await axios.get(`${API_URL}/enroll`, {
         params: { id: fingerprintId },
         timeout: 10000
       });
@@ -108,7 +112,8 @@ const ESP32Management = () => {
 
   const handleClearAll = async () => {
     try {
-      const response = await axios.get(`http://${esp32Status.ip}/wipe-all`, {
+      const esp32Url = getESP32Url();
+      const response = await axios.get(`${esp32Url}/wipe-all`, {
         timeout: 10000
       });
       

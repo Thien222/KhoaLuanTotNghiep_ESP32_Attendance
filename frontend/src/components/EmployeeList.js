@@ -18,6 +18,7 @@ import {
 import { Fingerprint, PersonOff } from '@mui/icons-material';
 import { employeeApi } from '../services/api';
 import { toast } from 'react-toastify';
+import { getConfig } from '../utils/configManager';
 
 const EmployeeList = ({ onRefresh }) => {
   const [employees, setEmployees] = useState([]);
@@ -49,8 +50,8 @@ const EmployeeList = ({ onRefresh }) => {
     try {
       setEnrolling(prev => ({ ...prev, [employee._id]: true }));
       
-      const esp32Ip = '192.168.2.52'; // You can make this configurable
-      const esp32Url = `http://${esp32Ip}/enroll?id=${employee.fingerprintId}`;
+      const config = getConfig();
+      const esp32Url = `http://${config.esp32IP}/enroll?id=${employee.fingerprintId}`;
       
       toast.info(`Enrolling fingerprint for ${employee.name}...`);
       

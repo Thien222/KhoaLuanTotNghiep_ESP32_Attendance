@@ -5,8 +5,9 @@ import { ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 
 import MainLayout from './components/Layout';
+import ProtectedRoute from './components/ProtectedRoute';
 import Dashboard from './pages/Dashboard';
-import TestPage from './pages/TestPage';
+import Login from './pages/auth/Login';
 import EmployeeManagement from './pages/employee/EmployeeManagement';
 import AttendanceManagement from './pages/attendance/AttendanceManagement';
 import LeaveManagement from './pages/leave/LeaveManagement';
@@ -15,6 +16,7 @@ import ReportsManagement from './pages/reports/ReportsManagement';
 import ChatBot from './pages/chatbot/ChatBot';
 import ESP32Management from './pages/esp32/ESP32Management';
 import SettingsManagement from './pages/settings/SettingsManagement';
+import Profile from './pages/profile/Profile';
 
 const App = () => {
   return (
@@ -31,79 +33,90 @@ const App = () => {
       <Router>
         <AntApp>
           <Routes>
-            {/* Redirect /login to / */}
-            <Route path="/login" element={
-              <MainLayout>
-                <TestPage />
-              </MainLayout>
-            } />
-            
-            <Route path="/" element={
-              <MainLayout>
-                <TestPage />
-              </MainLayout>
-            } />
+            {/* Login page without layout */}
+            <Route path="/login" element={<Login />} />
+            <Route path="/" element={<Login />} />
             
             <Route path="/dashboard" element={
               <MainLayout>
-                <Dashboard />
+                <ProtectedRoute allowedRoles={['manager']}>
+                  <Dashboard />
+                </ProtectedRoute>
               </MainLayout>
             } />
             
             <Route path="/attendance" element={
               <MainLayout>
-                <AttendanceManagement />
+                <ProtectedRoute allowedRoles={['manager']}>
+                  <AttendanceManagement />
+                </ProtectedRoute>
               </MainLayout>
             } />
             
             <Route path="/employees" element={
               <MainLayout>
-                <EmployeeManagement />
+                <ProtectedRoute allowedRoles={['manager']}>
+                  <EmployeeManagement />
+                </ProtectedRoute>
               </MainLayout>
             } />
             
             <Route path="/leave-requests" element={
               <MainLayout>
-                <LeaveManagement />
+                <ProtectedRoute allowedRoles={['employee', 'manager']}>
+                  <LeaveManagement />
+                </ProtectedRoute>
               </MainLayout>
             } />
             
             <Route path="/payroll" element={
               <MainLayout>
-                <PayrollManagement />
+                <ProtectedRoute allowedRoles={['employee', 'manager']}>
+                  <PayrollManagement />
+                </ProtectedRoute>
               </MainLayout>
             } />
             
             <Route path="/reports" element={
               <MainLayout>
-                <ReportsManagement />
+                <ProtectedRoute allowedRoles={['manager']}>
+                  <ReportsManagement />
+                </ProtectedRoute>
               </MainLayout>
             } />
             
             <Route path="/chatbot" element={
               <MainLayout>
-                <ChatBot />
+                <ProtectedRoute allowedRoles={['employee', 'manager']}>
+                  <ChatBot />
+                </ProtectedRoute>
               </MainLayout>
             } />
             
             <Route path="/esp32" element={
               <MainLayout>
-                <ESP32Management />
+                <ProtectedRoute allowedRoles={['manager']}>
+                  <ESP32Management />
+                </ProtectedRoute>
               </MainLayout>
             } />
             
             <Route path="/settings" element={
               <MainLayout>
-                <SettingsManagement />
+                <ProtectedRoute allowedRoles={['manager']}>
+                  <SettingsManagement />
+                </ProtectedRoute>
               </MainLayout>
             } />
             
-            {/* Catch all route */}
-            <Route path="*" element={
+            <Route path="/profile" element={
               <MainLayout>
-                <Dashboard />
+                <Profile />
               </MainLayout>
             } />
+            
+            {/* Catch all route - redirect to login */}
+            <Route path="*" element={<Login />} />
           </Routes>
           <ToastContainer position="bottom-right" />
         </AntApp>

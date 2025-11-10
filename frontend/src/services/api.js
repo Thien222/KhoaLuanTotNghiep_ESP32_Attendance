@@ -1,11 +1,15 @@
 import axios from 'axios';
+import { getAPIUrl, getESP32Url } from '../utils/configManager';
 
 // Backend running on port 3000
-export const API_URL = 'http://192.168.2.28:3000/api';
-export const ESP32_IP = '192.168.2.52';
+// Use dynamic config from localStorage
+export const API_URL = getAPIUrl();
+export const ESP32_IP = getESP32Url().replace('http://', '');
+
 console.log('=================================');
 console.log('🔍 API Configuration:');
 console.log('API_URL:', API_URL);
+console.log('ESP32_IP:', ESP32_IP);
 console.log('=================================');
 
 const api = axios.create({

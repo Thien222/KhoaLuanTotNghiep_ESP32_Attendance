@@ -158,7 +158,7 @@ const ReportsManagement = () => {
                 dataSource={reportData.topEmployees || []}
                 pagination={false}
                 size="small"
-                rowKey="employeeId"
+                rowKey="employeeName"
               />
             </Card>
           </Col>
@@ -180,3 +180,5 @@ const ReportsManagement = () => {
 };
 
 export default ReportsManagement;
+
+

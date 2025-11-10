@@ -52,6 +52,59 @@ const employeeSchema = new mongoose.Schema({
     type: String,
     enum: ['active', 'inactive'],
     default: 'active'
+  },
+  
+  // Contract & Salary Info
+  contractType: {
+    type: String,
+    enum: ['intern', 'probation', 'official'],
+    default: 'probation',
+    required: true
+  },
+  salary: {
+    type: Number,
+    required: true,
+    default: 0
+  },
+  
+  // Personal Info (to be completed by employee)
+  address: {
+    type: String,
+    trim: true
+  },
+  citizenId: {
+    type: String,
+    trim: true
+  },
+  socialInsuranceNumber: {
+    type: String,
+    trim: true
+  },
+  dateOfBirth: {
+    type: Date
+  },
+  gender: {
+    type: String,
+    enum: ['male', 'female', 'other']
+  },
+  bankAccount: {
+    bankName: String,
+    accountNumber: String,
+    accountName: String
+  },
+  profileCompleted: {
+    type: Boolean,
+    default: false
+  },
+  
+  // Leave Management
+  annualLeaveDays: {
+    type: Number,
+    default: 12  // 12 days per year
+  },
+  usedLeaveDays: {
+    type: Number,
+    default: 0
   }
 }, {
   timestamps: true

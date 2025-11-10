@@ -3,6 +3,7 @@ import { Form, Input, Button, Card, Typography, message, Divider } from 'antd';
 import { UserOutlined, LockOutlined, LoginOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
+import { getAPIUrl } from '../utils/configManager';
 
 const { Title, Text } = Typography;
 
@@ -14,7 +15,8 @@ const Login = () => {
   const onFinish = async (values) => {
     setLoading(true);
     try {
-      const response = await axios.post('http://localhost:3000/api/auth/login', {
+      const API_URL = getAPIUrl();
+      const response = await axios.post(`${API_URL}/auth/login`, {
         email: values.email,
         password: values.password
       });

@@ -4,7 +4,11 @@ const Employee = require('../models/Employee');
 
 // Generate JWT Token
 const generateToken = (userId) => {
-  return jwt.sign({ userId }, process.env.JWT_SECRET || 'your-secret-key', {
+  const JWT_SECRET = process.env.JWT_SECRET;
+  if (!JWT_SECRET) {
+    throw new Error('JWT_SECRET is not configured');
+  }
+  return jwt.sign({ userId }, JWT_SECRET, {
     expiresIn: '24h'
   });
 };
@@ -72,12 +76,29 @@ exports.login = async (req, res) => {
   try {
     const { email, password } = req.body;
 
-    // Find user by email
-    const user = await User.findOne({ email }).populate('employee');
+    console.log('🔐 Login attempt:', { email, hasPassword: !!password });
+
+    // Find user by email or username
+    const query = {
+      $or: [
+        { username: email }
+      ]
+    };
+    
+    // Only add email to query if email is provided and looks like email
+    if (email && email.includes('@')) {
+      query.$or.push({ email: email });
+    }
+    
+    console.log('🔍 Query:', JSON.stringify(query));
+    
+    const user = await User.findOne(query).populate('employee');
+    console.log('👤 User found:', user ? { id: user._id, username: user.username, email: user.email, role: user.role } : 'NOT FOUND');
+    
     if (!user) {
       return res.status(401).json({
         success: false,
-        message: 'Email hoặc mật khẩu không chính xác'
+        message: 'Email/Username hoặc mật khẩu không chính xác'
       });
     }
 
@@ -90,11 +111,14 @@ exports.login = async (req, res) => {
     }
 
     // Compare password
+    console.log('🔑 Comparing password...');
     const isPasswordValid = await user.comparePassword(password);
+    console.log('🔑 Password valid:', isPasswordValid);
+    
     if (!isPasswordValid) {
       return res.status(401).json({
         success: false,
-        message: 'Email hoặc mật khẩu không chính xác'
+        message: 'Email/Username hoặc mật khẩu không chính xác'
       });
     }
 
@@ -105,11 +129,17 @@ exports.login = async (req, res) => {
     // Generate token
     const token = generateToken(user._id);
 
+    console.log('✅ Login successful for:', user.username || user.email);
+
     res.json({
       success: true,
       message: 'Đăng nhập thành công',
       data: {
-        user: user.toJSON(),
+        user: {
+          ...user.toJSON(),
+          name: user.username || user.email,
+          email: user.email || `${user.username}@system.local`
+        },
         token
       }
     });
@@ -186,5 +216,6 @@ exports.changePassword = async (req, res) => {
     });
   }
 };
+
 
 

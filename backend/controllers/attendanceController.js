@@ -1,5 +1,10 @@
 const Attendance = require('../models/Attendance');
 const Employee = require('../models/Employee');
+const Holiday = require('../models/Holiday');
+const attendanceHelper = require('../utils/attendanceHelper');
+const moment = require('moment-timezone');
+
+moment.tz.setDefault('Asia/Ho_Chi_Minh');
 
 // Add manual attendance record
 exports.addAttendance = async (req, res) => {
@@ -63,8 +68,9 @@ exports.addAttendance = async (req, res) => {
     }
 
     const now = new Date(timestamp || new Date());
-    // Use UTC date for consistency with existing records
-    const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+    // Use UTC date for consistency with existing records (as seen in ESP32 response)
+    // This matches the format "2025-11-10T00:00:00.000Z"
+    const today = moment.utc(now).startOf('day').toDate();
 
     // Check if attendance record exists for today
     let attendance = await Attendance.findOne({
@@ -126,7 +132,20 @@ exports.addAttendance = async (req, res) => {
         });
       }
 
-      const checkInStatus = currentHour > WORK_START_HOUR ? 'late' : 'on-time';
+      // Get settings for late calculation
+      const settings = await attendanceHelper.getAllSettings();
+      const workingHours = settings['working-hours'] || { startTime: '08:00', endTime: '17:00' };
+      const latePolicy = settings['late-policy'] || { graceMinutes: 15, penaltyAfterGrace: 50000 };
+      
+      // Calculate late minutes and penalty
+      const lateMinutes = attendanceHelper.calculateLateMinutes(now, workingHours.startTime, latePolicy.graceMinutes);
+      const latePenalty = attendanceHelper.calculateLatePenalty(lateMinutes, latePolicy);
+      const checkInStatus = lateMinutes > 0 ? 'late' : 'on-time';
+      
+      // Check if today is a holiday
+      const holiday = await attendanceHelper.isHoliday(today);
+      const isHoliday = !!holiday;
+      const holidayRate = holiday ? holiday.workRate : 1.0;
       
       if (!attendance) {
         // Create new attendance record
@@ -138,7 +157,11 @@ exports.addAttendance = async (req, res) => {
             time: now,
             status: checkInStatus
           },
-          status: 'present'
+          status: 'present',
+          lateMinutes,
+          latePenalty,
+          isHoliday,
+          holidayRate
         });
       } else {
         // Update existing record
@@ -147,6 +170,10 @@ exports.addAttendance = async (req, res) => {
           status: checkInStatus
         };
         attendance.status = 'present';
+        attendance.lateMinutes = lateMinutes;
+        attendance.latePenalty = latePenalty;
+        attendance.isHoliday = isHoliday;
+        attendance.holidayRate = holidayRate;
       }
 
       await attendance.save();
@@ -385,23 +412,47 @@ exports.getAllAttendance = async (req, res) => {
   try {
     const { startDate, endDate, limit = 100 } = req.query;
     
+    console.log('getAllAttendance - Query params:', { startDate, endDate, limit });
+    
     const query = {};
     
     if (startDate && endDate) {
+      // Parse dates - Dates in DB are stored as UTC (e.g., "2025-11-10T00:00:00.000Z")
+      // Frontend sends "YYYY-MM-DD" format, convert to UTC date range
+      const start = moment.utc(startDate).startOf('day').toDate();
+      const end = moment.utc(endDate).endOf('day').toDate();
+      
       query.date = {
-        $gte: new Date(startDate),
-        $lte: new Date(endDate)
+        $gte: start,
+        $lte: end
       };
+      
+      console.log('getAllAttendance - Date range:', { 
+        startDate, 
+        endDate,
+        startUTC: start.toISOString(), 
+        endUTC: end.toISOString()
+      });
     }
 
     const attendance = await Attendance.find(query)
-      .populate('employee', 'name employeeId department')
+      .populate({
+        path: 'employee',
+        select: 'name employeeId department',
+        model: 'Employee'
+      })
       .sort({ date: -1, createdAt: -1 })
       .limit(parseInt(limit));
 
     console.log('getAllAttendance - Found records:', attendance.length);
-    console.log('getAllAttendance - First record:', attendance[0]);
-    console.log('getAllAttendance - First record employee:', attendance[0]?.employee);
+    if (attendance.length > 0) {
+      console.log('getAllAttendance - First record:', {
+        _id: attendance[0]._id,
+        date: attendance[0].date,
+        employee: attendance[0].employee?.name || 'NO EMPLOYEE',
+        checkIn: attendance[0].checkIn?.time
+      });
+    }
 
     res.status(200).json({
       success: true,
@@ -409,6 +460,7 @@ exports.getAllAttendance = async (req, res) => {
       count: attendance.length
     });
   } catch (error) {
+    console.error('getAllAttendance - Error:', error);
     res.status(500).json({
       success: false,
       message: 'Error fetching attendance records',

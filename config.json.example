@@ -1,0 +1,17 @@
+{
+  "server": {
+    "ip": "192.168.1.100",
+    "port": 3000
+  },
+  "esp32": {
+    "ip": "192.168.1.101"
+  },
+  "mongodb": {
+    "uri": "mongodb+srv://username:password@cluster.mongodb.net/database_name?retryWrites=true&w=majority&appName=Cluster0"
+  },
+  "jwt": {
+    "secret": "your_jwt_secret_key_here"
+  },
+  "environment": "development"
+}
+

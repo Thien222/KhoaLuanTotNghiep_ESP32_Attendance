@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { 
   Card, 
   Typography, 
@@ -8,13 +8,14 @@ import {
   Switch, 
   Select,
   message,
-  Divider
+  Tabs
 } from 'antd';
 import { 
   SettingOutlined, 
-  SaveOutlined 
+  SaveOutlined,
+  GlobalOutlined
 } from '@ant-design/icons';
-import axios from 'axios';
+import IPConfiguration from './IPConfiguration';
 
 const { Title } = Typography;
 const { Option } = Select;
@@ -23,11 +24,7 @@ const SettingsManagement = () => {
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
 
-  useEffect(() => {
-    fetchSettings();
-  }, []);
-
-  const fetchSettings = async () => {
+  const fetchSettings = useCallback(async () => {
     try {
       // Mock settings data
       const mockSettings = {
@@ -47,7 +44,11 @@ const SettingsManagement = () => {
     } catch (error) {
       console.error('Error fetching settings:', error);
     }
-  };
+  }, [form]);
+
+  useEffect(() => {
+    fetchSettings();
+  }, [fetchSettings]);
 
   const handleSave = async (values) => {
     setLoading(true);
@@ -71,7 +72,19 @@ const SettingsManagement = () => {
           </Title>
         </div>
 
-        <Form
+        <Tabs 
+          defaultActiveKey="ip-config"
+          items={[
+            {
+              key: 'ip-config',
+              label: <span><GlobalOutlined /> Cấu hình IP & Kết nối</span>,
+              children: <IPConfiguration />
+            },
+            {
+              key: 'system-settings',
+              label: <span><SettingOutlined /> Cài đặt hệ thống</span>,
+              children: (
+            <Form
           form={form}
           layout="vertical"
           onFinish={handleSave}
@@ -185,9 +198,16 @@ const SettingsManagement = () => {
             </Button>
           </Form.Item>
         </Form>
+              )
+            }
+          ]}
+        />
       </Card>
     </div>
   );
 };
 
 export default SettingsManagement;
+
+
+

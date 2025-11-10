@@ -6,15 +6,17 @@ import {
   Modal, 
   Form, 
   Input, 
+  InputNumber,
   Select, 
-  message, 
   Popconfirm,
   Typography,
   Card,
   Tag,
   Row,
   Col,
-  Statistic
+  Statistic,
+  App,
+  Tooltip
 } from 'antd';
 import { 
   PlusOutlined, 
@@ -26,12 +28,13 @@ import {
   CloseCircleOutlined
 } from '@ant-design/icons';
 import axios from 'axios';
-import { API_URL } from '../../services/api';
+import { getAPIUrl, getConfig } from '../../utils/configManager';
 
 const { Title } = Typography;
 const { Option } = Select;
 
 const EmployeeManagement = () => {
+  const { message } = App.useApp();
   const [employees, setEmployees] = useState([]);
   const [loading, setLoading] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
@@ -47,7 +50,8 @@ const EmployeeManagement = () => {
     setLoading(true);
     try {
       // Call real API from backend
-      const response = await axios.get(`http://192.168.2.28:3000/api/debug/employees`);
+      const API_URL = getAPIUrl();
+      const response = await axios.get(`${API_URL}/debug/employees`);
       if (response.data.success) {
         setEmployees(response.data.data);
       } else {
@@ -77,42 +81,95 @@ const EmployeeManagement = () => {
 
   const handleDelete = async (id) => {
     try {
-      // Mock delete
-      setEmployees(prev => prev.filter(emp => emp._id !== id));
-      message.success('Xóa nhân viên thành công');
+      console.log('🗑️ Deleting employee:', id);
+      
+      // Call API to delete employee
+      const API_URL = getAPIUrl();
+      const response = await axios.delete(`${API_URL}/debug/employees/${id}`);
+      
+      if (response.data.success) {
+        // Remove from local state
+        setEmployees(prev => prev.filter(emp => emp._id !== id));
+        message.success('Xóa nhân viên thành công');
+        
+        // Refresh list to ensure consistency
+        setTimeout(() => {
+          fetchEmployees();
+        }, 500);
+      } else {
+        message.error(response.data.message || 'Lỗi khi xóa nhân viên');
+      }
     } catch (error) {
-      message.error('Lỗi khi xóa nhân viên');
+      console.error('❌ Error deleting employee:', error);
+      const errorMessage = error.response?.data?.message || error.message || 'Lỗi khi xóa nhân viên';
+      message.error(errorMessage);
     }
   };
 
   const handleSubmit = async (values) => {
     try {
+      const API_URL = getAPIUrl();
+      
       if (editingEmployee) {
-        // TODO: Implement update API
-        message.success('Cập nhật nhân viên thành công');
+        // Update employee
+        const response = await axios.put(`${API_URL}/employees/${editingEmployee._id}`, {
+          name: values.name,
+          position: values.position,
+          department: values.department,
+          email: values.email,
+          phone: values.phone,
+          contractType: values.contractType,
+          salary: values.salary,
+          status: values.status || 'active'
+        }, {
+          headers: {
+            Authorization: `Bearer ${localStorage.getItem('token')}`
+          }
+        });
+        
+        if (response.data.success) {
+          message.success('Cập nhật nhân viên thành công');
+          // Refresh employee list
+          fetchEmployees();
+          setModalVisible(false);
+          form.resetFields();
+        } else {
+          message.error(response.data.message || 'Lỗi khi cập nhật nhân viên');
+        }
       } else {
         // Call real API to add employee
-        const response = await axios.post(`http://192.168.2.28:3000/api/debug/employees`, {
-          ...values,
-          fingerprintId: employees.length + 1,
-          fingerprintEnrolled: false
+        console.log('📤 Sending employee data:', values);
+        const API_URL = getAPIUrl();
+        const response = await axios.post(`${API_URL}/debug/employees`, {
+          name: values.name,
+          position: values.position,
+          department: values.department,
+          email: values.email,
+          phone: values.phone,
+          contractType: values.contractType || 'probation',
+          salary: values.salary || 0,
+          status: values.status || 'active'
         });
+        
+        console.log('✅ Response:', response.data);
         
         if (response.data.success) {
           const newEmployee = response.data.data;
           setEmployees(prev => [...prev, newEmployee]);
-          message.success('Thêm nhân viên thành công');
+          message.success('Thêm nhân viên thành công!');
           
           // Don't auto enroll - let user do it manually
           message.info('Nhân viên đã được thêm. Vui lòng click "Đăng ký vân tay" để đăng ký vân tay cho nhân viên này.');
+          form.resetFields();
         } else {
           message.error(response.data.message || 'Lỗi khi thêm nhân viên');
         }
       }
       setModalVisible(false);
     } catch (error) {
-      console.error('Error saving employee:', error);
-      message.error('Lỗi khi lưu nhân viên');
+      console.error('❌ Error saving employee:', error);
+      const errorMessage = error.response?.data?.message || error.message || 'Lỗi khi lưu nhân viên';
+      message.error(errorMessage);
     }
   };
 
@@ -122,7 +179,8 @@ const EmployeeManagement = () => {
       message.loading('Đang gửi lệnh đăng ký vân tay đến ESP32...', 3);
       
       // Call backend API to forward to ESP32
-      const response = await axios.get(`http://192.168.2.28:3000/api/enroll`, {
+      const API_URL = getAPIUrl();
+      const response = await axios.get(`${API_URL}/enroll`, {
         params: { id: employee.fingerprintId }
       });
       
@@ -198,9 +256,40 @@ const EmployeeManagement = () => {
       key: 'department',
     },
     {
+      title: 'Loại HĐ',
+      dataIndex: 'contractType',
+      key: 'contractType',
+      render: (type) => {
+        const colors = { intern: 'blue', probation: 'orange', official: 'green' };
+        const labels = { intern: 'Thực tập', probation: 'Thử việc', official: 'Chính thức' };
+        return <Tag color={colors[type] || 'default'}>{labels[type] || type}</Tag>;
+      },
+    },
+    {
+      title: 'Lương',
+      dataIndex: 'salary',
+      key: 'salary',
+      render: (salary) => new Intl.NumberFormat('vi-VN', { 
+        style: 'currency', 
+        currency: 'VND' 
+      }).format(salary || 0),
+    },
+    {
       title: 'Email',
       dataIndex: 'email',
       key: 'email',
+    },
+    {
+      title: 'Hồ sơ',
+      dataIndex: 'profileCompleted',
+      key: 'profileCompleted',
+      render: (completed) => (
+        <Tooltip title={completed ? 'Đã hoàn thiện' : 'Chưa hoàn thiện hồ sơ'}>
+          <Tag color={completed ? 'green' : 'red'}>
+            {completed ? '✓ Đầy đủ' : '✗ Chưa đủ'}
+          </Tag>
+        </Tooltip>
+      ),
     },
     {
       title: 'Vân tay',
@@ -414,6 +503,33 @@ const EmployeeManagement = () => {
           </Form.Item>
 
           <Form.Item
+            name="contractType"
+            label="Loại hợp đồng"
+            rules={[{ required: true, message: 'Vui lòng chọn loại hợp đồng' }]}
+            initialValue="probation"
+          >
+            <Select>
+              <Option value="intern">Thực tập</Option>
+              <Option value="probation">Thử việc</Option>
+              <Option value="official">Chính thức</Option>
+            </Select>
+          </Form.Item>
+
+          <Form.Item
+            name="salary"
+            label="Lương cơ bản (VND)"
+            rules={[{ required: true, message: 'Vui lòng nhập lương' }]}
+          >
+            <InputNumber
+              style={{ width: '100%' }}
+              formatter={value => `${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
+              parser={value => value.replace(/\$\s?|(,*)/g, '')}
+              min={0}
+              placeholder="Ví dụ: 10000000"
+            />
+          </Form.Item>
+
+          <Form.Item
             name="status"
             label="Trạng thái"
             initialValue="active"
@@ -441,3 +557,4 @@ const EmployeeManagement = () => {
 };
 
 export default EmployeeManagement;
+
