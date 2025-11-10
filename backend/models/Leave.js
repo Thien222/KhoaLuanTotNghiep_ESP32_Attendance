@@ -68,3 +68,4 @@ leaveSchema.index({ startDate: 1, endDate: 1 });
 
 module.exports = mongoose.model('Leave', leaveSchema);
 
+

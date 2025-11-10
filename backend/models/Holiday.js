@@ -56,3 +56,4 @@ holidaySchema.statics.isHoliday = async function(date) {
 module.exports = mongoose.model('Holiday', holidaySchema);
 
 
+
