@@ -7,10 +7,10 @@
     "ip": "192.168.1.101"
   },
   "mongodb": {
-    "uri": "mongodb+srv://username:password@cluster.mongodb.net/database_name?retryWrites=true&w=majority&appName=Cluster0"
+    "uri": "YOUR_MONGODB_CONNECTION_STRING_HERE"
   },
   "jwt": {
-    "secret": "your_jwt_secret_key_here"
+    "secret": "YOUR_JWT_SECRET_KEY_HERE"
   },
   "environment": "development"
 }
