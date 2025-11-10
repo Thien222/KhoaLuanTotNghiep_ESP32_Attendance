@@ -6,4 +6,17 @@ import { getAPIUrl, getESP32Url } from '../utils/configManager';
 export const API_URL = getAPIUrl();
 export const ESP32_IP = getESP32Url().replace('http://', '');
 
-console.log('
+// Chat API
+export const chatApi = {
+  send: async (message) => {
+    const token = localStorage.getItem('token');
+    const response = await axios.post(`${API_URL}/chat/message`, {
+      message
+    }, {
+      headers: {
+        Authorization: `Bearer ${token}`
+      }
+    });
+    return response.data;
+  }
+};
