@@ -355,4 +355,3 @@ exports.getEmployeeLeaveBalance = async (req, res) => {
     });
   }
 };
-
