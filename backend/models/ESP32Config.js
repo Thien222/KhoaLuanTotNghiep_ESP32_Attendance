@@ -32,4 +32,3 @@ module.exports = mongoose.model('ESP32Config', esp32ConfigSchema);
 
 
 
-

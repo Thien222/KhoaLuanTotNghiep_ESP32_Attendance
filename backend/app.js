@@ -1,3 +1,4 @@
+
 // Load environment variables
 require('dotenv').config({ path: './config.env' });
 require('dotenv').config({ path: './.env' }); // Also try .env for compatibility
@@ -1221,3 +1222,5 @@ app.listen(PORT, '0.0.0.0', () => {
   const serverIP = process.env.IP_MACHINE || 'localhost';
   console.log(`Server accessible at: http://${serverIP}:${PORT}`);
 });
+
+
