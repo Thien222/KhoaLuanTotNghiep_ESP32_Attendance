@@ -52,20 +52,55 @@ settingsSchema.statics.getDefaultSettings = function() {
       bufferMinutes: 30 // Allow check-in 30 minutes before working hours start time
     },
     'salary-structure': {
-      positions: {
-        'Intern': { basicSalary: 3000000, overtimeMultiplier: 1.0 },
-        'Junior': { basicSalary: 8000000, overtimeMultiplier: 1.2 },
-        'Mid-Level': { basicSalary: 15000000, overtimeMultiplier: 1.3 },
-        'Senior': { basicSalary: 25000000, overtimeMultiplier: 1.5 },
-        'Team Lead': { basicSalary: 35000000, overtimeMultiplier: 1.5 },
-        'Manager': { basicSalary: 50000000, overtimeMultiplier: 1.8 },
-        'Director': { basicSalary: 80000000, overtimeMultiplier: 2.0 }
+      // Lương cơ bản theo chức vụ
+      positionBaseSalary: {
+        'Intern': 3000000,
+        'Junior': 8000000,
+        'Mid-Level': 15000000,
+        'Senior': 25000000,
+        'Team Lead': 35000000,
+        'Manager': 50000000,
+        'Director': 80000000
+      },
+      // Hệ số OT theo chức vụ
+      positionOvertimeMultiplier: {
+        'Intern': 1.0,
+        'Junior': 1.2,
+        'Mid-Level': 1.3,
+        'Senior': 1.5,
+        'Team Lead': 1.5,
+        'Manager': 1.8,
+        'Director': 2.0
+      },
+      // Phụ cấp thâm niên
+      seniorityPolicy: {
+        percentPerYear: 2,      // 2% mỗi năm
+        maxPercent: 20         // Tối đa 20%
+      },
+      // Phụ cấp chức vụ (% của lương cơ bản)
+      positionAllowance: {
+        'Intern': 0,
+        'Junior': 0,
+        'Mid-Level': 5,
+        'Senior': 10,
+        'Team Lead': 15,
+        'Manager': 20,
+        'Director': 30
+      },
+      // Hệ số theo loại hợp đồng
+      contractMultiplier: {
+        'intern': 0.8,
+        'probation': 0.85,
+        'official': 1.0
       }
     }
   };
 };
 
 module.exports = mongoose.model('Settings', settingsSchema);
+
+
+
 
 
 

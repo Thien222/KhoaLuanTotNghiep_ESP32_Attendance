@@ -27,11 +27,14 @@ import {
   CheckCircleOutlined,
   CloseCircleOutlined,
   CalendarOutlined,
-  InfoCircleOutlined
+  InfoCircleOutlined,
+  UnorderedListOutlined,
+  AppstoreOutlined
 } from '@ant-design/icons';
 import axios from 'axios';
 import moment from 'moment';
 import { getAPIUrl } from '../../utils/configManager';
+import LeaveCalendar from '../../components/LeaveCalendar';
 
 const { Title, Text } = Typography;
 const { RangePicker } = DatePicker;
@@ -53,6 +56,7 @@ const LeaveManagement = () => {
   const [reviewForm] = Form.useForm();
   const [userRole, setUserRole] = useState(null);
   const [lastFetchedLeaves, setLastFetchedLeaves] = useState([]);
+  const [viewMode, setViewMode] = useState('list'); // 'list' or 'calendar'
 
   useEffect(() => {
     // Get user role from localStorage
@@ -633,43 +637,83 @@ const LeaveManagement = () => {
           </>
         )}
 
-        <div style={{ marginBottom: 16, display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap' }}>
-          {/* Only show "Xin nghỉ phép" button for employees */}
-          {(userRole === 'employee') && (
-            <Tooltip title={isQuotaExhausted ? 'Bạn đã hết ngày nghỉ phép' : 'Gửi yêu cầu nghỉ phép'}>
+        <div style={{ marginBottom: 16, display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'space-between' }}>
+          <Space size="middle" wrap>
+            {/* Only show "Xin nghỉ phép" button for employees */}
+            {(userRole === 'employee') && (
+              <Tooltip title={isQuotaExhausted ? 'Bạn đã hết ngày nghỉ phép' : 'Gửi yêu cầu nghỉ phép'}>
+                <Button 
+                  type="primary" 
+                  icon={<PlusOutlined />}
+                  onClick={handleAdd}
+                  disabled={isQuotaExhausted}
+                >
+                  Xin nghỉ phép
+                </Button>
+              </Tooltip>
+            )}
+            <Button 
+              icon={<CalendarOutlined />}
+              onClick={() => setHolidayModalVisible(true)}
+            >
+              Xem lịch nghỉ lễ ({holidays.length})
+            </Button>
+            <Button onClick={fetchLeaves}>
+              Tải lại
+            </Button>
+          </Space>
+          
+          {/* View Mode Toggle */}
+          <Space>
+            <Button.Group>
               <Button 
-                type="primary" 
-                icon={<PlusOutlined />}
-                onClick={handleAdd}
-                disabled={isQuotaExhausted}
+                type={viewMode === 'list' ? 'primary' : 'default'}
+                icon={<UnorderedListOutlined />}
+                onClick={() => setViewMode('list')}
               >
-                Xin nghỉ phép
+                Danh sách
               </Button>
-            </Tooltip>
-          )}
-          <Button 
-            icon={<CalendarOutlined />}
-            onClick={() => setHolidayModalVisible(true)}
-          >
-            Xem lịch nghỉ lễ ({holidays.length})
-          </Button>
-          <Button onClick={fetchLeaves}>
-            Tải lại
-          </Button>
+              <Button 
+                type={viewMode === 'calendar' ? 'primary' : 'default'}
+                icon={<AppstoreOutlined />}
+                onClick={() => setViewMode('calendar')}
+              >
+                Lịch
+              </Button>
+            </Button.Group>
+          </Space>
         </div>
 
-        <Table
-          columns={columns}
-          dataSource={leaves}
-          loading={loading}
-          rowKey="_id"
-          pagination={{
-            pageSize: 10,
-            showSizeChanger: true,
-            showQuickJumper: true,
-            showTotal: (total) => `Tổng ${total} yêu cầu`
-          }}
-        />
+        {/* Conditional Rendering: List or Calendar View */}
+        {viewMode === 'list' ? (
+          <Table
+            columns={columns}
+            dataSource={leaves}
+            loading={loading}
+            rowKey="_id"
+            pagination={{
+              pageSize: 10,
+              showSizeChanger: true,
+              showQuickJumper: true,
+              showTotal: (total) => `Tổng ${total} yêu cầu`
+            }}
+          />
+        ) : (
+          <LeaveCalendar
+            leaves={leaves}
+            userRole={userRole}
+            holidays={holidays}
+            onEventClick={(leave) => {
+              // If admin/manager and leave is pending, show review options
+              if ((userRole === 'manager' || userRole === 'admin') && leave.status === 'pending') {
+                // Could open review modal here if needed
+              } else if (userRole === 'employee' && leave.status === 'pending') {
+                // Could open edit modal here if needed
+                handleEdit(leave);
+              }
+            }}
+          />
+        )}
       </Card>
 
       {/* Leave Request Modal */}

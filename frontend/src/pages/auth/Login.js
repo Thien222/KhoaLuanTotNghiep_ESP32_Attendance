@@ -39,12 +39,20 @@ const Login = () => {
         
         message.success('Đăng nhập thành công!');
         
-        // Redirect based on role
+        // Redirect based on role and profile completion
         const userRole = response.data.data.user.role;
+        const profileCompleted = response.data.data.user.profileCompleted;
+        
         if (userRole === 'manager') {
           navigate('/dashboard');
         } else if (userRole === 'employee') {
-          navigate('/leave-requests'); // User chỉ có thể truy cập nghỉ phép, bảng lương, chatbot
+          // Check if profile is completed
+          if (!profileCompleted) {
+            message.warning('Vui lòng hoàn thiện thông tin cá nhân trước khi sử dụng hệ thống');
+            navigate('/complete-profile');
+          } else {
+            navigate('/leave-requests');
+          }
         } else {
           navigate('/payroll');
         }

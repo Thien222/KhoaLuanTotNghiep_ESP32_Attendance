@@ -770,12 +770,61 @@ app.delete('/api/security/clear-unenrolled-attendance', async (req, res) => {
   }
 });
 
+// Debug: Fix salary for employee (temporary endpoint)
+app.post('/api/debug/fix-salary/:employeeId', async (req, res) => {
+  try {
+    const Employee = require('./models/Employee');
+    const { employeeId } = req.params;
+    const { salary } = req.body;
+    
+    if (!salary || isNaN(Number(salary))) {
+      return res.status(400).json({
+        success: false,
+        message: 'Lương không hợp lệ'
+      });
+    }
+    
+    const parsedSalary = Number(salary);
+    const employee = await Employee.findOne({ employeeId });
+    
+    if (!employee) {
+      return res.status(404).json({
+        success: false,
+        message: 'Không tìm thấy nhân viên'
+      });
+    }
+    
+    employee.salary = parsedSalary;
+    employee.baseSalary = parsedSalary;
+    await employee.save();
+    
+    res.json({
+      success: true,
+      message: `Đã cập nhật lương cho ${employee.name} thành ${parsedSalary.toLocaleString('vi-VN')} VND`,
+      data: employee
+    });
+  } catch (error) {
+    console.error('Error fixing salary:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Lỗi khi cập nhật lương',
+      error: error.message
+    });
+  }
+});
+
 // Debug: Get all employees with fingerprint info
 app.get('/api/debug/employees', async (req, res) => {
   try {
     const Employee = require('./models/Employee');
-    const employees = await Employee.find({}, 'name employeeId fingerprintId fingerprintEnrolled position department email phone status');
-    console.log('All employees:', employees);
+    // Include baseSalary in the select to ensure it's returned
+    const employees = await Employee.find({}, 'name employeeId fingerprintId fingerprintEnrolled position department email phone status contractType salary baseSalary profileCompleted');
+    console.log('All employees:', employees.map(emp => ({ 
+      name: emp.name, 
+      employeeId: emp.employeeId, 
+      salary: emp.salary, 
+      baseSalary: emp.baseSalary 
+    })));
     res.json({
       success: true,
       data: employees
@@ -878,7 +927,7 @@ app.post('/api/debug/employees', async (req, res) => {
   try {
     const Employee = require('./models/Employee');
     const User = require('./models/User');
-    const { name, position, department, email, phone, fingerprintId, status } = req.body;
+    const { name, position, department, email, phone, fingerprintId, contractType, salary: salaryRaw } = req.body;
     
     console.log('📝 Creating employee with data:', req.body);
     
@@ -1036,6 +1085,20 @@ app.post('/api/debug/employees', async (req, res) => {
       });
     }
     
+    // Parse salary to number - handle both string and number input
+    let parsedSalary = 0;
+    if (salaryRaw !== undefined && salaryRaw !== null && salaryRaw !== '') {
+      parsedSalary = Number(salaryRaw);
+      if (isNaN(parsedSalary) || parsedSalary < 0) {
+        return res.status(400).json({
+          success: false,
+          message: 'Lương không hợp lệ. Vui lòng nhập số dương.'
+        });
+      }
+    }
+    
+    console.log('💰 Salary parsing:', { raw: salaryRaw, parsed: parsedSalary });
+    
     const newEmployee = new Employee({
       name,
       position,
@@ -1045,7 +1108,10 @@ app.post('/api/debug/employees', async (req, res) => {
       employeeId,
       fingerprintId: finalFingerprintId,
       fingerprintEnrolled: false,
-      status: status || 'active'
+      contractType: contractType || 'probation',
+      salary: parsedSalary,
+      baseSalary: parsedSalary, // Set baseSalary explicitly to ensure it's saved
+      status: 'active' // Always set to active by default
     });
     
     console.log('💾 Saving employee:', newEmployee);

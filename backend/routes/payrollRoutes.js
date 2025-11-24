@@ -25,12 +25,13 @@ const router = express.Router();
 const payrollController = require('../controllers/payrollController');
 // LƯU Ý: đường dẫn này phải giống hệt các route khác (attendance, leave, ...)
 const { protect, restrictTo } = require('../middleware/authMiddleware');
+const { checkProfileCompleted } = require('../middleware/profileCheckMiddleware');
 
 // ================== ROUTES ==================
 
 // FE gọi: GET /api/payroll?month=11&year=2025
 // -> listMonthly trong controller
-router.get('/', protect, payrollController.listMonthly);
+router.get('/', protect, checkProfileCompleted, payrollController.listMonthly);
 
 // FE gọi: POST /api/payroll/calculate { month, year }
 // -> tính lương (tạm thời chỉ return success) rồi FE tự gọi lại GET ở trên
@@ -51,3 +52,10 @@ router.post(
 );
 
 module.exports = router;
+
+
+
+
+
+
+

@@ -8,13 +8,20 @@ const {
   deleteEmployee,
   enrollFingerprint,
   completeProfile,
-  getEmployeeLeaveBalance
+  getEmployeeLeaveBalance,
+  getMyProfile,
+  updateMyProfile
 } = require('../controllers/employeeController');
-const { protect } = require('../middleware/authMiddleware');
+const { protect, authenticate } = require('../middleware/authMiddleware');
 
 router.post('/', addEmployee);
 router.get('/', getAllEmployees);
 router.post('/enroll-fingerprint', enrollFingerprint);
+
+// Routes cho nhân viên tự cập nhật profile (phải đặt trước /:id)
+router.get('/profile/me', authenticate, getMyProfile);
+router.put('/profile/me', authenticate, updateMyProfile);
+router.post('/profile/complete', authenticate, completeProfile);
 
 // Specific routes must come before /:id route to avoid conflicts
 router.post('/:employeeId/complete-profile', protect, completeProfile);

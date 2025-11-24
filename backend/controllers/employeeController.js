@@ -1,4 +1,5 @@
 const Employee = require('../models/Employee');
+const User = require('../models/User');
 
 // Get next employee ID
 const getNextEmployeeId = async () => {
@@ -34,7 +35,7 @@ exports.addEmployee = async (req, res) => {
   try {
     console.log('Received request body:', req.body);
     
-    const { name, position, department, email, phone, contractType, salary } = req.body;
+    const { name, position, department, email, phone, contractType, salary: salaryRaw } = req.body;
 
     // Validate required fields
     if (!name) {
@@ -61,6 +62,15 @@ exports.addEmployee = async (req, res) => {
       });
       
       try {
+        // Parse salary to number
+        let parsedSalary = 0;
+        if (salaryRaw !== undefined && salaryRaw !== null && salaryRaw !== '') {
+          parsedSalary = Number(salaryRaw);
+          if (isNaN(parsedSalary)) {
+            parsedSalary = 0;
+          }
+        }
+        
         // Create new employee
         const employee = new Employee({
           name,
@@ -73,7 +83,8 @@ exports.addEmployee = async (req, res) => {
           email: generatedEmail,
           phone: phone || '0123456789',
           contractType: contractType || 'probation',
-          salary: salary || 0,
+          salary: parsedSalary,
+          baseSalary: parsedSalary, // Set baseSalary explicitly
           profileCompleted: false
         });
 
@@ -174,9 +185,24 @@ exports.getEmployeeById = async (req, res) => {
 // Update employee
 exports.updateEmployee = async (req, res) => {
   try {
+    // Parse salary if provided
+    const updateData = { ...req.body };
+    if (updateData.salary !== undefined && updateData.salary !== null && updateData.salary !== '') {
+      const parsedSalary = Number(updateData.salary);
+      if (!isNaN(parsedSalary) && parsedSalary >= 0) {
+        updateData.salary = parsedSalary;
+        updateData.baseSalary = parsedSalary; // Update baseSalary when salary changes
+      } else {
+        return res.status(400).json({
+          success: false,
+          message: 'Lương không hợp lệ. Vui lòng nhập số dương.'
+        });
+      }
+    }
+    
     const employee = await Employee.findByIdAndUpdate(
       req.params.id,
-      req.body,
+      updateData,
       { new: true, runValidators: true }
     );
     if (!employee) {
@@ -303,9 +329,47 @@ exports.completeProfile = async (req, res) => {
     if (gender) employee.gender = gender;
     if (bankAccount) employee.bankAccount = bankAccount;
 
+    // Kiểm tra đã enroll vân tay chưa
+    if (!employee.fingerprintEnrolled) {
+      return res.status(400).json({
+        success: false,
+        message: 'Vui lòng đăng ký vân tay trước khi hoàn thiện thông tin'
+      });
+    }
+
+    // Validate các field bắt buộc
+    const requiredFields = {
+      address: 'Địa chỉ',
+      citizenId: 'Số CMND/CCCD',
+      dateOfBirth: 'Ngày sinh',
+      gender: 'Giới tính',
+      bankAccount: 'Thông tin tài khoản ngân hàng',
+      socialInsuranceNumber: 'Số BHXH'
+    };
+
+    const missingFields = [];
+    for (const [field, label] of Object.entries(requiredFields)) {
+      if (field === 'bankAccount') {
+        if (!bankAccount || !bankAccount.bankName || !bankAccount.accountNumber || !bankAccount.accountName) {
+          missingFields.push(label);
+        }
+      } else if (!req.body[field] && !employee[field]) {
+        missingFields.push(label);
+      }
+    }
+
+    if (missingFields.length > 0) {
+      return res.status(400).json({
+        success: false,
+        message: `Vui lòng điền đầy đủ thông tin: ${missingFields.join(', ')}`
+      });
+    }
+
     // Mark profile as completed
     employee.profileCompleted = true;
-
+    employee.profileCompletedAt = new Date();
+    
+    // Save the employee
     await employee.save();
 
     res.status(200).json({
@@ -351,6 +415,109 @@ exports.getEmployeeLeaveBalance = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Error getting leave balance',
+      error: error.message
+    });
+  }
+};
+
+/**
+ * Lấy thông tin profile của chính mình
+ */
+exports.getMyProfile = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const user = await User.findById(userId).populate('employee');
+    
+    if (!user || !user.employee) {
+      return res.status(404).json({
+        success: false,
+        message: 'Không tìm thấy thông tin nhân viên'
+      });
+    }
+    
+    const employee = await Employee.findById(user.employee._id || user.employee).select('-fingerprintTemplate');
+    
+    res.json({
+      success: true,
+      data: {
+        employee: employee,
+        profileCompleted: employee.profileCompleted,
+        fingerprintEnrolled: employee.fingerprintEnrolled
+      }
+    });
+  } catch (error) {
+    console.error('Get my profile error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Lỗi khi lấy thông tin profile',
+      error: error.message
+    });
+  }
+};
+
+/**
+ * Nhân viên tự cập nhật thông tin cá nhân
+ */
+exports.updateMyProfile = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const user = await User.findById(userId).populate('employee');
+    
+    if (!user || !user.employee) {
+      return res.status(404).json({
+        success: false,
+        message: 'Không tìm thấy thông tin nhân viên'
+      });
+    }
+    
+    const employeeId = user.employee._id || user.employee;
+    
+    // Chỉ cho phép cập nhật các field cá nhân
+    const allowedFields = [
+      'address',
+      'citizenId',
+      'dateOfBirth',
+      'gender',
+      'bankAccount',
+      'socialInsuranceNumber',
+      'phone' // Cho phép cập nhật số điện thoại
+    ];
+    
+    const updateData = {};
+    allowedFields.forEach(field => {
+      if (req.body[field] !== undefined) {
+        updateData[field] = req.body[field];
+      }
+    });
+    
+    // Nếu có bankAccount, validate
+    if (updateData.bankAccount) {
+      if (!updateData.bankAccount.bankName || 
+          !updateData.bankAccount.accountNumber || 
+          !updateData.bankAccount.accountName) {
+        return res.status(400).json({
+          success: false,
+          message: 'Thông tin tài khoản ngân hàng không đầy đủ'
+        });
+      }
+    }
+    
+    const employee = await Employee.findByIdAndUpdate(
+      employeeId,
+      updateData,
+      { new: true, runValidators: true }
+    ).select('-fingerprintTemplate');
+    
+    res.json({
+      success: true,
+      message: 'Cập nhật thông tin thành công',
+      data: employee
+    });
+  } catch (error) {
+    console.error('Update my profile error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Lỗi khi cập nhật thông tin',
       error: error.message
     });
   }

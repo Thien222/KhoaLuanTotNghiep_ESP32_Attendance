@@ -17,6 +17,7 @@ import ChatBot from './pages/chatbot/ChatBot';
 import ESP32Management from './pages/esp32/ESP32Management';
 import SettingsManagement from './pages/settings/SettingsManagement';
 import Profile from './pages/profile/Profile';
+import CompleteProfile from './pages/profile/CompleteProfile';
 
 const App = () => {
   return (
@@ -63,7 +64,7 @@ const App = () => {
             
             <Route path="/leave-requests" element={
               <MainLayout>
-                <ProtectedRoute allowedRoles={['employee', 'manager']}>
+                <ProtectedRoute allowedRoles={['employee', 'manager']} requireProfileComplete={true}>
                   <LeaveManagement />
                 </ProtectedRoute>
               </MainLayout>
@@ -71,7 +72,7 @@ const App = () => {
             
             <Route path="/payroll" element={
               <MainLayout>
-                <ProtectedRoute allowedRoles={['employee', 'manager']}>
+                <ProtectedRoute allowedRoles={['employee', 'manager']} requireProfileComplete={true}>
                   <PayrollManagement />
                 </ProtectedRoute>
               </MainLayout>
@@ -87,7 +88,7 @@ const App = () => {
             
             <Route path="/chatbot" element={
               <MainLayout>
-                <ProtectedRoute allowedRoles={['employee', 'manager']}>
+                <ProtectedRoute allowedRoles={['employee', 'manager']} requireProfileComplete={true}>
                   <ChatBot />
                 </ProtectedRoute>
               </MainLayout>
@@ -112,6 +113,14 @@ const App = () => {
             <Route path="/profile" element={
               <MainLayout>
                 <Profile />
+              </MainLayout>
+            } />
+            
+            <Route path="/complete-profile" element={
+              <MainLayout>
+                <ProtectedRoute>
+                  <CompleteProfile />
+                </ProtectedRoute>
               </MainLayout>
             } />
             

@@ -110,6 +110,97 @@ exports.getDashboardStats = async (req, res) => {
       createdAt: { $gte: startOfWeek, $lte: endOfWeek }
     });
     
+    // Get detailed leave statistics for current user (if employee)
+    let leaveStats = null;
+    if (req.user && req.user.role === 'employee' && req.user.employee) {
+      const employeeId = req.user.employee._id || req.user.employee;
+      const currentYear = moment().year();
+      const startOfYear = moment(`${currentYear}-01-01`).startOf('day').toDate();
+      const endOfYear = moment(`${currentYear}-12-31`).endOf('day').toDate();
+      
+      // Get all approved and pending leaves for this year
+      const leaves = await Leave.find({
+        employee: employeeId,
+        startDate: { $lte: endOfYear },
+        endDate: { $gte: startOfYear },
+        status: { $in: ['approved', 'pending'] }
+      });
+      
+      // Get employee to get quotas
+      const employee = await Employee.findById(employeeId);
+      
+      // Calculate statistics by leave type
+      const annualUsed = leaves
+        .filter(l => (l.leaveType === 'annual' || l.type === 'annual') && l.status === 'approved')
+        .reduce((sum, l) => sum + (l.totalDays || 0), 0);
+      
+      const sickUsed = leaves
+        .filter(l => (l.leaveType === 'sick' || l.type === 'sick') && l.status === 'approved')
+        .reduce((sum, l) => sum + (l.totalDays || 0), 0);
+      
+      // Convert sick days to hours (assuming 8 hours per day)
+      const sickUsedHours = sickUsed * 8;
+      
+      // WFH (Work From Home) - we'll use 'other' type with a special flag or check reason
+      // For now, let's check if there's a 'wfh' leave type or use 'other' with specific reason
+      const wfhUsed = leaves
+        .filter(l => {
+          const type = l.leaveType || l.type;
+          return (type === 'other' && l.reason && l.reason.toLowerCase().includes('wfh')) || 
+                 (type === 'other' && l.reason && l.reason.toLowerCase().includes('làm việc tại nhà')) ||
+                 (type === 'other' && l.reason && l.reason.toLowerCase().includes('work from home'));
+        })
+        .filter(l => l.status === 'approved')
+        .reduce((sum, l) => sum + (l.totalDays || 0), 0);
+      
+      const maternityUsed = leaves
+        .filter(l => (l.leaveType === 'maternity' || l.type === 'maternity') && l.status === 'approved')
+        .reduce((sum, l) => sum + (l.totalDays || 0), 0);
+      
+      const unpaidUsed = leaves
+        .filter(l => (l.leaveType === 'unpaid' || l.type === 'unpaid') && l.status === 'approved')
+        .reduce((sum, l) => sum + (l.totalDays || 0), 0);
+      
+      // Get quotas from employee model (with defaults)
+      const annualQuota = employee?.leaveQuotas?.annual?.total || employee?.annualLeaveDays || 12;
+      const sickQuotaHours = employee?.leaveQuotas?.sick?.totalHours || 72;
+      const wfhQuota = employee?.leaveQuotas?.wfh?.totalDays || 0; // 0 means unlimited
+      const maternityQuota = employee?.leaveQuotas?.maternity?.totalDays || 180;
+      
+      leaveStats = {
+        annual: {
+          total: annualQuota,
+          used: annualUsed,
+          remaining: Math.max(0, annualQuota - annualUsed),
+          percentage: annualQuota > 0 ? Math.round((annualUsed / annualQuota) * 100) : 0
+        },
+        sick: {
+          totalHours: sickQuotaHours,
+          usedHours: sickUsedHours,
+          usedDays: sickUsed,
+          remainingHours: Math.max(0, sickQuotaHours - sickUsedHours),
+          percentage: sickQuotaHours > 0 ? Math.round((sickUsedHours / sickQuotaHours) * 100) : 0
+        },
+        wfh: {
+          totalDays: wfhQuota,
+          usedDays: wfhUsed,
+          remainingDays: wfhQuota > 0 ? Math.max(0, wfhQuota - wfhUsed) : -1, // -1 means unlimited
+          percentage: wfhQuota > 0 ? Math.round((wfhUsed / wfhQuota) * 100) : 0
+        },
+        maternity: {
+          totalDays: maternityQuota,
+          usedDays: maternityUsed,
+          remainingDays: Math.max(0, maternityQuota - maternityUsed),
+          percentage: maternityQuota > 0 ? Math.round((maternityUsed / maternityQuota) * 100) : 0
+        },
+        unpaid: {
+          usedDays: unpaidUsed,
+          totalDays: 0, // Usually unlimited
+          remainingDays: -1 // -1 means unlimited
+        }
+      };
+    }
+    
     res.status(200).json({
       success: true,
       data: {
@@ -126,7 +217,8 @@ exports.getDashboardStats = async (req, res) => {
           totalWorkingDays: 5,
           onTimePercentage,
           leaveRequests: weekLeaveRequests
-        }
+        },
+        leaveStats // Add detailed leave statistics
       }
     });
   } catch (error) {

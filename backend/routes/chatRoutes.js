@@ -11,8 +11,10 @@ try {
   ({ protect } = require('../middlewares/authMiddleware'));
 }
 
+const { checkProfileCompleted } = require('../middleware/profileCheckMiddleware');
+
 // one canonical endpoint, POST only, must be authenticated
-router.post('/message', protect, postMessage);
+router.post('/message', protect, checkProfileCompleted, postMessage);
 
 // Optional guard for GET
 router.get('/message', (_req, res) =>

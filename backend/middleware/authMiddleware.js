@@ -116,6 +116,11 @@ exports.restrictTo = (...roles) => {
   };
 };
 
+// Alias for protect - used for employee self-service routes
+exports.authenticate = exports.protect;
+
+
+
 
 
 

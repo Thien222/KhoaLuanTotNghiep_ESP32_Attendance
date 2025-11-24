@@ -25,7 +25,8 @@ import {
   SafetyCertificateOutlined,
   UserOutlined,
   CheckCircleOutlined,
-  CloseCircleOutlined
+  CloseCircleOutlined,
+  SearchOutlined
 } from '@ant-design/icons';
 import axios from 'axios';
 import { getAPIUrl, getConfig } from '../../utils/configManager';
@@ -41,6 +42,7 @@ const EmployeeManagement = () => {
   const [editingEmployee, setEditingEmployee] = useState(null);
   const [form] = Form.useForm();
   const [enrolling, setEnrolling] = useState(false);
+  const [searchCode, setSearchCode] = useState('');
 
   useEffect(() => {
     fetchEmployees();
@@ -111,7 +113,9 @@ const EmployeeManagement = () => {
       const API_URL = getAPIUrl();
       
       if (editingEmployee) {
-        // Update employee
+        // Update employee - ensure salary is a number
+        const salaryValue = values.salary ? Number(values.salary) : editingEmployee.salary || 0;
+        console.log('📤 Updating employee with salary:', salaryValue);
         const response = await axios.put(`${API_URL}/employees/${editingEmployee._id}`, {
           name: values.name,
           position: values.position,
@@ -119,8 +123,8 @@ const EmployeeManagement = () => {
           email: values.email,
           phone: values.phone,
           contractType: values.contractType,
-          salary: values.salary,
-          status: values.status || 'active'
+          salary: salaryValue
+          // status will be preserved from existing employee or default to 'active'
         }, {
           headers: {
             Authorization: `Bearer ${localStorage.getItem('token')}`
@@ -138,7 +142,9 @@ const EmployeeManagement = () => {
         }
       } else {
         // Call real API to add employee
-        console.log('📤 Sending employee data:', values);
+        // Ensure salary is a number
+        const salaryValue = values.salary ? Number(values.salary) : 0;
+        console.log('📤 Sending employee data:', { ...values, salary: salaryValue });
         const API_URL = getAPIUrl();
         const response = await axios.post(`${API_URL}/debug/employees`, {
           name: values.name,
@@ -147,8 +153,8 @@ const EmployeeManagement = () => {
           email: values.email,
           phone: values.phone,
           contractType: values.contractType || 'probation',
-          salary: values.salary || 0,
-          status: values.status || 'active'
+          salary: salaryValue
+          // status will be set to 'active' by default in backend
         });
         
         console.log('✅ Response:', response.data);
@@ -233,32 +239,40 @@ const EmployeeManagement = () => {
       title: 'Tên',
       dataIndex: 'name',
       key: 'name',
+      width: 120,
+      ellipsis: true,
     },
     {
       title: 'Mã NV',
       dataIndex: 'employeeId',
       key: 'employeeId',
+      width: 80,
     },
     {
       title: 'ID Vân tay',
       dataIndex: 'fingerprintId',
       key: 'fingerprintId',
+      width: 90,
       render: (id) => id ? `#${id}` : '-',
     },
     {
       title: 'Chức vụ',
       dataIndex: 'position',
       key: 'position',
+      width: 100,
+      ellipsis: true,
     },
     {
       title: 'Phòng ban',
       dataIndex: 'department',
       key: 'department',
+      width: 100,
     },
     {
       title: 'Loại HĐ',
       dataIndex: 'contractType',
       key: 'contractType',
+      width: 100,
       render: (type) => {
         const colors = { intern: 'blue', probation: 'orange', official: 'green' };
         const labels = { intern: 'Thực tập', probation: 'Thử việc', official: 'Chính thức' };
@@ -269,20 +283,35 @@ const EmployeeManagement = () => {
       title: 'Lương',
       dataIndex: 'salary',
       key: 'salary',
-      render: (salary) => new Intl.NumberFormat('vi-VN', { 
-        style: 'currency', 
-        currency: 'VND' 
-      }).format(salary || 0),
+      width: 130,
+      render: (salary, record) => {
+        // Use baseSalary if available, otherwise use salary
+        const salaryValue = record.baseSalary || salary || 0;
+        return new Intl.NumberFormat('vi-VN', { 
+          style: 'currency', 
+          currency: 'VND' 
+        }).format(salaryValue);
+      },
     },
     {
       title: 'Email',
       dataIndex: 'email',
       key: 'email',
+      width: 180,
+      ellipsis: {
+        showTitle: false,
+      },
+      render: (email) => (
+        <Tooltip placement="topLeft" title={email}>
+          {email}
+        </Tooltip>
+      ),
     },
     {
       title: 'Hồ sơ',
       dataIndex: 'profileCompleted',
       key: 'profileCompleted',
+      width: 90,
       render: (completed) => (
         <Tooltip title={completed ? 'Đã hoàn thiện' : 'Chưa hoàn thiện hồ sơ'}>
           <Tag color={completed ? 'green' : 'red'}>
@@ -295,6 +324,7 @@ const EmployeeManagement = () => {
       title: 'Vân tay',
       dataIndex: 'fingerprintEnrolled',
       key: 'fingerprintEnrolled',
+      width: 110,
       render: (enrolled) => (
         <Tag color={enrolled ? 'green' : 'red'}>
           {enrolled ? 'Đã đăng ký' : 'Chưa đăng ký'}
@@ -305,6 +335,7 @@ const EmployeeManagement = () => {
       title: 'Trạng thái',
       dataIndex: 'status',
       key: 'status',
+      width: 110,
       render: (status) => (
         <Tag color={status === 'active' ? 'green' : 'red'}>
           {status === 'active' ? 'Hoạt động' : 'Không hoạt động'}
@@ -314,8 +345,10 @@ const EmployeeManagement = () => {
     {
       title: 'Hành động',
       key: 'action',
+      width: 280,
+      fixed: 'right',
       render: (_, record) => (
-        <Space size="middle">
+        <Space size="small" style={{ whiteSpace: 'nowrap' }}>
           <Button 
             type="primary" 
             size="small" 
@@ -354,15 +387,34 @@ const EmployeeManagement = () => {
     },
   ];
 
-  const enrolledCount = employees.filter(emp => emp.fingerprintEnrolled).length;
-  const totalCount = employees.length;
+  // Filter employees based on search code
+  const filteredEmployees = React.useMemo(() => {
+    if (!searchCode.trim()) {
+      return employees;
+    }
+    const searchTerm = searchCode.trim().toUpperCase();
+    return employees.filter(emp => 
+      emp.employeeId && emp.employeeId.toUpperCase().includes(searchTerm)
+    );
+  }, [employees, searchCode]);
+
+  const enrolledCount = filteredEmployees.filter(emp => emp.fingerprintEnrolled).length;
+  const totalCount = filteredEmployees.length;
 
   return (
-    <div>
-      <Card>
-        <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+    <div style={{ width: '100%', overflow: 'hidden' }}>
+      <Card style={{ width: '100%', overflow: 'hidden' }}>
+        <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
           <Title level={3} style={{ margin: 0 }}>Quản lý nhân sự & Vân tay</Title>
-          <Space>
+          <Space size="middle" wrap>
+            <Input
+              placeholder="Tìm kiếm theo Mã NV (VD: EMP001)"
+              prefix={<SearchOutlined />}
+              value={searchCode}
+              onChange={(e) => setSearchCode(e.target.value)}
+              allowClear
+              style={{ width: 250 }}
+            />
             <Button 
               type="default" 
               icon={<SafetyCertificateOutlined />}
@@ -425,17 +477,32 @@ const EmployeeManagement = () => {
           </Col>
         </Row>
 
-        <Table
-          columns={columns}
-          dataSource={employees}
-          loading={loading}
-          rowKey="_id"
-          pagination={{
-            pageSize: 10,
-            showSizeChanger: true,
-            showQuickJumper: true,
-          }}
-        />
+        <div style={{ 
+          width: '100%', 
+          overflowX: 'auto',
+          overflowY: 'hidden',
+          maxWidth: '100%'
+        }}>
+          <Table
+            columns={columns}
+            dataSource={filteredEmployees}
+            loading={loading}
+            rowKey="_id"
+            scroll={{ 
+              x: 'max-content',
+              y: 'calc(100vh - 500px)'
+            }}
+            pagination={{
+              pageSize: 10,
+              showSizeChanger: true,
+              showQuickJumper: true,
+            }}
+            style={{ 
+              width: '100%',
+              minWidth: '1400px'
+            }}
+          />
+        </div>
       </Card>
 
       <Modal
@@ -519,25 +586,23 @@ const EmployeeManagement = () => {
             name="salary"
             label="Lương cơ bản (VND)"
             rules={[{ required: true, message: 'Vui lòng nhập lương' }]}
+            getValueFromEvent={(value) => {
+              // Ensure value is always a number
+              if (value === '' || value === null || value === undefined) return undefined;
+              return typeof value === 'number' ? value : Number(value);
+            }}
           >
             <InputNumber
               style={{ width: '100%' }}
               formatter={value => `${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
-              parser={value => value.replace(/\$\s?|(,*)/g, '')}
+              parser={value => {
+                // Parse value correctly, remove all non-digit characters except decimal point
+                const parsed = value.replace(/[^\d]/g, '');
+                return parsed === '' ? '' : Number(parsed);
+              }}
               min={0}
-              placeholder="Ví dụ: 10000000"
+              placeholder="Ví dụ: 5000000"
             />
-          </Form.Item>
-
-          <Form.Item
-            name="status"
-            label="Trạng thái"
-            initialValue="active"
-          >
-            <Select>
-              <Option value="active">Hoạt động</Option>
-              <Option value="inactive">Không hoạt động</Option>
-            </Select>
           </Form.Item>
 
           <Form.Item style={{ marginBottom: 0, textAlign: 'right' }}>

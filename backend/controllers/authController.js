@@ -131,6 +131,16 @@ exports.login = async (req, res) => {
 
     console.log('✅ Login successful for:', user.username || user.email);
 
+    // Get employee profile completion status if user is employee
+    let profileCompleted = true;
+    if (user.role === 'employee' && user.employee) {
+      const Employee = require('../models/Employee');
+      const employee = await Employee.findById(user.employee._id || user.employee);
+      if (employee) {
+        profileCompleted = employee.profileCompleted || false;
+      }
+    }
+
     res.json({
       success: true,
       message: 'Đăng nhập thành công',
@@ -138,7 +148,8 @@ exports.login = async (req, res) => {
         user: {
           ...user.toJSON(),
           name: user.username || user.email,
-          email: user.email || `${user.username}@system.local`
+          email: user.email || `${user.username}@system.local`,
+          profileCompleted: profileCompleted
         },
         token
       }
