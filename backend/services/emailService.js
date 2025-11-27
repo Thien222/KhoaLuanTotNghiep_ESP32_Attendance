@@ -23,7 +23,6 @@ const createTransporter = () => {
   
   return transporter;
 };
-
 // Send welcome email with login credentials
 exports.sendWelcomeEmail = async (employeeData, credentials) => {
   try {
@@ -154,6 +153,10 @@ exports.sendEnrollmentNotification = async (employeeData) => {
             .header { background: linear-gradient(135deg, #52c41a 0%, #237804 100%); color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0; }
             .content { background: #f9f9f9; padding: 30px; border-radius: 0 0 10px 10px; }
             .success-box { background: white; padding: 20px; border-left: 4px solid #52c41a; margin: 20px 0; text-align: center; }
+            .credentials { background: white; padding: 20px; border-left: 4px solid #667eea; margin: 20px 0; }
+            .credential-item { margin: 10px 0; }
+            .credential-label { font-weight: bold; color: #667eea; }
+            .credential-value { font-size: 18px; color: #333; background: #f0f0f0; padding: 8px 12px; border-radius: 4px; display: inline-block; margin-left: 10px; }
             .footer { text-align: center; margin-top: 30px; color: #999; font-size: 12px; }
           </style>
         </head>
@@ -172,6 +175,48 @@ exports.sendEnrollmentNotification = async (employeeData) => {
                 <p style="font-size: 48px; margin: 20px 0;">👆</p>
                 <p><strong>ID Vân tay:</strong> #${employeeData.fingerprintId}</p>
               </div>
+
+              ${employeeData.employeeId ? `
+              <h2>Thông tin đăng nhập</h2>
+              <p>Chúng tôi rất vui mừng chào đón bạn đến với Hệ thống Quản lý Nhân sự tích hợp chấm công vân tay!</p>
+              
+              <div class="credentials">
+                <h3>🔐 Thông tin đăng nhập của bạn:</h3>
+                <div class="credential-item">
+                  <span class="credential-label">👤 Tên đăng nhập:</span>
+                  <span class="credential-value">${employeeData.employeeId || employeeData.username || 'N/A'}</span>
+                </div>
+                ${employeeData.password ? `
+                <div class="credential-item">
+                  <span class="credential-label">🔑 Mật khẩu:</span>
+                  <span class="credential-value">${employeeData.password}</span>
+                </div>
+                ` : ''}
+                <div class="credential-item">
+                  <span class="credential-label">📧 Email:</span>
+                  <span class="credential-value">${employeeData.email}</span>
+                </div>
+                <div class="credential-item">
+                  <span class="credential-label">🆔 Mã nhân viên:</span>
+                  <span class="credential-value">${employeeData.employeeId || 'N/A'}</span>
+                </div>
+                <div class="credential-item">
+                  <span class="credential-label">👆 ID Vân tay:</span>
+                  <span class="credential-value">#${employeeData.fingerprintId}</span>
+                </div>
+              </div>
+              
+              ${employeeData.password ? `
+              <div style="background: #fff3cd; border-left: 4px solid #ffc107; padding: 15px; margin: 20px 0;">
+                <strong>⚠️ Lưu ý quan trọng:</strong>
+                <ul>
+                  <li>Vui lòng <strong>đổi mật khẩu</strong> ngay sau lần đăng nhập đầu tiên</li>
+                  <li>Không chia sẻ thông tin đăng nhập với bất kỳ ai</li>
+                  <li>Liên hệ bộ phận HR nếu bạn quên mật khẩu</li>
+                </ul>
+              </div>
+              ` : ''}
+              ` : ''}
 
               <p>Từ bây giờ, bạn có thể sử dụng vân tay để:</p>
               <ul>

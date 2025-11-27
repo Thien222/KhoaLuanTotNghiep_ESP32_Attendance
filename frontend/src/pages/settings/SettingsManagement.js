@@ -26,23 +26,12 @@ const SettingsManagement = () => {
 
   const fetchSettings = useCallback(async () => {
     try {
-      // Mock settings data
-      const mockSettings = {
-        companyName: 'Công ty TNHH ABC',
-        companyAddress: '123 Đường ABC, Quận 1, TP.HCM',
-        companyPhone: '0123456789',
-        workingHoursPerDay: 8,
-        lateThreshold: 15,
-        overtimeRate: 1.5,
-        defaultSalary: 5000000,
-        currency: 'VND',
-        emailNotifications: true,
-        smsNotifications: false,
-        pushNotifications: true
-      };
-      form.setFieldsValue(mockSettings);
+      // Settings form - data will be loaded from user input or API if needed
+      // Note: This component may need to be integrated with Settings API in the future
+      // For now, form starts empty
     } catch (error) {
       console.error('Error fetching settings:', error);
+      message.error('Lỗi khi tải cài đặt');
     }
   }, [form]);
 
@@ -53,9 +42,9 @@ const SettingsManagement = () => {
   const handleSave = async (values) => {
     setLoading(true);
     try {
-      // Mock save
+      // TODO: Integrate with Settings API when backend endpoint is available
       console.log('Saving settings:', values);
-      message.success('Cài đặt đã được lưu thành công');
+      message.warning('Tính năng lưu cài đặt đang được phát triển. Vui lòng sử dụng trang Cài đặt hệ thống để cấu hình.');
     } catch (error) {
       message.error('Lỗi khi lưu cài đặt');
     } finally {

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { 
   Card, 
   Typography, 
@@ -37,19 +37,93 @@ const Profile = () => {
   const [userInfo, setUserInfo] = useState(null);
   const [profileIncomplete, setProfileIncomplete] = useState(false);
 
-  useEffect(() => {
-    // Get user info from localStorage
-    const userData = localStorage.getItem('user');
-    if (userData) {
-      try {
-        const user = JSON.parse(userData);
-        setUserInfo(user);
-        
-        // Check if profile is incomplete (for employees)
-        if (user.role === 'employee' && !user.profileCompleted) {
-          setProfileIncomplete(true);
+  const fetchProfileData = useCallback(async () => {
+    try {
+      const API_URL = getAPIUrl();
+      const token = localStorage.getItem('token');
+      
+      // Get user info from localStorage first (for basic info)
+      const userData = localStorage.getItem('user');
+      let user = null;
+      if (userData) {
+        try {
+          user = JSON.parse(userData);
+          setUserInfo(user);
+        } catch (error) {
+          console.error('Error parsing user data:', error);
         }
-        
+      }
+
+      // Fetch latest employee profile from API
+      if (user && user.role === 'employee') {
+        try {
+          const response = await axios.get(`${API_URL}/employees/profile/me`, {
+            headers: { Authorization: `Bearer ${token}` }
+          });
+          
+          if (response.data.success && response.data.data.employee) {
+            const employee = response.data.data.employee;
+            
+            // Update userInfo with latest data
+            const updatedUser = {
+              ...user,
+              ...employee,
+              phone: employee.phone || user.phone || '',
+              address: employee.address || user.address || '',
+              citizenId: employee.citizenId || user.citizenId || '',
+              socialInsuranceNumber: employee.socialInsuranceNumber || user.socialInsuranceNumber || '',
+              dateOfBirth: employee.dateOfBirth || user.dateOfBirth || '',
+              gender: employee.gender || user.gender || '',
+              bankAccount: employee.bankAccount || user.bankAccount || {},
+              profileCompleted: employee.profileCompleted || false
+            };
+            
+            setUserInfo(updatedUser);
+            
+            // Check if profile is incomplete
+            if (!employee.profileCompleted) {
+              setProfileIncomplete(true);
+            }
+            
+            // Populate form with latest data
+            form.setFieldsValue({
+              name: updatedUser.name || updatedUser.email || user.email,
+              email: updatedUser.email || user.email,
+              phone: updatedUser.phone || employee.phone || '',
+              address: updatedUser.address || employee.address || '',
+              citizenId: updatedUser.citizenId || employee.citizenId || '',
+              socialInsuranceNumber: updatedUser.socialInsuranceNumber || employee.socialInsuranceNumber || '',
+              dateOfBirth: employee.dateOfBirth ? (typeof employee.dateOfBirth === 'string' ? employee.dateOfBirth.split('T')[0] : employee.dateOfBirth) : (user.dateOfBirth ? (typeof user.dateOfBirth === 'string' ? user.dateOfBirth.split('T')[0] : user.dateOfBirth) : ''),
+              gender: updatedUser.gender || employee.gender || '',
+              bankName: employee.bankAccount?.bankName || user.bankAccount?.bankName || '',
+              accountNumber: employee.bankAccount?.accountNumber || user.bankAccount?.accountNumber || '',
+              accountName: employee.bankAccount?.accountName || user.bankAccount?.accountName || ''
+            });
+            
+            // Update localStorage with latest data
+            localStorage.setItem('user', JSON.stringify(updatedUser));
+          }
+        } catch (apiError) {
+          console.error('Error fetching profile from API:', apiError);
+          // Fallback to localStorage data if API fails
+          if (user) {
+            form.setFieldsValue({
+              name: user.name || user.email,
+              email: user.email,
+              phone: user.phone || '',
+              address: user.address || '',
+              citizenId: user.citizenId || '',
+              socialInsuranceNumber: user.socialInsuranceNumber || '',
+              dateOfBirth: user.dateOfBirth ? user.dateOfBirth.split('T')[0] : '',
+              gender: user.gender || '',
+              bankName: user.bankAccount?.bankName || '',
+              accountNumber: user.bankAccount?.accountNumber || '',
+              accountName: user.bankAccount?.accountName || ''
+            });
+          }
+        }
+      } else if (user) {
+        // For non-employee users, use localStorage data
         form.setFieldsValue({
           name: user.name || user.email,
           email: user.email,
@@ -63,11 +137,15 @@ const Profile = () => {
           accountNumber: user.bankAccount?.accountNumber || '',
           accountName: user.bankAccount?.accountName || ''
         });
-      } catch (error) {
-        console.error('Error parsing user data:', error);
       }
+    } catch (error) {
+      console.error('Error in fetchProfileData:', error);
     }
   }, [form]);
+
+  useEffect(() => {
+    fetchProfileData();
+  }, [fetchProfileData]);
 
   const handleSubmit = async (values) => {
     setLoading(true);
@@ -82,18 +160,11 @@ const Profile = () => {
       
       const user = JSON.parse(userData);
       
-      // Get employee ID from user object
-      const employeeId = user.employee?._id || user.employeeId || user._id;
-      
-      if (!employeeId) {
-        message.error('Không tìm thấy thông tin nhân viên');
-        return;
-      }
-      
-      // Call API to complete/update profile
-      const response = await axios.post(
-        `${API_URL}/employees/${employeeId}/complete-profile`,
+      // Call API to update profile using updateMyProfile endpoint
+      const response = await axios.put(
+        `${API_URL}/employees/profile/me`,
         {
+          phone: values.phone,
           address: values.address,
           citizenId: values.citizenId,
           socialInsuranceNumber: values.socialInsuranceNumber,
@@ -115,19 +186,8 @@ const Profile = () => {
       if (response.data.success) {
         message.success('Cập nhật hồ sơ thành công!');
         
-        // Update localStorage
-        const updatedUser = {
-          ...user,
-          ...values,
-          profileCompleted: true,
-          bankAccount: {
-            bankName: values.bankName,
-            accountNumber: values.accountNumber,
-            accountName: values.accountName
-          }
-        };
-        localStorage.setItem('user', JSON.stringify(updatedUser));
-        setUserInfo(updatedUser);
+        // Fetch latest data from API to ensure consistency
+        await fetchProfileData();
         setProfileIncomplete(false);
       }
     } catch (error) {

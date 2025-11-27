@@ -17,6 +17,8 @@ import {
 } from '@ant-design/icons';
 import axios from 'axios';
 import moment from 'moment';
+import { getAPIUrl } from '../../utils/configManager';
+import { message } from 'antd';
 
 const { Title } = Typography;
 const { RangePicker } = DatePicker;
@@ -34,21 +36,124 @@ const ReportsManagement = () => {
   const fetchReportData = async () => {
     setLoading(true);
     try {
-      // Mock data for demo
-      const mockReportData = {
-        totalEmployees: 25,
-        averageAttendance: 94.5,
-        averageWorkingHours: 8.2,
-        absentEmployees: 2,
-        topEmployees: [
-          { employeeName: 'Nguyễn Văn A', workingDays: 22, totalHours: 176, attendanceRate: 100 },
-          { employeeName: 'Trần Thị B', workingDays: 21, totalHours: 168, attendanceRate: 95 },
-          { employeeName: 'Lê Văn C', workingDays: 20, totalHours: 160, attendanceRate: 91 }
-        ]
-      };
-      setReportData(mockReportData);
+      const API_URL = getAPIUrl();
+      const token = localStorage.getItem('token');
+      
+      if (!token) {
+        message.error('Chưa đăng nhập');
+        return;
+      }
+
+      const startDate = dateRange[0].format('YYYY-MM-DD');
+      const endDate = dateRange[1].format('YYYY-MM-DD');
+
+      // Fetch dashboard stats for total employees
+      const statsResponse = await axios.get(`${API_URL}/dashboard/stats`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+
+      // Fetch attendance records for the date range
+      const attendanceResponse = await axios.get(`${API_URL}/attendance`, {
+        params: { startDate, endDate },
+        headers: { Authorization: `Bearer ${token}` }
+      });
+
+      // Fetch all employees
+      const employeesResponse = await axios.get(`${API_URL}/employees`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+
+      if (statsResponse.data.success && attendanceResponse.data.success && employeesResponse.data.success) {
+        const totalEmployees = statsResponse.data.data.totalEmployees || 0;
+        const attendances = attendanceResponse.data.data || [];
+        const employees = employeesResponse.data.data || [];
+
+        // Calculate statistics
+        const totalWorkingDays = moment(endDate).diff(moment(startDate), 'days') + 1;
+        
+        // Group attendance by employee
+        const employeeStats = {};
+        attendances.forEach(att => {
+          if (att.employee && att.employee._id) {
+            const empId = att.employee._id;
+            if (!employeeStats[empId]) {
+              employeeStats[empId] = {
+                employeeName: att.employee.name || 'Unknown',
+                workingDays: 0,
+                totalHours: 0,
+                attendanceCount: 0
+              };
+            }
+            if (att.status === 'present' || att.status === 'half-day') {
+              employeeStats[empId].workingDays += att.status === 'half-day' ? 0.5 : 1;
+              employeeStats[empId].totalHours += att.workingHours || 0;
+              employeeStats[empId].attendanceCount++;
+            }
+          }
+        });
+
+        // Calculate top employees
+        const topEmployees = Object.values(employeeStats)
+          .map(emp => ({
+            ...emp,
+            attendanceRate: totalWorkingDays > 0 
+              ? Math.round((emp.workingDays / totalWorkingDays) * 100) 
+              : 0
+          }))
+          .sort((a, b) => b.workingDays - a.workingDays)
+          .slice(0, 10);
+
+        // Calculate average attendance
+        const totalAttendanceDays = Object.values(employeeStats).reduce((sum, emp) => sum + emp.workingDays, 0);
+        const averageAttendance = totalEmployees > 0 && totalWorkingDays > 0
+          ? Math.round((totalAttendanceDays / (totalEmployees * totalWorkingDays)) * 100 * 10) / 10
+          : 0;
+
+        // Calculate average working hours
+        const totalHours = Object.values(employeeStats).reduce((sum, emp) => sum + emp.totalHours, 0);
+        const employeesWithAttendance = Object.keys(employeeStats).length;
+        const averageWorkingHours = employeesWithAttendance > 0
+          ? Math.round((totalHours / employeesWithAttendance) * 10) / 10
+          : 0;
+
+        // Calculate absent employees (employees with no attendance in range)
+        const employeesWithAttendanceIds = new Set(Object.keys(employeeStats));
+        const absentEmployees = employees.filter(emp => 
+          emp.status === 'active' && !employeesWithAttendanceIds.has(emp._id)
+        ).length;
+
+        // Calculate department stats
+        const departmentStats = {};
+        employees.forEach(emp => {
+          if (emp.status === 'active' && emp.department) {
+            if (!departmentStats[emp.department]) {
+              departmentStats[emp.department] = { total: 0, present: 0 };
+            }
+            departmentStats[emp.department].total++;
+            if (employeesWithAttendanceIds.has(emp._id)) {
+              departmentStats[emp.department].present++;
+            }
+          }
+        });
+
+        const departmentStatsArray = Object.entries(departmentStats).map(([dept, stats]) => ({
+          department: dept,
+          attendanceRate: stats.total > 0 ? Math.round((stats.present / stats.total) * 100) : 0
+        }));
+
+        setReportData({
+          totalEmployees,
+          averageAttendance,
+          averageWorkingHours,
+          absentEmployees,
+          topEmployees,
+          departmentStats: departmentStatsArray
+        });
+      }
     } catch (error) {
       console.error('Error fetching report data:', error);
+      message.error('Lỗi khi tải dữ liệu báo cáo');
+      setReportData({});
     } finally {
       setLoading(false);
     }
@@ -166,10 +271,13 @@ const ReportsManagement = () => {
           <Col xs={24} lg={12}>
             <Card title="Thống kê theo phòng ban" size="small">
               <div style={{ padding: '16px 0' }}>
-                <p>• IT: 95% chấm công</p>
-                <p>• HR: 92% chấm công</p>
-                <p>• Finance: 98% chấm công</p>
-                <p>• Marketing: 88% chấm công</p>
+                {reportData.departmentStats && reportData.departmentStats.length > 0 ? (
+                  reportData.departmentStats.map((dept, index) => (
+                    <p key={index}>• {dept.department}: {dept.attendanceRate}% chấm công</p>
+                  ))
+                ) : (
+                  <p>Chưa có dữ liệu</p>
+                )}
               </div>
             </Card>
           </Col>

@@ -43,6 +43,53 @@ exports.getDashboardStats = async (req, res) => {
     // Get pending leave requests
     const pendingLeaveRequests = await Leave.countDocuments({ status: 'pending' });
     
+    // --- NEW STATISTICS FOR DASHBOARD ---
+    
+    // 1. Department Distribution
+    const departmentStats = await Employee.aggregate([
+      { $match: { status: 'active' } },
+      { $group: { _id: '$department', count: { $sum: 1 } } }
+    ]);
+    
+    // 2. Attendance Trend (Last 7 days)
+    const sevenDaysAgo = moment().subtract(6, 'days').startOf('day').toDate();
+    const attendanceTrend = await Attendance.aggregate([
+      {
+        $match: {
+          date: { $gte: sevenDaysAgo, $lte: endOfToday },
+          'checkIn.time': { $exists: true }
+        }
+      },
+      {
+        $group: {
+          _id: { $dateToString: { format: "%Y-%m-%d", date: "$date", timezone: "+07:00" } },
+          present: { $sum: 1 },
+          late: { $sum: { $cond: [{ $eq: ["$checkIn.status", "late"] }, 1, 0] } }
+        }
+      },
+      { $sort: { _id: 1 } }
+    ]);
+
+    // 3. Today's On-time vs Late Breakdown
+    const todayStatsRaw = await Attendance.aggregate([
+       { $match: { date: { $gte: today, $lte: endOfToday } } },
+       { $group: {
+           _id: null,
+           ontime: { $sum: { $cond: [{ $eq: ["$checkIn.status", "on-time"] }, 1, 0] } },
+           late: { $sum: { $cond: [{ $eq: ["$checkIn.status", "late"] }, 1, 0] } }
+       }}
+    ]);
+    const onTimeStats = todayStatsRaw.length > 0 ? todayStatsRaw[0] : { ontime: 0, late: 0 };
+
+    // 4. Turnover Rate (Employees inactive this month)
+    const leftEmployees = await Employee.countDocuments({
+       status: 'inactive',
+       updatedAt: { $gte: startOfMonth, $lte: endOfMonth }
+    });
+    const turnoverRate = totalEmployees > 0 ? ((leftEmployees / totalEmployees) * 100).toFixed(1) : 0;
+
+    // --- END NEW STATISTICS ---
+
     // Get recent activities (last 10 attendance records)
     const recentActivities = await Attendance.find({
       $or: [
@@ -207,8 +254,12 @@ exports.getDashboardStats = async (req, res) => {
         totalEmployees,
         todayAttendance: {
           count: todayAttendance,
-          percentage: attendancePercentage
+          percentage: attendancePercentage,
+          details: onTimeStats // Add breakdown
         },
+        departmentStats, // Add department stats
+        attendanceTrend, // Add trend stats
+        turnoverRate, // Add turnover rate
         totalSalary: Math.round(totalSalary),
         pendingLeaveRequests,
         recentActivities: formattedActivities,

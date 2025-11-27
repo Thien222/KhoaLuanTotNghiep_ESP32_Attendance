@@ -16,7 +16,9 @@ import {
   Col,
   Statistic,
   App,
-  Tooltip
+  Tooltip,
+  Switch,
+  Divider
 } from 'antd';
 import { 
   PlusOutlined, 
@@ -55,7 +57,10 @@ const EmployeeManagement = () => {
       const API_URL = getAPIUrl();
       const response = await axios.get(`${API_URL}/debug/employees`);
       if (response.data.success) {
-        setEmployees(response.data.data);
+        const employeesData = response.data.data || [];
+        console.log('📋 Fetched employees:', employeesData.length);
+        console.log('📋 Employee names:', employeesData.map(e => e.name));
+        setEmployees(employeesData);
       } else {
         message.error(response.data.message || 'Lỗi khi tải danh sách nhân viên');
       }
@@ -148,6 +153,8 @@ const EmployeeManagement = () => {
         const API_URL = getAPIUrl();
         const response = await axios.post(`${API_URL}/debug/employees`, {
           name: values.name,
+          createUserAccount: values.createUserAccount || false,
+          userRole: values.userRole || 'employee',
           position: values.position,
           department: values.department,
           email: values.email,
@@ -160,9 +167,10 @@ const EmployeeManagement = () => {
         console.log('✅ Response:', response.data);
         
         if (response.data.success) {
-          const newEmployee = response.data.data;
-          setEmployees(prev => [...prev, newEmployee]);
           message.success('Thêm nhân viên thành công!');
+          
+          // Refresh employee list from server to ensure consistency
+          await fetchEmployees();
           
           // Don't auto enroll - let user do it manually
           message.info('Nhân viên đã được thêm. Vui lòng click "Đăng ký vân tay" để đăng ký vân tay cho nhân viên này.');
@@ -179,13 +187,40 @@ const EmployeeManagement = () => {
     }
   };
 
-  const handleEnrollFingerprint = async (employee) => {
+  const handleEnrollFingerprint = async (employee, manual = false) => {
     setEnrolling(true);
     try {
+      const API_URL = getAPIUrl();
+      
+      if (manual) {
+        // Manual enrollment (mark as enrolled without ESP32) - for testing
+        message.loading('Đang đánh dấu đã đăng ký vân tay...', 2);
+        
+        const response = await axios.post(`${API_URL}/employees/enroll-fingerprint`, {
+          fingerprintId: employee.fingerprintId
+        }, {
+          headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+        });
+        
+        if (response.data.success) {
+          setEmployees(prev => prev.map(emp => 
+            emp._id === employee._id 
+              ? { ...emp, fingerprintEnrolled: true }
+              : emp
+          ));
+          message.success('Đã đánh dấu nhân viên đã đăng ký vân tay (chế độ test)');
+          setTimeout(() => {
+            fetchEmployees();
+          }, 1000);
+        } else {
+          message.error(response.data.message || 'Lỗi khi đánh dấu đã enroll');
+        }
+        return;
+      }
+      
+      // ESP32 enrollment (requires ESP32 device)
       message.loading('Đang gửi lệnh đăng ký vân tay đến ESP32...', 3);
       
-      // Call backend API to forward to ESP32
-      const API_URL = getAPIUrl();
       const response = await axios.get(`${API_URL}/enroll`, {
         params: { id: employee.fingerprintId }
       });
@@ -214,7 +249,30 @@ const EmployeeManagement = () => {
       }
     } catch (error) {
       console.error('Enrollment error:', error);
-      message.error('Lỗi kết nối đến ESP32 hoặc backend');
+      
+      // Handle specific error cases
+      if (error.response) {
+        const status = error.response.status;
+        const errorData = error.response.data;
+        
+        if (status === 503) {
+          // ESP32 unreachable
+          message.error({
+            content: 'ESP32 không kết nối được. Vui lòng kiểm tra:\n- ESP32 đã bật và kết nối mạng\n- IP ESP32 đã được cấu hình đúng\n- ESP32 đã gọi /esp32-register',
+            duration: 8
+          });
+        } else if (status === 504) {
+          // ESP32 timeout
+          message.error('ESP32 không phản hồi. Vui lòng thử lại sau.');
+        } else if (status === 400) {
+          // Invalid fingerprint ID
+          message.error(errorData.message || 'Fingerprint ID không hợp lệ');
+        } else {
+          message.error(errorData.message || `Lỗi: ${status}`);
+        }
+      } else {
+        message.error('Lỗi kết nối đến ESP32 hoặc backend. Vui lòng kiểm tra kết nối mạng.');
+      }
     } finally {
       setEnrolling(false);
     }
@@ -357,16 +415,39 @@ const EmployeeManagement = () => {
           >
             Sửa
           </Button>
-          <Button 
-            type="default" 
-            size="small" 
-            icon={<SafetyCertificateOutlined />}
-            onClick={() => handleEnrollFingerprint(record)}
-            loading={enrolling}
-            disabled={record.fingerprintEnrolled}
-          >
-            {record.fingerprintEnrolled ? 'Đã đăng ký' : 'Đăng ký vân tay'}
-          </Button>
+          {record.fingerprintEnrolled ? (
+            <Button 
+              type="default" 
+              size="small" 
+              icon={<CheckCircleOutlined />}
+              disabled
+            >
+              Đã đăng ký
+            </Button>
+          ) : (
+            <>
+              <Button 
+                type="default" 
+                size="small" 
+                icon={<SafetyCertificateOutlined />}
+                onClick={() => handleEnrollFingerprint(record, false)}
+                loading={enrolling}
+                title="Đăng ký vân tay qua ESP32 (cần thiết bị thật)"
+              >
+                ESP32
+              </Button>
+              <Button 
+                type="dashed" 
+                size="small" 
+                icon={<CheckCircleOutlined />}
+                onClick={() => handleEnrollFingerprint(record, true)}
+                loading={enrolling}
+                title="Đánh dấu đã enroll (không cần ESP32 - dùng để test)"
+              >
+                Đánh dấu
+              </Button>
+            </>
+          )}
           <Popconfirm
             title="Bạn có chắc muốn xóa nhân viên này?"
             onConfirm={() => handleDelete(record._id)}
@@ -390,12 +471,15 @@ const EmployeeManagement = () => {
   // Filter employees based on search code
   const filteredEmployees = React.useMemo(() => {
     if (!searchCode.trim()) {
+      console.log('📊 No search filter, showing all employees:', employees.length);
       return employees;
     }
     const searchTerm = searchCode.trim().toUpperCase();
-    return employees.filter(emp => 
+    const filtered = employees.filter(emp => 
       emp.employeeId && emp.employeeId.toUpperCase().includes(searchTerm)
     );
+    console.log('📊 Filtered employees:', filtered.length, 'Search term:', searchTerm);
+    return filtered;
   }, [employees, searchCode]);
 
   const enrolledCount = filteredEmployees.filter(emp => emp.fingerprintEnrolled).length;
@@ -490,12 +574,13 @@ const EmployeeManagement = () => {
             rowKey="_id"
             scroll={{ 
               x: 'max-content',
-              y: 'calc(100vh - 500px)'
+              y: undefined // Remove vertical scroll to show all rows
             }}
             pagination={{
               pageSize: 10,
               showSizeChanger: true,
               showQuickJumper: true,
+              showTotal: (total) => `Tổng ${total} nhân viên`,
             }}
             style={{ 
               width: '100%',
@@ -603,6 +688,39 @@ const EmployeeManagement = () => {
               min={0}
               placeholder="Ví dụ: 5000000"
             />
+          </Form.Item>
+
+          <Divider>Thông tin tài khoản đăng nhập</Divider>
+
+          <Form.Item
+            name="createUserAccount"
+            label="Tạo tài khoản đăng nhập"
+            valuePropName="checked"
+            initialValue={false}
+          >
+            <Switch />
+          </Form.Item>
+
+          <Form.Item
+            noStyle
+            shouldUpdate={(prevValues, currentValues) => prevValues.createUserAccount !== currentValues.createUserAccount}
+          >
+            {({ getFieldValue }) =>
+              getFieldValue('createUserAccount') ? (
+                <Form.Item
+                  name="userRole"
+                  label="Vai trò"
+                  rules={[{ required: true, message: 'Vui lòng chọn vai trò' }]}
+                  initialValue="employee"
+                >
+                  <Select>
+                    <Option value="employee">Nhân viên</Option>
+                    <Option value="accountant">Kế toán</Option>
+                    <Option value="manager">Quản lý (Admin)</Option>
+                  </Select>
+                </Form.Item>
+              ) : null
+            }
           </Form.Item>
 
           <Form.Item style={{ marginBottom: 0, textAlign: 'right' }}>

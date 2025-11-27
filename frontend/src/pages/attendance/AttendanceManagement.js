@@ -171,6 +171,19 @@ const AttendanceManagement = () => {
     }
   };
 
+  const formatCurrency = (amount) => {
+    return new Intl.NumberFormat('vi-VN').format(amount || 0);
+  };
+
+  const getWorkDayValue = (status) => {
+    switch (status) {
+      case 'present': return 1.0;
+      case 'half-day': return 0.5;
+      case 'absent': return 0;
+      default: return 0;
+    }
+  };
+
   const columns = [
     {
       title: 'Ngày',
@@ -179,6 +192,7 @@ const AttendanceManagement = () => {
       render: (date) => moment(date).format('DD/MM/YYYY'),
       sorter: (a, b) => moment(a.date).unix() - moment(b.date).unix(),
       width: 100,
+      fixed: 'left',
     },
     {
       title: 'Nhân viên',
@@ -186,6 +200,7 @@ const AttendanceManagement = () => {
       key: 'employeeName',
       width: 150,
       render: (name, record) => record.employee?.name || 'Không xác định',
+      fixed: 'left',
     },
     {
       title: 'ID VT',
@@ -195,52 +210,141 @@ const AttendanceManagement = () => {
       width: 60,
     },
     {
-      title: 'Giờ vào',
-      dataIndex: ['checkIn', 'time'],
-      key: 'checkIn',
-      render: (time) => time ? moment(time).format('HH:mm:ss') : '-',
-      width: 90,
+      title: 'Giờ làm',
+      key: 'workingTime',
+      width: 130,
+      render: (_, record) => {
+        const checkInTime = record.checkIn?.time;
+        const checkOutTime = record.checkOut?.time;
+        const isAutoCheckout = record.autoCheckout;
+        
+        if (!checkInTime && !checkOutTime) {
+          return '-';
+        }
+        
+        const timeStr = `${checkInTime ? moment(checkInTime).format('HH:mm') : '--:--'} - ${checkOutTime ? moment(checkOutTime).format('HH:mm') : '--:--'}`;
+        
+        return (
+          <div>
+            <div style={{ color: isAutoCheckout ? '#ff4d4f' : 'inherit' }}>
+              {timeStr}
+            </div>
+            {isAutoCheckout && (
+              <Tag color="error" size="small" style={{ marginTop: 4 }}>
+                Quên Check-out
+              </Tag>
+            )}
+          </div>
+        );
+      },
     },
     {
-      title: 'Giờ ra',
-      dataIndex: ['checkOut', 'time'],
-      key: 'checkOut',
-      render: (time) => time ? moment(time).format('HH:mm:ss') : '-',
-      width: 90,
+      title: 'Vi phạm',
+      key: 'violations',
+      width: 140,
+      render: (_, record) => {
+        const violations = [];
+        
+        if (record.lateMinutes > 0) {
+          violations.push(
+            <div key="late">
+              <Tag color="warning">Muộn {record.lateMinutes} phút</Tag>
+            </div>
+          );
+        }
+        
+        if (record.status === 'half-day') {
+          violations.push(
+            <div key="halfday">
+              <Tag color="orange">Nửa công</Tag>
+            </div>
+          );
+        }
+        
+        if (record.actualPenalty > 0) {
+          violations.push(
+            <div key="penalty" style={{ marginTop: 4, color: '#ff4d4f', fontSize: '12px' }}>
+              (-{formatCurrency(record.actualPenalty)} đ)
+            </div>
+          );
+        }
+        
+        return violations.length > 0 ? (
+          <div>{violations}</div>
+        ) : '-';
+      },
+    },
+    {
+      title: 'Làm thêm (OT)',
+      key: 'overtime',
+      width: 140,
+      render: (_, record) => {
+        if (record.overtimeHours > 0) {
+          return (
+            <div>
+              <Tag color="blue">
+                {record.overtimeHours}h (x{record.overtimeRate || 1.0})
+              </Tag>
+              {record.estimatedOTSalary > 0 && (
+                <div style={{ marginTop: 4, color: '#52c41a', fontSize: '12px' }}>
+                  (+{formatCurrency(record.estimatedOTSalary)} đ)
+                </div>
+              )}
+            </div>
+          );
+        }
+        return '-';
+      },
+    },
+    {
+      title: 'Tiền OT',
+      dataIndex: 'estimatedOTSalary',
+      key: 'estimatedOTSalary',
+      width: 120,
+      render: (amount) => amount > 0 ? (
+        <Tag color="success" style={{ color: '#52c41a' }}>
+          +{formatCurrency(amount)} đ
+        </Tag>
+      ) : '-',
+      sorter: (a, b) => (a.estimatedOTSalary || 0) - (b.estimatedOTSalary || 0),
+    },
+    {
+      title: 'Tiền phạt',
+      dataIndex: 'actualPenalty',
+      key: 'actualPenalty',
+      width: 120,
+      render: (amount) => amount > 0 ? (
+        <Tag color="error">
+          -{formatCurrency(amount)} đ
+        </Tag>
+      ) : '-',
+      sorter: (a, b) => (a.actualPenalty || 0) - (b.actualPenalty || 0),
+    },
+    {
+      title: 'Công quy đổi',
+      key: 'workDay',
+      width: 110,
+      render: (_, record) => {
+        const workDay = getWorkDayValue(record.status);
+        let color = 'default';
+        if (workDay === 1.0) color = 'success';
+        else if (workDay === 0.5) color = 'warning';
+        else color = 'error';
+        
+        return (
+          <Tag color={color}>
+            {workDay.toFixed(1)}
+          </Tag>
+        );
+      },
+      sorter: (a, b) => getWorkDayValue(a.status) - getWorkDayValue(b.status),
     },
     {
       title: 'Số giờ',
       dataIndex: 'workingHours',
       key: 'workingHours',
-      render: (hours) => hours ? `${hours}h` : '-',
-      width: 70,
-    },
-    {
-      title: 'Muộn',
-      dataIndex: 'lateMinutes',
-      key: 'lateMinutes',
-      render: (minutes) => minutes > 0 ? (
-        <Tag color="warning">{minutes} phút</Tag>
-      ) : '-',
+      render: (hours) => hours ? `${Number(hours).toFixed(1)}h` : '-',
       width: 80,
-    },
-    {
-      title: 'Phạt',
-      dataIndex: 'latePenalty',
-      key: 'latePenalty',
-      render: (penalty) => penalty > 0 ? (
-        <Tag color="error">{new Intl.NumberFormat('vi-VN').format(penalty)} đ</Tag>
-      ) : '-',
-      width: 90,
-    },
-    {
-      title: 'OT',
-      dataIndex: 'overtimeHours',
-      key: 'overtimeHours',
-      render: (hours, record) => hours > 0 ? (
-        <Tag color="blue">{hours}h (x{record.overtimeRate || 1.0})</Tag>
-      ) : '-',
-      width: 100,
     },
     {
       title: 'Trạng thái',
@@ -348,6 +452,7 @@ const AttendanceManagement = () => {
           dataSource={attendances}
           loading={loading}
           rowKey="_id"
+          scroll={{ x: 1500 }}
           pagination={{
             pageSize: 10,
             showSizeChanger: true,

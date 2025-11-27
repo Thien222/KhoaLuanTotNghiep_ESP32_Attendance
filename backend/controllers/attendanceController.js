@@ -1,18 +1,69 @@
 const Attendance = require('../models/Attendance');
 const Employee = require('../models/Employee');
 const Holiday = require('../models/Holiday');
+const EmployeeShift = require('../models/EmployeeShift');
 const attendanceHelper = require('../utils/attendanceHelper');
+const { getSystemTime } = require('../utils/timeMachine');
 const moment = require('moment-timezone');
 
 moment.tz.setDefault('Asia/Ho_Chi_Minh');
 
+// Helper function to get employee's shift for a specific date
+const getEmployeeShiftForDate = async (employeeId, date) => {
+  const queryDate = moment(date).toDate();
+  const employeeShift = await EmployeeShift.findOne({
+    employee: employeeId,
+    startDate: { $lte: queryDate },
+    $or: [
+      { endDate: null },
+      { endDate: { $gte: queryDate } }
+    ],
+    isActive: true
+  }).populate('shift');
+
+  return employeeShift?.shift || null;
+};
+
+// Helper function to determine status based on shift and time
+const determineStatusFromShift = (customTime, shift, actionType) => {
+  if (!shift) return null; // No shift assigned, use default logic
+
+  const timeStr = moment(customTime).format('HH:mm');
+  const [shiftStartHour, shiftStartMin] = shift.startTime.split(':').map(Number);
+  const [shiftEndHour, shiftEndMin] = shift.endTime.split(':').map(Number);
+  
+  const shiftStartMinutes = shiftStartHour * 60 + shiftStartMin;
+  const shiftEndMinutes = shiftEndHour * 60 + shiftEndMin;
+  const [timeHour, timeMin] = timeStr.split(':').map(Number);
+  const timeMinutes = timeHour * 60 + timeMin;
+  
+  const gracePeriod = shift.gracePeriod || 15;
+
+  if (actionType === 'checkin') {
+    if (timeMinutes <= shiftStartMinutes + gracePeriod) {
+      return 'on-time';
+    } else {
+      return 'late';
+    }
+  } else if (actionType === 'checkout') {
+    if (timeMinutes < shiftEndMinutes) {
+      return 'early';
+    } else if (timeMinutes > shiftEndMinutes) {
+      return 'overtime';
+    } else {
+      return 'on-time';
+    }
+  }
+  return null;
+};
+
 // Add manual attendance record
 exports.addAttendance = async (req, res) => {
   try {
-    const { employeeId, fingerprintId, type, timestamp, fingerId, action } = req.body;
+    const { employeeId, fingerprintId, type, fingerId, action } = req.body;
     
     console.log('=== ATTENDANCE REQUEST ===');
-    console.log('Time:', new Date().toISOString());
+    console.log('Time:', getSystemTime().toISOString());
     console.log('Request body:', req.body);
     console.log('EmployeeId:', employeeId);
     console.log('FingerId:', fingerId);
@@ -20,15 +71,14 @@ exports.addAttendance = async (req, res) => {
     console.log('Type:', type);
     console.log('IP:', req.ip || req.connection.remoteAddress);
 
-    // Handle both manual (employeeId) and ESP32 (fingerId) requests
+    // 1. Tìm Employee
     let employee;
     if (employeeId) {
-      // Manual attendance from frontend
       employee = await Employee.findById(employeeId);
     } else if (fingerId) {
-      // ESP32 attendance by fingerprint ID
       console.log('Looking for employee with fingerprintId:', fingerId);
       employee = await Employee.findOne({ fingerprintId: fingerId });
+      
       if (!employee) {
         console.log('Employee not found with fingerprintId:', fingerId);
         return res.status(404).json({
@@ -67,173 +117,183 @@ exports.addAttendance = async (req, res) => {
       });
     }
 
-    const now = new Date(timestamp || new Date());
-    // Use UTC date for consistency with existing records (as seen in ESP32 response)
-    // This matches the format "2025-11-10T00:00:00.000Z"
-    const today = moment.utc(now).startOf('day').toDate();
-
-    // Check if attendance record exists for today
-    let attendance = await Attendance.findOne({
-      employee: employee._id,
-      date: today
-    });
-
-    const WORK_START_HOUR = 9; // 9:00 AM
-    const WORK_END_HOUR = 17;  // 5:00 PM
-    
-    // Use current hour for status calculation
-    const currentHour = now.getHours();
-
-    // Determine action type
-    let actionType = type || action;
-    console.log('Action type determined:', actionType);
-    console.log('Existing attendance record:', attendance ? 'Found' : 'Not found');
-    console.log('Check-in time:', attendance?.checkIn?.time || 'None');
-    console.log('Check-out time:', attendance?.checkOut?.time || 'None');
-    
-    if (actionType === 'auto') {
-      // ESP32 auto mode - determine based on existing records
-      if (!attendance) {
-        // No attendance record for today - create check-in
-        actionType = 'checkin';
-        console.log('Auto mode: Check-in needed - no attendance record for today');
-      } else if (!attendance.checkIn || !attendance.checkIn.time) {
-        // Has attendance record but no check-in - create check-in
-        actionType = 'checkin';
-        console.log('Auto mode: Check-in needed - has record but no check-in time');
-      } else if (!attendance.checkOut || !attendance.checkOut.time) {
-        // Has check-in but no check-out - create check-out
-        actionType = 'checkout';
-        console.log('Auto mode: Check-out needed - has check-in but no check-out');
-      } else {
-        // Already completed today - has both check-in and check-out
-        console.log('Auto mode: Already completed today - has both check-in and check-out');
-        return res.status(200).json({
-          success: true,
-          message: 'Already completed for today',
-          what: 'done',
-          status: 'completed',
-          action: 'completed',
-          data: attendance
+    // 2. Chống Spam (5 phút)
+    const lastRecord = await Attendance.findOne({ employee: employee._id }).sort({ updatedAt: -1 });
+    if (lastRecord) {
+      const now = getSystemTime();
+      const diffMinutes = moment(now).diff(moment(lastRecord.updatedAt), 'minutes');
+      // Chỉ chặn nếu < 5 phút và cùng một ngày làm việc (tránh chặn nếu checkout hôm qua rồi checkin hôm nay)
+      const isSameDay = moment(lastRecord.date).isSame(moment(now), 'day');
+      
+      if (diffMinutes < 5 && isSameDay) {
+        console.log(`Spam prevention: blocked ${employee.name}`);
+        // Trả về 200 để ESP32 không báo lỗi, nhưng kèm what='ignored'
+        return res.status(200).json({ 
+          success: true, 
+          message: 'Thao tác quá nhanh', 
+          what: 'ignored' 
         });
       }
     }
 
-    if (actionType === 'checkin') {
-      if (attendance && attendance.checkIn && attendance.checkIn.time) {
-        console.log('Employee already checked in today - returning in-exists');
-        return res.status(200).json({
-          success: true,
-          message: 'Already checked in for today',
-          what: 'in-exists',
-          status: 'already-checkin',
-          action: 'checkin',
-          data: attendance
+    // 3. Thời gian (Time Machine ready)
+    const now = getSystemTime();
+    const today = moment(now).startOf('day').toDate();
+    const currentHour = now.getHours();
+    
+    // Lấy Settings
+    const allSettings = await attendanceHelper.getAllSettings();
+    const latePolicy = allSettings['late-policy'] || {};
+    const otSettings = allSettings['overtime'] || {};
+    const workSettings = allSettings['working-hours'] || { endTime: '17:00' };
+    
+    // Lương
+    const baseSalary = employee.baseSalary || employee.salary || 0;
+    const dailyRate = baseSalary > 0 ? (baseSalary / 26) : 0;
+    const hourlyRate = dailyRate / 8;
+
+    // Tìm bản ghi hôm nay
+    let attendance = await Attendance.findOne({ employee: employee._id, date: today });
+    
+    // Logic Auto xác định Action
+    let actionType = type || action;
+    if (actionType === 'auto') {
+      if (!attendance) {
+        actionType = 'checkin';
+        console.log('Auto mode: Check-in needed - no attendance record for today');
+      } else if (!attendance.checkIn || !attendance.checkIn.time) {
+        actionType = 'checkin';
+        console.log('Auto mode: Check-in needed - has record but no check-in time');
+      } else if (!attendance.checkOut || !attendance.checkOut.time) {
+        actionType = 'checkout';
+        console.log('Auto mode: Check-out needed - has check-in but no check-out');
+      } else {
+        console.log('Auto mode: Already completed today - has both check-in and check-out');
+        return res.json({ 
+          success: true, 
+          message: 'Done for today', 
+          what: 'done' 
         });
       }
+    }
 
-      // Get settings for late calculation
-      const settings = await attendanceHelper.getAllSettings();
-      const workingHours = settings['working-hours'] || { startTime: '08:00', endTime: '17:00' };
-      const latePolicy = settings['late-policy'] || { graceMinutes: 15, penaltyAfterGrace: 50000 };
-      
-      // Calculate late minutes and penalty
-      const lateMinutes = attendanceHelper.calculateLateMinutes(now, workingHours.startTime, latePolicy.graceMinutes);
-      const latePenalty = attendanceHelper.calculateLatePenalty(lateMinutes, latePolicy);
-      const checkInStatus = lateMinutes > 0 ? 'late' : 'on-time';
-      
+    // === XỬ LÝ CHECK-IN ===
+    if (actionType === 'checkin') {
+      // Logic xác định status Check-in
+      const workStartTime = allSettings['working-hours']?.startTime || '08:00';
+      const lateMinutes = attendanceHelper.calculateLateMinutes(now, workStartTime, latePolicy.graceMinutes || 15);
+      let checkInStatus = lateMinutes > 0 ? 'late' : 'on-time';
+
+      // Logic phạt "Nội quy thép"
+      let actualPenalty = 0;
+      let status = 'present';
+
+      // 1. Phạt tiền đi muộn
+      if (lateMinutes > 0) {
+        actualPenalty += attendanceHelper.calculateLatePenalty(lateMinutes, latePolicy);
+      }
+
+      // 2. Phạt nửa công nếu muộn quá ngưỡng
+      const halfDayThreshold = latePolicy.halfDayThreshold || 60;
+      if (lateMinutes > halfDayThreshold) {
+        status = 'half-day';
+        checkInStatus = 'late'; // Vẫn là late nhưng nặng hơn
+        // Cộng phạt nửa ngày lương (để hiển thị)
+        actualPenalty += (dailyRate * 0.5); 
+      }
+
       // Check if today is a holiday
       const holiday = await attendanceHelper.isHoliday(today);
       const isHoliday = !!holiday;
       const holidayRate = holiday ? holiday.workRate : 1.0;
-      
+
       if (!attendance) {
-        // Create new attendance record
         attendance = new Attendance({
           employee: employee._id,
           fingerprintId: fingerprintId || employee.fingerprintId,
           date: today,
-          checkIn: {
-            time: now,
-            status: checkInStatus
-          },
-          status: 'present',
+          checkIn: { time: now, status: checkInStatus },
+          status: status,
           lateMinutes,
-          latePenalty,
+          actualPenalty,   
+          estimatedOTSalary: 0,
           isHoliday,
           holidayRate
         });
       } else {
-        // Update existing record
-        attendance.checkIn = {
-          time: now,
-          status: checkInStatus
-        };
-        attendance.status = 'present';
+        // Nếu đã có record (ví dụ do lỗi), update lại
+        attendance.checkIn = { time: now, status: checkInStatus };
+        attendance.status = status;
+        attendance.actualPenalty = actualPenalty;
         attendance.lateMinutes = lateMinutes;
-        attendance.latePenalty = latePenalty;
         attendance.isHoliday = isHoliday;
         attendance.holidayRate = holidayRate;
       }
-
+      
       await attendance.save();
 
       console.log('Check-in successful - returning what: in');
-      return res.status(200).json({
-        success: true,
-        message: 'Check-in recorded successfully',
+      return res.status(200).json({ 
+        success: true, 
+        message: 'Check-in thành công', 
         data: attendance,
-        what: 'in',
-        status: 'checkin',
-        action: 'checkin'
+        what: 'in' 
       });
-
-    } else if (actionType === 'checkout') {
+    } 
+    
+    // === XỬ LÝ CHECK-OUT ===
+    else if (actionType === 'checkout') {
+      // [QUAN TRỌNG] Kiểm tra bắt buộc Check-in
       if (!attendance || !attendance.checkIn || !attendance.checkIn.time) {
-        console.log('Cannot check out - no check-in found');
+        console.error("Lỗi: Cố gắng Checkout khi chưa Checkin");
         return res.status(400).json({
           success: false,
-          message: 'Must check in before checking out',
+          message: 'Bạn chưa Check-in nên không thể Check-out!',
+          what: 'error',
           needInFirst: true
         });
       }
 
-      if (attendance.checkOut && attendance.checkOut.time) {
-        console.log('Already checked out today - returning done');
-        return res.status(200).json({
-          success: true,
-          message: 'Already checked out for today',
-          what: 'done',
-          status: 'already-checkout',
-          action: 'checkout',
-          data: attendance
-        });
+      // 1. Tính trạng thái ra về (Sớm/Đúng/OT)
+      const endTimeParts = workSettings.endTime.split(':');
+      const standardEndHour = parseInt(endTimeParts[0]);
+      const standardEndMin = parseInt(endTimeParts[1]);
+      
+      let checkOutStatus = 'on-time';
+      if (now.getHours() < standardEndHour) {
+        checkOutStatus = 'early';
+      } else if (now.getHours() > standardEndHour || (now.getHours() === standardEndHour && now.getMinutes() > standardEndMin + 30)) {
+        checkOutStatus = 'overtime';
       }
 
-      const checkOutStatus = 
-        currentHour < WORK_END_HOUR ? 'early' :
-        currentHour > WORK_END_HOUR ? 'overtime' : 'on-time';
+      // 2. Tính giờ làm việc & OT
+      const workingHours = attendanceHelper.calculateWorkingHours(attendance.checkIn.time, now);
+      const overtimeHours = attendanceHelper.calculateOvertimeHours(attendance.checkIn.time, now, 8); // Giả sử chuẩn 8h
+      
+      // 3. Tính tiền OT
+      let estimatedOTSalary = 0;
+      let otRate = 1.0;
+      
+      if (overtimeHours > 0) {
+        otRate = await attendanceHelper.getOvertimeRate(today, attendance.isHoliday || false, otSettings);
+        estimatedOTSalary = Math.round(overtimeHours * hourlyRate * otRate);
+      }
 
-      // Calculate working hours
-      const checkInTime = attendance.checkIn.time;
-      const workingHours = (now - checkInTime) / (1000 * 60 * 60); // Convert to hours
-
-      attendance.checkOut = {
-        time: now,
-        status: checkOutStatus
-      };
+      // Cập nhật
+      attendance.checkOut = { time: now, status: checkOutStatus };
       attendance.workingHours = workingHours;
+      attendance.overtimeHours = Math.max(0, overtimeHours);
+      attendance.overtimeRate = otRate;
+      attendance.estimatedOTSalary = estimatedOTSalary;
 
       await attendance.save();
 
       console.log('Check-out successful - returning what: out');
-      return res.status(200).json({
-        success: true,
-        message: 'Check-out recorded successfully',
+      return res.status(200).json({ 
+        success: true, 
+        message: 'Check-out thành công', 
         data: attendance,
-        what: 'out',
-        status: 'checkout',
-        action: 'checkout'
+        what: 'out' 
       });
     } else {
       return res.status(400).json({
@@ -243,11 +303,12 @@ exports.addAttendance = async (req, res) => {
     }
 
   } catch (error) {
-    console.error('Error in addAttendance:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Error recording attendance',
-      error: error.message
+    console.error('Attendance Error:', error);
+    // Trả về 500 để ESP32 biết là lỗi
+    res.status(500).json({ 
+      success: false, 
+      message: error.message,
+      error: error.stack 
     });
   }
 };
@@ -266,7 +327,7 @@ exports.handleAttendance = async (req, res) => {
       });
     }
 
-    const now = new Date();
+    const now = getSystemTime();
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
 
     // Check if attendance record exists for today
@@ -381,7 +442,7 @@ exports.getEmployeeAttendance = async (req, res) => {
 exports.getTodayAttendance = async (req, res) => {
   try {
     // Use UTC date to match existing records
-    const now = new Date();
+    const now = getSystemTime();
     const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
 
     console.log('Fetching today\'s attendance for date:', today);
@@ -472,7 +533,7 @@ exports.getAllAttendance = async (req, res) => {
 // Delete today's attendance records (for testing)
 exports.deleteTodayAttendance = async (req, res) => {
   try {
-    const today = new Date();
+    const today = getSystemTime();
     today.setHours(0, 0, 0, 0);
 
     const result = await Attendance.deleteMany({

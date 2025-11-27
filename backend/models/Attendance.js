@@ -78,6 +78,16 @@ const attendanceSchema = new mongoose.Schema({
     default: false
   },
   
+  // Money calculations (calculated at attendance time)
+  estimatedOTSalary: {
+    type: Number,
+    default: 0
+  },
+  actualPenalty: {
+    type: Number,
+    default: 0  // Total penalty: late + forgot checkout + half-day
+  },
+  
   notes: String
 }, {
   timestamps: true

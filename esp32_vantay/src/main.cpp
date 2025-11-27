@@ -1,0 +1,1532 @@
+/************************************************************
+ * ESP32 Fingerprint + OLED I2C (SDA=16, SCL=17)  [AUTO MODE]
+ * - KHÔNG dùng nút. Luồng auto:
+ *   + Lần 1 trong ngày = IN
+ *   + Lần 2 trong ngày = OUT
+ *   + Lần 3 trở đi     = ĐÃ HOÀN TẤT HÔM NAY (không gửi server nữa)
+ * - Chỉ mark NVS sau khi server xác nhận OK (tránh lệch).
+ * - Có cooldown chống double-tap cùng ngón tay.
+ * - Tự động lấy config từ backend (KHÔNG CẦN HARDCODE IP)
+ ************************************************************/
+
+#include <Arduino.h>
+#include <WiFi.h>
+#include <WiFiMulti.h>
+#include <WebServer.h>
+#include <WiFiClientSecure.h>
+#include <HTTPClient.h>
+#include <Adafruit_Fingerprint.h>
+#include <Preferences.h>
+#include <time.h>
+
+// ================== Simple JSON Parser (không cần ArduinoJson) ==================
+String getJsonStringValue(const String &json, const String &key)
+{
+  String searchKey = "\"" + key + "\"";
+  int keyPos = json.indexOf(searchKey);
+  if (keyPos < 0)
+    return "";
+
+  int colonPos = json.indexOf(":", keyPos);
+  if (colonPos < 0)
+    return "";
+
+  int startQuote = json.indexOf("\"", colonPos);
+  if (startQuote < 0)
+    return "";
+
+  int endQuote = json.indexOf("\"", startQuote + 1);
+  if (endQuote < 0)
+    return "";
+
+  return json.substring(startQuote + 1, endQuote);
+}
+
+bool getJsonBoolValue(const String &json, const String &key)
+{
+  String searchKey = "\"" + key + "\"";
+  int keyPos = json.indexOf(searchKey);
+  if (keyPos < 0)
+    return false;
+
+  int colonPos = json.indexOf(":", keyPos);
+  if (colonPos < 0)
+    return false;
+
+  int valueStart = colonPos + 1;
+  while (valueStart < json.length() && (json[valueStart] == ' ' || json[valueStart] == '\t'))
+  {
+    valueStart++;
+  }
+
+  if (valueStart < json.length() && json.substring(valueStart, valueStart + 4) == "true")
+  {
+    return true;
+  }
+  return false;
+}
+
+String getJsonNestedValue(const String &json, const String &parentKey, const String &childKey)
+{
+  String searchParent = "\"" + parentKey + "\"";
+  int parentPos = json.indexOf(searchParent);
+  if (parentPos < 0)
+    return "";
+
+  int braceStart = json.indexOf("{", parentPos);
+  if (braceStart < 0)
+    return "";
+
+  int braceEnd = braceStart;
+  int braceCount = 1;
+  for (int i = braceStart + 1; i < json.length() && braceCount > 0; i++)
+  {
+    if (json[i] == '{')
+      braceCount++;
+    else if (json[i] == '}')
+      braceCount--;
+    if (braceCount == 0)
+    {
+      braceEnd = i;
+      break;
+    }
+  }
+
+  String nestedJson = json.substring(braceStart, braceEnd + 1);
+  return getJsonStringValue(nestedJson, childKey);
+}
+
+// ====== OLED ======
+#include <Wire.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
+#define SCREEN_WIDTH 128
+#define SCREEN_HEIGHT 64
+#define OLED_ADDR 0x3C
+#define I2C_SDA 16
+#define I2C_SCL 17
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
+
+// ====== BUZZER (active, on/off) ======
+#define BUZZER_PIN 15
+inline void buzzOn() { digitalWrite(BUZZER_PIN, HIGH); }
+inline void buzzOff() { digitalWrite(BUZZER_PIN, LOW); }
+static void beepOnce(int onMs)
+{
+  buzzOn();
+  delay(onMs);
+  buzzOff();
+}
+static void beepTick()
+{
+  beepOnce(180);
+  delay(80);
+  beepOnce(180);
+}
+static void beepPrompt() { beepOnce(80); }
+static void beepSuccess() { beepTick(); }
+static void beepSuccessEnroll()
+{
+  beepOnce(200);
+  delay(80);
+  beepOnce(200);
+  delay(80);
+  beepOnce(200);
+}
+static void beepShort() { /*beepOnce(50);*/ }
+static void beepError() { /*beepOnce(300);*/ }
+
+// ===== OLED helpers =====
+String __last1, __last2, __last3;
+void oledInit()
+{
+  Wire.begin(I2C_SDA, I2C_SCL);
+  if (!display.begin(SSD1306_SWITCHCAPVCC, OLED_ADDR))
+  {
+    Serial.println("✗ OLED init fail");
+    return;
+  }
+  display.clearDisplay();
+  display.setTextColor(SSD1306_WHITE);
+  display.setTextSize(1);
+  display.display();
+}
+
+void oledPrintCenter(const String &l1, const String &l2 = "", const String &l3 = "")
+{
+  if (l1 == __last1 && l2 == __last2 && l3 == __last3)
+    return;
+  __last1 = l1;
+  __last2 = l2;
+  __last3 = l3;
+  display.clearDisplay();
+  int16_t x, y;
+  uint16_t w, h;
+  auto draw = [&](int row, const String &s)
+  {
+    display.getTextBounds(s, 0, 0, &x, &y, &w, &h);
+    int cx = (SCREEN_WIDTH - w) / 2;
+    if (cx < 0)
+      cx = 0;
+    display.setCursor(cx, 14 * row);
+    display.print(s);
+  };
+  draw(0, l1);
+  draw(1, l2);
+  draw(2, l3);
+  display.display();
+}
+
+// ================== WI-FI (đa mạng) ==================
+WiFiMulti wifiMulti;
+struct WifiCred
+{
+  const char *ssid;
+  const char *pass;
+};
+WifiCred WIFI_LIST[] = {
+    {"hihi", "abcdef12"},
+    {"Phuc Tran L2", "06111219"},
+    {"Comie Lau ", "88888888"},
+    // Thêm WiFi khác nếu cần:
+    // {"WiFi_2", "password2"},
+    // {"WiFi_3", "password3"}
+};
+const int WIFI_COUNT = sizeof(WIFI_LIST) / sizeof(WIFI_LIST[0]);
+
+// ====== Clear WiFi credentials từ NVS ======
+void clearWiFiCredentials()
+{
+  Serial.println("Clearing WiFi credentials from NVS...");
+  WiFi.disconnect(true); // true = erase stored credentials
+  delay(500);
+  WiFi.mode(WIFI_OFF);
+  delay(100);
+  WiFi.mode(WIFI_STA);
+  Serial.println("✓ WiFi credentials cleared");
+}
+
+bool connectWiFiMulti(unsigned long overallTimeoutMs = 30000)
+{
+  // Option: Tự động clear WiFi credentials nếu không kết nối được
+  // Set true để tự động clear WiFi credentials cũ nếu kết nối thất bại
+  const bool AUTO_CLEAR_WIFI_ON_FAIL = false; // Đổi thành true nếu cần
+
+  // Clear WiFi credentials cũ nếu được yêu cầu
+  if (AUTO_CLEAR_WIFI_ON_FAIL)
+  {
+    Serial.println("⚠️ AUTO_CLEAR_WIFI_ON_FAIL is enabled");
+    clearWiFiCredentials();
+  }
+
+  WiFi.mode(WIFI_STA);
+  WiFi.setAutoReconnect(true);
+  WiFi.persistent(false); // QUAN TRỌNG: Không lưu WiFi credentials vào flash (tránh xung đột với credentials cũ)
+  WiFi.disconnect();      // Disconnect trước khi scan
+  delay(500);             // Tăng delay để đảm bảo disconnect hoàn tất
+
+  // === DEBUG: Scan WiFi networks ===
+  Serial.println("\n=== Scanning WiFi networks ===");
+  oledPrintCenter("Dang quet Wi-Fi", "Vui long cho...");
+  int n = WiFi.scanNetworks();
+  Serial.printf("Found %d networks:\n", n);
+  bool foundTarget = false;
+
+  for (int i = 0; i < n; i++)
+  {
+    String ssid = WiFi.SSID(i);
+    int rssi = WiFi.RSSI(i);
+    bool encrypted = (WiFi.encryptionType(i) != WIFI_AUTH_OPEN);
+    Serial.printf("  [%d] SSID: '%s' (RSSI: %d dBm, %s)\n",
+                  i, ssid.c_str(), rssi, encrypted ? "Encrypted" : "Open");
+
+    // So sánh với danh sách WiFi cần kết nối
+    for (int j = 0; j < WIFI_COUNT; j++)
+    {
+      String targetSSID = String(WIFI_LIST[j].ssid);
+      // So sánh không phân biệt hoa thường và trim spaces
+      ssid.trim();
+      targetSSID.trim();
+      if (ssid.equalsIgnoreCase(targetSSID))
+      {
+        foundTarget = true;
+        Serial.printf("    ✓ MATCH FOUND: '%s' (target: '%s')\n",
+                      ssid.c_str(), targetSSID.c_str());
+      }
+    }
+  }
+  Serial.println("=== End scan ===\n");
+
+  if (!foundTarget && n > 0)
+  {
+    Serial.println("⚠️ WARNING: Target SSID not found in scan list!");
+    Serial.println("Available SSIDs shown above. Check if SSID name is correct.");
+    Serial.println("Target SSIDs:");
+    for (int i = 0; i < WIFI_COUNT; i++)
+    {
+      Serial.printf("  - '%s'\n", WIFI_LIST[i].ssid);
+    }
+    oledPrintCenter("SSID not found", "Check Serial", "for list");
+    delay(2000);
+  }
+  else if (n == 0)
+  {
+    Serial.println("⚠️ WARNING: No networks found!");
+    oledPrintCenter("No WiFi found", "Check range", "");
+    delay(2000);
+  }
+
+  WiFi.setAutoReconnect(true);
+  WiFi.persistent(false);
+
+  // Clear và add lại vào WiFiMulti
+  wifiMulti = WiFiMulti(); // Reset WiFiMulti
+
+  Serial.println("Adding WiFi networks to WiFiMulti:");
+  for (int i = 0; i < WIFI_COUNT; ++i)
+  {
+    wifiMulti.addAP(WIFI_LIST[i].ssid, WIFI_LIST[i].pass);
+    Serial.printf("  [%d] Added: '%s'\n", i, WIFI_LIST[i].ssid);
+  }
+
+  Serial.println("→ Connecting Wi-Fi (multi)...");
+  oledPrintCenter("Dang ket noi Wi-Fi", "(multi)...");
+
+  unsigned long t0 = millis();
+  int lastStatus = -1;
+  while (millis() - t0 < overallTimeoutMs)
+  {
+    // wifiMulti.run() trả về WL_CONNECTED nếu kết nối thành công
+    uint8_t result = wifiMulti.run();
+    wl_status_t status = WiFi.status();
+
+    // Print status mỗi 3 giây để debug
+    if ((millis() - t0) % 3000 < 500 && (int)status != lastStatus)
+    {
+      Serial.printf("  Status: %d", (int)status);
+      switch (status)
+      {
+      case WL_IDLE_STATUS:
+        Serial.println(" (IDLE)");
+        break;
+      case WL_NO_SSID_AVAIL:
+        Serial.println(" (NO SSID)");
+        break;
+      case WL_SCAN_COMPLETED:
+        Serial.println(" (SCAN COMPLETED)");
+        break;
+      case WL_CONNECTED:
+        Serial.println(" (CONNECTED)");
+        break;
+      case WL_CONNECT_FAILED:
+        Serial.println(" (CONNECT FAILED)");
+        break;
+      case WL_CONNECTION_LOST:
+        Serial.println(" (CONNECTION LOST)");
+        break;
+      case WL_DISCONNECTED:
+        Serial.println(" (DISCONNECTED)");
+        break;
+      default:
+        Serial.println();
+        break;
+      }
+      lastStatus = (int)status;
+    }
+
+    // Kiểm tra cả result và status
+    if (result == WL_CONNECTED || status == WL_CONNECTED)
+    {
+      String ip = WiFi.localIP().toString();
+      Serial.printf("\n✓ Wi-Fi: '%s'  IP=%s  RSSI=%d\n",
+                    WiFi.SSID().c_str(), ip.c_str(), WiFi.RSSI());
+      oledPrintCenter("Wi-Fi OK", WiFi.SSID(), "IP: " + ip);
+      return true;
+    }
+
+    delay(500);
+    if ((millis() - t0) % 2000 < 500)
+    {
+      Serial.print(".");
+    }
+  }
+
+  Serial.printf("\n✗ Wi-Fi failed (status=%d)\n", WiFi.status());
+  oledPrintCenter("Wi-Fi FAIL", "Thu fallback...");
+
+  // === FALLBACK: Thử connect trực tiếp với WiFi.begin() ===
+  Serial.println("\n=== Trying direct WiFi.begin() as fallback ===");
+  for (int i = 0; i < WIFI_COUNT; i++)
+  {
+    Serial.printf("\nTrying direct connect: '%s'\n", WIFI_LIST[i].ssid);
+    WiFi.disconnect();
+    delay(100);
+    WiFi.begin(WIFI_LIST[i].ssid, WIFI_LIST[i].pass);
+
+    unsigned long fallbackStart = millis();
+    int attempts = 0;
+    while (millis() - fallbackStart < 15000)
+    { // 15 seconds timeout
+      wl_status_t status = WiFi.status();
+      if (status == WL_CONNECTED)
+      {
+        String ip = WiFi.localIP().toString();
+        Serial.printf("✓ Direct connect OK: '%s'  IP=%s  RSSI=%d\n",
+                      WiFi.SSID().c_str(), ip.c_str(), WiFi.RSSI());
+        oledPrintCenter("Wi-Fi OK (direct)", WiFi.SSID(), "IP: " + ip);
+        return true;
+      }
+      else if (status == WL_CONNECT_FAILED || status == WL_NO_SSID_AVAIL)
+      {
+        Serial.printf("  ✗ Connect failed (status=%d)\n", status);
+        break;
+      }
+      delay(500);
+      if (attempts++ % 4 == 0)
+      {
+        Serial.print(".");
+      }
+    }
+    Serial.println("  Timeout");
+  }
+
+  Serial.println("\n✗ All connection methods failed!");
+  Serial.println("\n💡 TROUBLESHOOTING:");
+  Serial.println("   1. Check if SSID and password are correct in code");
+  Serial.println("   2. Check if WiFi router is in range");
+  Serial.println("   3. Check Serial output above for available WiFi networks");
+  Serial.println("   4. If SSID not found, check if WiFi name has special characters");
+  Serial.println("   5. Clear WiFi credentials: GET http://<ESP32_IP>/wipe-wifi");
+  Serial.println("   6. Or manually clear: Set AUTO_CLEAR_WIFI_ON_FAIL = true in code");
+  Serial.println("   7. Restart ESP32 after clearing WiFi credentials");
+
+  oledPrintCenter("Wi-Fi FAIL", "Check Serial", "or /wipe-wifi");
+  return false;
+}
+
+// ================== NTP time (UTC+7) ==================
+bool timeReady = false;
+void syncTimeOnce()
+{
+  if (timeReady)
+    return;
+  configTime(7 * 3600, 0, "pool.ntp.org", "time.nist.gov");
+  for (int i = 0; i < 20; ++i)
+  {
+    time_t now = time(nullptr);
+    if (now > 1700000000)
+    {
+      timeReady = true;
+      break;
+    }
+    delay(500);
+  }
+  Serial.println(timeReady ? "✓ NTP time synced" : "✗ NTP not ready");
+}
+
+String fmtDate(time_t t)
+{
+  struct tm tm;
+  localtime_r(&t, &tm);
+  char buf[16];
+  strftime(buf, sizeof(buf), "%d/%m/%Y", &tm);
+  return String(buf);
+}
+
+String fmtTime(time_t t)
+{
+  struct tm tm;
+  localtime_r(&t, &tm);
+  char buf[16];
+  strftime(buf, sizeof(buf), "%H:%M:%S", &tm);
+  return String(buf);
+}
+
+String todayKey()
+{
+  time_t t = time(nullptr);
+  struct tm tm;
+  localtime_r(&t, &tm);
+  char buf[9];
+  strftime(buf, sizeof(buf), "%Y%m%d", &tm);
+  return String(buf);
+}
+
+// ================== BACKEND URL (DYNAMIC - Tự động lấy từ backend) ==================
+const char *DEFAULT_SERVER_URL = "http://172.20.10.7:3000/api"; // Fallback only
+String serverUrl = DEFAULT_SERVER_URL;
+String fingerprintEndpoint = serverUrl + "/fingerprint";
+String attendanceEndpoint = serverUrl + "/attendance/add";
+
+// ================== WEBSERVER + NVS ==================
+WebServer webServer(80);
+Preferences prefs;
+
+void sendCORS()
+{
+  webServer.sendHeader("Access-Control-Allow-Origin", "*");
+  webServer.sendHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
+  webServer.sendHeader("Access-Control-Allow-Headers", "Content-Type");
+}
+
+void handleOptions()
+{
+  sendCORS();
+  webServer.send(204);
+}
+
+// ====== Load/Save Server URL từ NVS ======
+void loadServerUrl()
+{
+  prefs.begin("app", false);
+  serverUrl = prefs.getString("serverUrl", DEFAULT_SERVER_URL);
+  fingerprintEndpoint = serverUrl + "/fingerprint";
+  attendanceEndpoint = serverUrl + "/attendance/add";
+  prefs.end();
+  Serial.printf("Loaded serverUrl from NVS: %s\n", serverUrl.c_str());
+}
+
+void saveServerUrl(const String &url)
+{
+  prefs.begin("app", false);
+  prefs.putString("serverUrl", url);
+  prefs.end();
+  serverUrl = url;
+  fingerprintEndpoint = serverUrl + "/fingerprint";
+  attendanceEndpoint = serverUrl + "/attendance/add";
+  Serial.printf("✓ Saved serverUrl to NVS: %s\n", serverUrl.c_str());
+}
+
+// ====== Tự động lấy config từ backend ======
+bool getServerConfigFromBackend()
+{
+  HTTPClient http;
+  String esp32IP = WiFi.localIP().toString();
+
+  Serial.println("\n==========================================");
+  Serial.println("🔍 Getting server config from backend...");
+  Serial.println("ESP32 IP: " + esp32IP);
+  Serial.println("==========================================");
+
+  // Lấy subnet hiện tại (ví dụ: 192.168.2.x)
+  IPAddress localIP = WiFi.localIP();
+  String subnet = String(localIP[0]) + "." + String(localIP[1]) + "." + String(localIP[2]);
+
+  Serial.println("Subnet: " + subnet + ".x");
+
+  // Danh sách server IPs để thử (ưu tiên từ cao xuống thấp)
+  String serverIPs[] = {
+      subnet + ".28",  // Server có thể ở .28 trên cùng subnet (ưu tiên cao nhất)
+      subnet + ".100", // Hoặc .100 trên cùng subnet
+      subnet + ".1",   // Gateway thường là .1
+      subnet + ".2",   // Hoặc .2
+      "172.20.2.28",   // IP cụ thể mới
+      "172.20.10.7",   // IP cũ
+      "192.168.1.100", // IP khác
+      "192.168.0.100"  // IP khác
+  };
+
+  // Thử discovery endpoint trước (nhanh hơn)
+  Serial.println("\n🔍 Trying discovery endpoint...");
+  for (int i = 0; i < 8; i++)
+  {
+    String discoveryUrl = "http://" + serverIPs[i] + ":3000/esp32-discovery";
+    Serial.print("  [" + String(i + 1) + "] " + serverIPs[i] + ":3000 ... ");
+
+    http.begin(discoveryUrl);
+    http.setTimeout(2000); // 2 seconds timeout
+    http.setConnectTimeout(2000);
+
+    unsigned long startTime = millis();
+    int httpCode = http.GET();
+    unsigned long elapsed = millis() - startTime;
+
+    if (httpCode == 200)
+    {
+      String payload = http.getString();
+      Serial.println("✅ OK (" + String(elapsed) + "ms)");
+      Serial.println("     Response: " + payload.substring(0, 100));
+
+      // Parse JSON without ArduinoJson library
+      if (getJsonBoolValue(payload, "success"))
+      {
+        String discoveredUrl = getJsonStringValue(payload, "serverUrl");
+        if (discoveredUrl.length() > 0)
+        {
+          http.end();
+
+          if (discoveredUrl != serverUrl)
+          {
+            saveServerUrl(discoveredUrl);
+            String fpEndpoint = getJsonStringValue(payload, "fingerprintEndpoint");
+            String attEndpoint = getJsonStringValue(payload, "attendanceEndpoint");
+            if (fpEndpoint.length() > 0)
+              fingerprintEndpoint = fpEndpoint;
+            if (attEndpoint.length() > 0)
+              attendanceEndpoint = attEndpoint;
+
+            Serial.println("\n==========================================");
+            Serial.println("✅ CONFIG UPDATED VIA DISCOVERY!");
+            Serial.println("==========================================");
+            Serial.println("Server URL: " + serverUrl);
+            Serial.println("Fingerprint: " + fingerprintEndpoint);
+            Serial.println("Attendance: " + attendanceEndpoint);
+            Serial.println("==========================================");
+            oledPrintCenter("Config updated", "Via discovery", serverUrl);
+            return true;
+          }
+          else
+          {
+            Serial.println("✅ Config unchanged, using: " + serverUrl);
+            http.end();
+            return true;
+          }
+        }
+      }
+      else
+      {
+        Serial.println("❌ Invalid response format");
+      }
+    }
+    else if (httpCode > 0)
+    {
+      Serial.println("❌ HTTP " + String(httpCode) + " (" + String(elapsed) + "ms)");
+    }
+    else
+    {
+      String errorMsg = http.errorToString(httpCode);
+      Serial.println("❌ " + errorMsg + " (" + String(elapsed) + "ms)");
+    }
+    http.end();
+    delay(100); // Short delay between attempts
+  }
+
+  // Nếu discovery thất bại, thử config endpoint
+  Serial.println("\n🔍 Trying config endpoint...");
+  for (int i = 0; i < 8; i++)
+  {
+    String configUrl = "http://" + serverIPs[i] + ":3000/api/esp32-config?ip=" + esp32IP;
+    Serial.print("  [" + String(i + 1) + "] " + serverIPs[i] + ":3000 ... ");
+
+    http.begin(configUrl);
+    http.setTimeout(3000);
+    http.setConnectTimeout(3000);
+
+    unsigned long startTime = millis();
+    int httpCode = http.GET();
+    unsigned long elapsed = millis() - startTime;
+
+    if (httpCode == 200)
+    {
+      String payload = http.getString();
+      Serial.println("✅ OK (" + String(elapsed) + "ms)");
+      Serial.println("     Response: " + payload.substring(0, 150));
+
+      // Parse JSON without ArduinoJson library
+      if (getJsonBoolValue(payload, "success"))
+      {
+        String newServerUrl = getJsonNestedValue(payload, "data", "serverUrl");
+        String newFingerprintEndpoint = getJsonNestedValue(payload, "data", "fingerprintEndpoint");
+        String newAttendanceEndpoint = getJsonNestedValue(payload, "data", "attendanceEndpoint");
+
+        if (newServerUrl.length() > 0)
+        {
+          if (newServerUrl != serverUrl)
+          {
+            saveServerUrl(newServerUrl);
+            if (newFingerprintEndpoint.length() > 0)
+              fingerprintEndpoint = newFingerprintEndpoint;
+            if (newAttendanceEndpoint.length() > 0)
+              attendanceEndpoint = newAttendanceEndpoint;
+
+            Serial.println("\n==========================================");
+            Serial.println("✅ CONFIG UPDATED FROM BACKEND!");
+            Serial.println("==========================================");
+            Serial.println("Server URL: " + serverUrl);
+            Serial.println("Fingerprint: " + fingerprintEndpoint);
+            Serial.println("Attendance: " + attendanceEndpoint);
+            Serial.println("==========================================");
+            oledPrintCenter("Config updated", "From backend", serverUrl);
+          }
+          else
+          {
+            Serial.println("✅ Config unchanged, using: " + serverUrl);
+          }
+          http.end();
+          return true;
+        }
+        else
+        {
+          Serial.println("❌ No serverUrl in response");
+        }
+      }
+      else
+      {
+        Serial.println("❌ success=false or parse error");
+      }
+    }
+    else if (httpCode > 0)
+    {
+      Serial.println("❌ HTTP " + String(httpCode) + " (" + String(elapsed) + "ms)");
+    }
+    else
+    {
+      String errorMsg = http.errorToString(httpCode);
+      Serial.println("❌ " + errorMsg + " (" + String(elapsed) + "ms)");
+    }
+    http.end();
+    delay(100);
+  }
+
+  // Không tìm thấy server
+  Serial.println("\n⚠️ WARNING: Could not find server!");
+  Serial.println("==========================================");
+  Serial.println("Tried IPs:");
+  for (int i = 0; i < 8; i++)
+  {
+    Serial.println("  - " + serverIPs[i] + ":3000");
+  }
+  Serial.println("==========================================");
+  Serial.println("Using saved/default config: " + serverUrl);
+  Serial.println("\n💡 Tips:");
+  Serial.println("1. Check if backend is running");
+  Serial.println("2. Check if backend IP matches one of the tried IPs");
+  Serial.println("3. Check if ESP32 and Backend are on same WiFi");
+  Serial.println("4. Try updating config manually via:");
+  Serial.println("   http://" + esp32IP + "/config?url=http://<SERVER_IP>:3000/api/fingerprint");
+  Serial.println("==========================================");
+
+  oledPrintCenter("Server not found", "Using saved URL", serverUrl.substring(7, 30));
+  return false;
+}
+
+volatile bool needReRegister = false;
+
+// ====== Handle /config endpoint (để update từ web) ======
+void handleConfig()
+{
+  sendCORS();
+  if (!webServer.hasArg("url"))
+  {
+    // Return current config (manual JSON construction)
+    String response = "{\"serverUrl\":\"" + serverUrl + "\",\"fingerprintEndpoint\":\"" + fingerprintEndpoint + "\",\"status\":\"ok\"}";
+    webServer.send(200, "application/json", response);
+    return;
+  }
+
+  String url = webServer.arg("url");
+  if (!url.startsWith("http"))
+  {
+    webServer.send(400, "application/json", "{\"error\":\"url must start with http/https\"}");
+    return;
+  }
+
+  // Extract serverUrl from fingerprintEndpoint
+  int apiPos = url.indexOf("/api");
+  if (apiPos > 0)
+  {
+    String newServerUrl = url.substring(0, apiPos + 4);
+    if (newServerUrl != serverUrl)
+    {
+      saveServerUrl(newServerUrl);
+      fingerprintEndpoint = url;
+      attendanceEndpoint = newServerUrl + "/attendance/add";
+      needReRegister = true;
+      Serial.printf("✓ New serverUrl saved via /config: %s\n", serverUrl.c_str());
+      oledPrintCenter("Config updated", "Via /config", serverUrl);
+    }
+  }
+
+  webServer.send(200, "application/json", String("{\"serverUrl\":\"") + serverUrl + "\",\"fingerprintEndpoint\":\"" + fingerprintEndpoint + "\"}");
+}
+
+// ================== UART + CẢM BIẾN (TX=26, RX=25) ==================
+static const int FP_RX_PIN = 25;
+static const int FP_TX_PIN = 26;
+HardwareSerial fingerSerial(2);
+Adafruit_Fingerprint finger(&fingerSerial);
+
+// ================== Base64 ==================
+static const char b64_alphabet[] =
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    "abcdefghijklmnopqrstuvwxyz"
+    "0123456789+/";
+
+String base64_encode(const uint8_t *data, size_t len)
+{
+  String out;
+  int val = 0, valb = -6;
+  for (size_t i = 0; i < len; i++)
+  {
+    val = (val << 8) + data[i];
+    valb += 8;
+    while (valb >= 0)
+    {
+      out += b64_alphabet[(val >> valb) & 0x3F];
+      valb -= 6;
+    }
+  }
+  if (valb > -6)
+    out += b64_alphabet[((val << 8) >> (valb + 8)) & 0x3F];
+  while (out.length() % 4)
+    out += '=';
+  return out;
+}
+
+// ================== HTTP helper ==================
+bool httpPostJson(const String &url, const String &body, int &outCode, String &outResp)
+{
+  HTTPClient http;
+  bool okBegin = false;
+  if (url.startsWith("https://"))
+  {
+    WiFiClientSecure client;
+    client.setTimeout(15000);
+    client.setInsecure();
+    okBegin = http.begin(client, url);
+  }
+  else
+  {
+    WiFiClient client;
+    client.setTimeout(15000);
+    okBegin = http.begin(client, url);
+  }
+  if (!okBegin)
+    return false;
+  http.setReuse(false);
+  http.addHeader("Content-Type", "application/json");
+  outCode = http.POST(body);
+  outResp = http.getString();
+  if (outCode <= 0)
+    Serial.printf("HTTP error %d: %s\n", outCode, http.errorToString(outCode).c_str());
+  else
+    Serial.printf("HTTP %d, resp len=%d\n", outCode, outResp.length());
+  http.end();
+  return true;
+}
+
+String baseFromServerUrl(const String &s)
+{
+  int p = s.indexOf("/api");
+  if (p > 0)
+    return s.substring(0, p);
+  return s;
+}
+
+bool isPrivateLanUrl(const String &url)
+{
+  if (!url.startsWith("http://"))
+    return false;
+  int p = url.indexOf("://");
+  String host = url.substring(p + 3);
+  int c = host.indexOf('/');
+  if (c >= 0)
+    host = host.substring(0, c);
+  int col = host.indexOf(':');
+  if (col >= 0)
+    host = host.substring(0, col);
+  return host.startsWith("192.168.") || host.startsWith("10.") ||
+         host.startsWith("172.16.") || host.startsWith("172.17.") ||
+         host.startsWith("172.18.") || host.startsWith("172.19.") ||
+         host.startsWith("172.2") || host.startsWith("172.3");
+}
+
+// ================== Self-register vào server ==================
+unsigned long nextRegisterMs = 0;
+bool registeredOk = false;
+
+bool registerEsp32ToServer()
+{
+  String base = baseFromServerUrl(serverUrl);
+  String url = base + "/esp32-register";
+  String body = String("{\"ip\":\"") + WiFi.localIP().toString() + "\"}";
+  int code = 0;
+  String resp;
+  
+  Serial.println("\n==========================================");
+  Serial.println("📝 Registering ESP32 to server...");
+  Serial.println("ESP32 IP: " + WiFi.localIP().toString());
+  Serial.println("Server URL: " + serverUrl);
+  Serial.println("Register URL: " + url);
+  Serial.println("==========================================");
+  
+  bool ok = httpPostJson(url, body, code, resp);
+  Serial.printf("register => %d\n", code);
+  
+  if (code > 0) {
+    Serial.println("Response: " + resp.substring(0, 200));
+  }
+
+  // Parse response to get server URL if different
+  if (ok && code >= 200 && code < 300)
+  {
+    // Parse JSON without ArduinoJson library
+    if (getJsonBoolValue(resp, "success"))
+    {
+      String newServerUrl = getJsonNestedValue(resp, "data", "serverUrl");
+      if (newServerUrl.length() > 0 && newServerUrl != serverUrl)
+      {
+        saveServerUrl(newServerUrl);
+        String newFingerprintEndpoint = getJsonNestedValue(resp, "data", "fingerprintEndpoint");
+        String newAttendanceEndpoint = getJsonNestedValue(resp, "data", "attendanceEndpoint");
+        if (newFingerprintEndpoint.length() > 0)
+          fingerprintEndpoint = newFingerprintEndpoint;
+        if (newAttendanceEndpoint.length() > 0)
+          attendanceEndpoint = newAttendanceEndpoint;
+        Serial.println("✅ Updated config from registration response");
+      }
+    }
+  }
+
+  return ok && code >= 200 && code < 300;
+}
+
+void tryRegisterIfLan()
+{
+  if (WiFi.status() != WL_CONNECTED)
+    return;
+  if (!isPrivateLanUrl(serverUrl))
+    return;
+  if (millis() < nextRegisterMs && !needReRegister)
+    return;
+
+  oledPrintCenter("Dang dang ky", "ESP32 → server...");
+  registeredOk = registerEsp32ToServer();
+  needReRegister = false;
+  nextRegisterMs = millis() + (registeredOk ? 60000UL : 5000UL);
+  oledPrintCenter(registeredOk ? "Dang ky OK" : "Dang ky FAIL", baseFromServerUrl(serverUrl));
+}
+
+// ================== tiện ích cảm biến ==================
+const char *fpErr(uint8_t code)
+{
+  switch (code)
+  {
+  case FINGERPRINT_OK:
+    return "OK";
+  case FINGERPRINT_PACKETRECIEVEERR:
+    return "PACKET";
+  case FINGERPRINT_NOFINGER:
+    return "NOFINGER";
+  case FINGERPRINT_IMAGEFAIL:
+    return "IMAGEFAIL";
+  case FINGERPRINT_IMAGEMESS:
+    return "IMAGEMESS";
+  case FINGERPRINT_FEATUREFAIL:
+    return "FEATUREFAIL";
+  case FINGERPRINT_INVALIDIMAGE:
+    return "INVALIDIMAGE";
+  case FINGERPRINT_ENROLLMISMATCH:
+    return "ENROLLMISMATCH";
+  case FINGERPRINT_BADLOCATION:
+    return "BADLOCATION";
+  case FINGERPRINT_FLASHERR:
+    return "FLASHERR";
+  case FINGERPRINT_NOTFOUND:
+    return "NOTFOUND";
+  case FINGERPRINT_DELETE:
+    return "DELETE_OK";
+  default:
+    return "UNKNOWN";
+  }
+}
+
+bool slotOccupied(uint16_t id) { return finger.loadModel(id) == FINGERPRINT_OK; }
+
+bool deleteFingerprint(uint16_t id)
+{
+  uint8_t r = finger.deleteModel(id);
+  Serial.printf("deleteModel(%u) => %u (%s)\n", id, r, fpErr(r));
+  return r == FINGERPRINT_OK;
+}
+
+// ================== Gửi template ==================
+bool sendTemplate(uint8_t id)
+{
+  if (finger.loadModel(id) != FINGERPRINT_OK)
+  {
+    Serial.println("  ✗ loadModel");
+    beepError();
+    return false;
+  }
+  if (finger.getModel() != FINGERPRINT_OK)
+  {
+    Serial.println("  ✗ getModel");
+    beepError();
+    return false;
+  }
+  uint8_t buf[1024];
+  int len = 0;
+  unsigned long t0 = millis();
+  while (millis() - t0 < 3000 && len < (int)sizeof(buf))
+  {
+    if (fingerSerial.available())
+      buf[len++] = fingerSerial.read();
+    else
+      delay(2);
+  }
+  if (len == 0)
+  {
+    Serial.println("  ✗ empty template");
+    return false;
+  }
+  if (WiFi.status() != WL_CONNECTED)
+  {
+    Serial.println("  ✗ Wi-Fi not connected");
+    beepError();
+    return false;
+  }
+  String b64 = base64_encode(buf, len);
+  Serial.printf("template bytes read: %d (b64 len=%d)\n", len, b64.length());
+  String body = "{\"fingerId\":" + String(id) + ",\"template\":\"" + b64 + "\"}";
+  int code = 0;
+  String resp;
+  bool begun = httpPostJson(fingerprintEndpoint, body, code, resp);
+  if (!begun)
+  {
+    Serial.println("  ✗ http.begin");
+    beepError();
+    return false;
+  }
+  bool ok = (code >= 200 && code < 300);
+  Serial.printf("  → POST %s => %d\n", fingerprintEndpoint.c_str(), code);
+  if (!ok)
+    Serial.println(resp);
+  return ok;
+}
+
+// ===== Gửi điểm danh về server (AUTO/IN/OUT) =====
+bool sendAttendance(uint16_t id, const char *action, int &codeOut, String &respOut)
+{
+  if (WiFi.status() != WL_CONNECTED)
+    return false;
+  String body = String("{\"fingerId\":") + id + ",\"action\":\"" + action + "\"}";
+  bool okBegin = httpPostJson(attendanceEndpoint, body, codeOut, respOut);
+  Serial.printf("POST attendance(%s) => %d, resp=%s\n", action, codeOut, respOut.c_str());
+  return okBegin && codeOut >= 200 && codeOut < 300;
+}
+
+bool sendAttendance(uint16_t id, const char *action)
+{
+  int code = 0;
+  String resp;
+  return sendAttendance(id, action, code, resp);
+}
+
+// ================== Enroll ==================
+bool waitFinger(uint16_t timeoutMs)
+{
+  unsigned long t0 = millis();
+  while (millis() - t0 < timeoutMs)
+  {
+    if (finger.getImage() == FINGERPRINT_OK)
+      return true;
+    delay(80);
+  }
+  return false;
+}
+
+bool enrollFingerprint(uint8_t id)
+{
+  if (slotOccupied(id))
+  {
+    Serial.printf("ID #%u dang co mau -> xoa truoc\n", id);
+    if (!deleteFingerprint(id))
+    {
+      Serial.println("✗ Khong the xoa slot cu -> huy enroll");
+      oledPrintCenter("ENROLL FAIL", "Khong xoa duoc ID cu");
+      return false;
+    }
+  }
+  Serial.printf("→ Enroll ID #%u\n", id);
+  oledPrintCenter("ENROLL ID #" + String(id), "Dat ngon tay lan 1");
+  beepPrompt();
+  if (!waitFinger(10000))
+  {
+    Serial.println("  ✗ Timeout 1");
+    oledPrintCenter("ENROLL FAIL", "Timeout buoc 1");
+    beepError();
+    return false;
+  }
+  uint8_t r = finger.image2Tz(1);
+  if (r != FINGERPRINT_OK)
+  {
+    Serial.printf("  ✗ image2Tz(1): %s\n", fpErr(r));
+    oledPrintCenter("ENROLL FAIL", "image2Tz(1)");
+    beepError();
+    return false;
+  }
+  oledPrintCenter("Nhat tay ra", "Roi dat lai...");
+  unsigned long t = millis();
+  while (finger.getImage() != FINGERPRINT_NOFINGER && millis() - t < 5000)
+    delay(50);
+  oledPrintCenter("ENROLL ID #" + String(id), "Dat ngon tay lan 2");
+  beepPrompt();
+  if (!waitFinger(10000))
+  {
+    Serial.println("  ✗ Timeout 2");
+    oledPrintCenter("ENROLL FAIL", "Timeout buoc 2");
+    beepError();
+    return false;
+  }
+  r = finger.image2Tz(2);
+  if (r != FINGERPRINT_OK)
+  {
+    Serial.printf("  ✗ image2Tz(2): %s\n", fpErr(r));
+    oledPrintCenter("ENROLL FAIL", "image2Tz(2)");
+    beepError();
+    return false;
+  }
+  r = finger.createModel();
+  if (r != FINGERPRINT_OK)
+  {
+    Serial.printf("  ✗ createModel: %s\n", fpErr(r));
+    oledPrintCenter("ENROLL FAIL", "createModel");
+    beepError();
+    return false;
+  }
+  r = finger.storeModel(id);
+  Serial.printf("  storeModel(%u) => %u (%s)\n", id, r, fpErr(r));
+  if (r != FINGERPRINT_OK)
+  {
+    oledPrintCenter("ENROLL FAIL", String("store=") + fpErr(r));
+    return false;
+  }
+  Serial.println("  ✓ Model stored");
+  beepSuccessEnroll();
+  oledPrintCenter("ENROLL OK", "Dang gui server...");
+  if (!sendTemplate(id))
+  {
+    Serial.println("  ✗ HTTP error");
+    oledPrintCenter("ENROLL OK", "Gui server FAIL");
+    beepError();
+    return false;
+  }
+  oledPrintCenter("ENROLL HOAN TAT", "ID #" + String(id));
+  return true;
+}
+
+// ================== HTTP endpoints (ESP32) ==================
+void handleEnroll()
+{
+  sendCORS();
+  if (!webServer.hasArg("id"))
+  {
+    webServer.send(400, "application/json", "{\"error\":\"Missing id\"}");
+    return;
+  }
+  uint16_t id = webServer.arg("id").toInt();
+  if (id < 1 || id > 127)
+  {
+    webServer.send(400, "application/json", "{\"error\":\"id must be 1-127\"}");
+    return;
+  }
+  if (enrollFingerprint(id))
+    webServer.send(200, "application/json", "{\"message\":\"Quet thanh cong!\",\"id\":" + String(id) + "}");
+  else
+    webServer.send(500, "application/json", "{\"message\":\"Quet khong thanh cong!\"}");
+}
+
+void handleHealth()
+{
+  sendCORS();
+  // Manual JSON construction
+  String response = "{\"ok\":true,\"ip\":\"" + WiFi.localIP().toString() +
+                    "\",\"serverUrl\":\"" + serverUrl +
+                    "\",\"fingerprintEndpoint\":\"" + fingerprintEndpoint + "\"}";
+  webServer.send(200, "application/json", response);
+}
+
+void handleDelete()
+{
+  sendCORS();
+  if (!webServer.hasArg("id"))
+  {
+    webServer.send(400, "application/json", "{\"error\":\"Missing id\"}");
+    return;
+  }
+  uint16_t id = webServer.arg("id").toInt();
+  uint8_t r = finger.deleteModel(id);
+  String msg = String("{\"id\":") + id + ",\"code\":" + r + ",\"desc\":\"" + fpErr(r) + "\"}";
+  int http = (r == FINGERPRINT_OK) ? 200 : 500;
+  webServer.send(http, "application/json", msg);
+}
+
+void handleRoot()
+{
+  sendCORS();
+  String ip = WiFi.localIP().toString();
+  String html =
+      "<html><body style='font-family:monospace'>"
+      "<h3>ESP32 Fingerprint (AUTO)</h3>"
+      "<p>IP ESP32: " +
+      ip + "</p>"
+           "<p>Server URL: " +
+      serverUrl + "</p>"
+                  "<p>Fingerprint Endpoint: " +
+      fingerprintEndpoint + "</p>"
+                            "<ul>"
+                            "<li>GET /healthz</li>"
+                            "<li>GET /config?url=http%3A%2F%2F&lt;SERVER_IP&gt;%3A3000%2Fapi%2Ffingerprint</li>"
+                            "<li>GET /enroll?id=&lt;so_id&gt;</li>"
+                            "<li>GET /delete?id=&lt;so_id&gt;</li>"
+                            "<li>GET /wipe-local  (xoa cache diem danh NVS)</li>"
+                            "<li>GET /wipe-all    (xoa tat ca mau + cache)</li>"
+                            "<li>GET /wipe-wifi   (xoa WiFi credentials, restart ESP32)</li>"
+                            "</ul>"
+                            "</body></html>";
+  webServer.send(200, "text/html", html);
+}
+
+void handleFavicon()
+{
+  sendCORS();
+  webServer.send(204);
+}
+
+void handleNotFound()
+{
+  sendCORS();
+  String msg = String("{\"error\":\"not found\",\"path\":\"") + webServer.uri() + "\"}";
+  webServer.send(404, "application/json", msg);
+}
+
+// ==== XÓA TOÀN BỘ MẪU TRONG CẢM BIẾN + DỌN NVS ====
+void wipeNvsAttendance()
+{
+  prefs.begin("att", false);
+  prefs.clear();
+  prefs.end();
+}
+
+void handleWipeLocal()
+{
+  sendCORS();
+  wipeNvsAttendance();
+  webServer.send(200, "application/json", "{\"ok\":true,\"wipe\":\"att\"}");
+  oledPrintCenter("XOA CACHE OK", "att cleared");
+  beepTick();
+}
+
+void handleWipeAll()
+{
+  sendCORS();
+  uint8_t r = finger.emptyDatabase();
+  bool okSensor = (r == FINGERPRINT_OK);
+  wipeNvsAttendance();
+  String msg = String("{\"okSensor\":") + (okSensor ? "true" : "false") +
+               ",\"code\":" + r + ",\"desc\":\"" + fpErr(r) + "\"}";
+  webServer.send(okSensor ? 200 : 500, "application/json", msg);
+  oledPrintCenter(okSensor ? "XOA TAT CA OK" : "XOA TAT CA FAIL");
+  if (okSensor)
+    beepTick();
+  else
+    beepError();
+}
+
+void handleWipeWiFi()
+{
+  sendCORS();
+  clearWiFiCredentials();
+  webServer.send(200, "application/json", "{\"ok\":true,\"wipe\":\"wifi\",\"message\":\"WiFi credentials cleared. ESP32 will restart.\"}");
+  oledPrintCenter("XOA WiFi OK", "Restarting...");
+  beepTick();
+  delay(2000);
+  ESP.restart(); // Restart để áp dụng thay đổi
+}
+
+// ====== Điểm danh: NVS helpers ======
+bool alreadyCheckedToday(uint16_t id)
+{
+  String key = "a_" + String(id);
+  String today = todayKey();
+  prefs.begin("att", true);
+  String last = prefs.isKey(key.c_str()) ? prefs.getString(key.c_str()) : "";
+  prefs.end();
+  return (last == today);
+}
+
+void markCheckedToday(uint16_t id)
+{
+  String key = "a_" + String(id);
+  String today = todayKey();
+  prefs.begin("att", false);
+  prefs.putString(key.c_str(), today);
+  prefs.end();
+}
+
+bool alreadyCheckedOutToday(uint16_t id)
+{
+  String key = "b_" + String(id);
+  String today = todayKey();
+  prefs.begin("att", true);
+  String last = prefs.isKey(key.c_str()) ? prefs.getString(key.c_str()) : "";
+  prefs.end();
+  return (last == today);
+}
+
+void markCheckedOutToday(uint16_t id)
+{
+  String key = "b_" + String(id);
+  String today = todayKey();
+  prefs.begin("att", false);
+  prefs.putString(key.c_str(), today);
+  prefs.end();
+}
+
+// ----- AUTO attendance guards -----
+#define COOLDOWN_MS 3000
+static uint16_t lastScanId = 0;
+static unsigned long lastScanAt = 0;
+
+// ================== SETUP / LOOP ==================
+void setup()
+{
+  Serial.begin(115200);
+  delay(100);
+  Serial.println("=== ESP32 Fingerprint (LAN + OLED) AUTO ===");
+
+  oledInit();
+  pinMode(BUZZER_PIN, OUTPUT);
+  buzzOff();
+
+  // Load server URL from NVS
+  loadServerUrl();
+  Serial.printf("Current serverUrl: %s\n", serverUrl.c_str());
+
+  if (!connectWiFiMulti(30000))
+    while (true)
+      delay(1000);
+
+  syncTimeOnce();
+
+  // ====== QUAN TRỌNG: Lấy config từ backend ======
+  oledPrintCenter("Dang lay config", "tu backend...");
+  getServerConfigFromBackend();
+  delay(1000);
+
+  nextRegisterMs = millis() + 1000;
+
+  // Tìm baud cảm biến
+  uint32_t BAUDS[] = {57600, 115200, 38400, 19200, 9600};
+  bool ok = false;
+  for (uint8_t i = 0; i < sizeof(BAUDS) / sizeof(BAUDS[0]) && !ok; i++)
+  {
+    fingerSerial.begin(BAUDS[i], SERIAL_8N1, FP_RX_PIN, FP_TX_PIN);
+    finger.begin(BAUDS[i]);
+    delay(150);
+    for (int k = 0; k < 3 && !ok; k++)
+    {
+      if (finger.verifyPassword())
+      {
+        Serial.printf("✓ Sensor ready @ %lu bps (RX=%d,TX=%d)\n", BAUDS[i], FP_RX_PIN, FP_TX_PIN);
+        ok = true;
+      }
+      else
+        delay(150);
+    }
+  }
+
+  if (!ok)
+  {
+    Serial.println("✗ Sensor not found");
+    oledPrintCenter("Sensor NOT FOUND", "Kiem tra RX/TX/nguon");
+    while (true)
+      delay(1000);
+  }
+
+  // Web server
+  webServer.on("/enroll", HTTP_GET, handleEnroll);
+  webServer.on("/enroll", HTTP_OPTIONS, handleOptions);
+  webServer.on("/delete", HTTP_GET, handleDelete);
+  webServer.on("/delete", HTTP_OPTIONS, handleOptions);
+  webServer.on("/config", HTTP_GET, handleConfig);
+  webServer.on("/config", HTTP_OPTIONS, handleOptions);
+  webServer.on("/healthz", HTTP_GET, handleHealth);
+  webServer.on("/", HTTP_GET, handleRoot);
+  webServer.on("/favicon.ico", HTTP_GET, handleFavicon);
+  webServer.on("/wipe-local", HTTP_GET, handleWipeLocal);
+  webServer.on("/wipe-all", HTTP_GET, handleWipeAll);
+  webServer.on("/wipe-wifi", HTTP_GET, handleWipeWiFi);
+  webServer.on("/wipe-wifi", HTTP_OPTIONS, handleOptions);
+  webServer.onNotFound(handleNotFound);
+  webServer.begin();
+
+  oledPrintCenter("Dat ngon tay de", "DIEM DANH (AUTO)", "1=IN, 2=OUT");
+}
+
+void loop()
+{
+  webServer.handleClient();
+  tryRegisterIfLan();
+
+  // Nhắc nhở màn hình trong khi rảnh
+  static unsigned long lastUi = 0;
+  if (millis() - lastUi > 2000)
+  {
+    oledPrintCenter("Dat ngon tay de", "DIEM DANH (AUTO)", "1=IN, 2=OUT");
+    lastUi = millis();
+  }
+
+  // Định kỳ check config mới (mỗi 5 phút)
+  static unsigned long lastConfigCheck = 0;
+  if (millis() - lastConfigCheck > 300000)
+  { // 5 minutes
+    Serial.println("\n🔄 Periodic config check...");
+    getServerConfigFromBackend();
+    lastConfigCheck = millis();
+  }
+
+  // IDENTIFY (AUTO)
+  uint8_t p = finger.getImage();
+  if (p != FINGERPRINT_OK)
+  {
+    delay(80);
+    return;
+  }
+
+  p = finger.image2Tz(1);
+  if (p != FINGERPRINT_OK)
+  {
+    oledPrintCenter("Anh khong ro", "Thu lai nhe");
+    delay(200);
+    return;
+  }
+
+  p = finger.fingerFastSearch();
+  if (p != FINGERPRINT_OK)
+  {
+    if (p == FINGERPRINT_NOTFOUND)
+    {
+      oledPrintCenter("KHONG TIM THAY", "Hay ENROLL lai");
+      beepError();
+      delay(600);
+    }
+    else
+    {
+      delay(100);
+    }
+    return;
+  }
+
+  // Có ID
+  uint16_t id = finger.fingerID;
+  unsigned long nowms = millis();
+
+  // Cooldown chống double-tap cùng ngón
+  if (id == lastScanId && (nowms - lastScanAt) < COOLDOWN_MS)
+  {
+    delay(200);
+    return;
+  }
+
+  lastScanId = id;
+  lastScanAt = nowms;
+
+  time_t now = time(nullptr);
+  String sTime = timeReady ? fmtTime(now) : "--:--:--";
+  String sDate = timeReady ? fmtDate(now) : "--/--/----";
+
+  bool hasIn = alreadyCheckedToday(id);
+  bool hasOut = alreadyCheckedOutToday(id);
+
+  // Nếu đã hoàn tất trong ngày → chỉ báo, không gửi server
+  if (hasIn && hasOut)
+  {
+    oledPrintCenter("DA HOAN TAT", "HOM NAY ROI", sTime + "  " + sDate);
+    beepShort();
+    delay(900);
+    return;
+  }
+
+  // Quyết định action auto theo NVS local
+  const char *action = "auto"; // luôn auto; server quyết định in/out
+
+  // Gửi server
+  int code = 0;
+  String resp;
+  bool ok = sendAttendance(id, action, code, resp);
+  if (!ok)
+  {
+    oledPrintCenter("GUI SERVER FAIL", "Thu lai nhe", sTime + "  " + sDate);
+    beepError();
+    delay(900);
+    return;
+  }
+
+  // Phân tích phản hồi đơn giản bằng contains
+  auto contains = [&](const char *needle)
+  { return resp.indexOf(needle) >= 0; };
+
+  if (contains("\"what\":\"in\"") || contains("\"what\":\"in-exists\""))
+  {
+    // Đã check-in (mới hoặc tồn tại) -> mark IN local
+    if (!hasIn)
+      markCheckedToday(id);
+    oledPrintCenter(contains("\"in-exists\"") ? "DA DIEM DANH" : "DIEM DANH OK",
+                    "ID #" + String(id),
+                    sTime + "  " + sDate);
+    beepSuccess();
+    delay(900);
+    return;
+  }
+
+  if (contains("\"what\":\"out\""))
+  {
+    // Đã check-out
+    if (!hasIn)
+      markCheckedToday(id);
+    if (!hasOut)
+      markCheckedOutToday(id);
+    oledPrintCenter("KET THUC NGAY", "ID #" + String(id), sTime + "  " + sDate);
+    beepSuccess();
+    delay(900);
+    return;
+  }
+
+  if (contains("\"what\":\"done\""))
+  {
+    // Server nói đã xong trong ngày
+    markCheckedToday(id);
+    markCheckedOutToday(id);
+    oledPrintCenter("DA HOAN TAT", "HOM NAY ROI", sTime + "  " + sDate);
+    beepShort();
+    delay(900);
+    return;
+  }
+
+  if (contains("\"needInFirst\":true"))
+  {
+    oledPrintCenter("CHUA DIEM DANH", "Khong the KET THUC", sTime + "  " + sDate);
+    beepShort();
+    delay(900);
+    return;
+  }
+
+  if (contains("\"tooSoon\":true"))
+  {
+    int idx = resp.indexOf("\"wait\":");
+    String waitStr = "";
+    if (idx >= 0)
+    {
+      int j = idx + 7;
+      while (j < (int)resp.length() && isspace(resp[j]))
+        j++;
+      while (j < (int)resp.length() && isDigit(resp[j]))
+      {
+        waitStr += resp[j];
+        j++;
+      }
+    }
+    String line2 = "Cho them " + (waitStr.length() ? waitStr : String("vai")) + "s";
+    oledPrintCenter("QUET KET THUC QUA SOM", line2, sTime + "  " + sDate);
+    beepShort();
+    delay(900);
+    return;
+  }
+
+  // Các trường hợp khác
+  oledPrintCenter("DA GHI NHAN", "ID #" + String(id), sTime + "  " + sDate);
+  beepShort();
+  delay(800);
+}

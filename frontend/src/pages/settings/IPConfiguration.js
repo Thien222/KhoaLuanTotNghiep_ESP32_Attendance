@@ -25,8 +25,10 @@ import {
   SaveOutlined,
   WifiOutlined,
   CloudServerOutlined,
-  ApiOutlined
+  ApiOutlined,
+  ArrowLeftOutlined
 } from '@ant-design/icons';
+import { useNavigate, useLocation } from 'react-router-dom';
 import {
   getConfig,
   saveConfig,
@@ -45,6 +47,8 @@ const { Option } = Select;
 
 const IPConfiguration = () => {
   const { message } = App.useApp();
+  const navigate = useNavigate();
+  const location = useLocation();
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
   const [testing, setTesting] = useState(false);
@@ -52,6 +56,9 @@ const IPConfiguration = () => {
   const [esp32Connected, setEsp32Connected] = useState(null);
   const [currentConfig, setCurrentConfig] = useState(getConfig());
   const [autoDetecting, setAutoDetecting] = useState(false);
+  
+  // Check if this is a standalone page (not inside Settings)
+  const isStandalone = location.pathname === '/ip-config';
 
   useEffect(() => {
     loadCurrentConfig();
@@ -117,10 +124,18 @@ const IPConfiguration = () => {
         message.warning('Đã lưu cấu hình IP. ESP32 sẽ tự động cập nhật khi restart.');
       }
       
-      // Auto refresh after 2 seconds
-      setTimeout(() => {
-        window.location.reload();
-      }, 2000);
+      // If standalone page, navigate back to login after saving
+      if (isStandalone) {
+        message.success('Đã lưu cấu hình IP! Đang quay về trang đăng nhập...');
+        setTimeout(() => {
+          navigate('/login');
+        }, 1500);
+      } else {
+        // Auto refresh after 2 seconds if in settings page
+        setTimeout(() => {
+          window.location.reload();
+        }, 2000);
+      }
     } catch (error) {
       message.error('Lỗi khi lưu cấu hình');
     } finally {
@@ -171,11 +186,25 @@ const IPConfiguration = () => {
   };
 
   return (
-    <div>
-      <Card>
-        <Title level={3} style={{ marginBottom: 24 }}>
-          <SettingOutlined /> Cấu hình IP & Kết nối
-        </Title>
+    <div style={isStandalone ? { 
+      minHeight: '100vh', 
+      padding: '20px',
+      background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
+    } : {}}>
+      <Card style={isStandalone ? { maxWidth: 1200, margin: '0 auto' } : {}}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
+          <Title level={3} style={{ margin: 0 }}>
+            <SettingOutlined /> Cấu hình IP & Kết nối
+          </Title>
+          {isStandalone && (
+            <Button
+              icon={<ArrowLeftOutlined />}
+              onClick={() => navigate('/login')}
+            >
+              Quay lại đăng nhập
+            </Button>
+          )}
+        </div>
 
         <Alert
           message="💡 Mẹo sử dụng"

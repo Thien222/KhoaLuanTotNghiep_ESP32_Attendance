@@ -109,10 +109,10 @@ const isHoliday = async (date) => {
  * Auto checkout for incomplete records
  * @param {Object} attendance - Attendance record
  * @param {Object} autoCheckoutSettings - Auto checkout settings
- * @returns {Object} - Updated attendance data
+ * @returns {Object} - Updated attendance data with strict penalty
  */
 const autoCheckout = (attendance, autoCheckoutSettings) => {
-  const { enabled = false, defaultTime = '17:00' } = autoCheckoutSettings || {};
+  const { enabled = false, defaultTime = '17:00', forgotCheckoutPenalty = 100000 } = autoCheckoutSettings || {};
   
   if (!enabled || !attendance.checkIn || !attendance.checkIn.time) {
     return null;
@@ -128,10 +128,14 @@ const autoCheckout = (attendance, autoCheckoutSettings) => {
   
   const autoCheckoutTime = checkInDate.clone().set({ hour, minute, second: 0, millisecond: 0 });
   
+  // STRICT RULE: Quên check-out = 0 công + Phạt tiền
   return {
     time: autoCheckoutTime.toDate(),
-    status: 'on-time',
-    auto: true
+    status: 'absent', // Changed from 'on-time' to 'absent'
+    auto: true,
+    workingHours: 0, // No working hours credited
+    forgotCheckoutPenalty: forgotCheckoutPenalty || 100000, // Fixed penalty amount (100k VND)
+    incompleteCheckout: true
   };
 };
 
@@ -192,6 +196,8 @@ module.exports = {
   calculateWorkingHours,
   getAllSettings
 };
+
+
 
 
 

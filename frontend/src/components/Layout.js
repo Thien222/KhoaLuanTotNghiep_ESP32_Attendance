@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Layout as AntLayout, Menu, Button, Avatar, Dropdown, Space, Typography, Badge } from 'antd';
 import { 
   MenuFoldOutlined, 
@@ -17,6 +17,7 @@ import {
   WifiOutlined
 } from '@ant-design/icons';
 import { useNavigate, useLocation } from 'react-router-dom';
+import TimeControl from './TimeControl';
 
 const { Header, Sider, Content } = AntLayout;
 const { Text } = Typography;
@@ -85,7 +86,7 @@ const MainLayout = ({ children }) => {
       key: '/payroll',
       icon: <DollarOutlined />,
       label: 'Bảng lương',
-      roles: ['employee', 'manager'] // User và admin
+      roles: ['employee', 'manager', 'accountant'] // User, admin và kế toán
     },
     {
       key: '/reports',
@@ -110,6 +111,12 @@ const MainLayout = ({ children }) => {
       icon: <SettingOutlined />,
       label: 'Cài đặt',
       roles: ['manager'] // Only admin
+    },
+    {
+      key: '/shifts',
+      icon: <ClockCircleOutlined />,
+      label: 'Quản lý ca làm việc',
+      roles: ['manager'] // Only admin
     }
   ];
 
@@ -132,25 +139,6 @@ const MainLayout = ({ children }) => {
     // Reload page to clear state
     window.location.href = '/';
   };
-
-  const userMenu = (
-    <Menu>
-      <Menu.Item key="profile" icon={<UserOutlined />}>
-        Thông tin cá nhân
-      </Menu.Item>
-      <Menu.Divider />
-      <Menu.Item key="logout" icon={<LogoutOutlined />} onClick={handleLogout}>
-        Đăng xuất
-      </Menu.Item>
-    </Menu>
-  );
-
-  const notificationMenu = (
-    <Menu>
-      <Menu.Item key="1">Thông báo 1</Menu.Item>
-      <Menu.Item key="2">Thông báo 2</Menu.Item>
-    </Menu>
-  );
 
   return (
     <AntLayout style={{ minHeight: '100vh' }}>
@@ -239,9 +227,13 @@ const MainLayout = ({ children }) => {
           padding: 24,
           background: '#fff',
           borderRadius: '8px',
-          minHeight: 'calc(100vh - 112px)'
+          minHeight: 'calc(100vh - 112px)',
+          position: 'relative' // Thêm relative để định vị con
         }}>
           {children}
+          
+          {/* Time Control Component */}
+          <TimeControl />
         </Content>
       </AntLayout>
     </AntLayout>

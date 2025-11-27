@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Form, Input, Button, Card, Typography, message, Divider } from 'antd';
-import { UserOutlined, LockOutlined, LoginOutlined } from '@ant-design/icons';
+import { Form, Input, Button, Card, Typography, Divider, App } from 'antd';
+import { UserOutlined, LockOutlined, LoginOutlined, SettingOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { getAPIUrl } from '../../utils/configManager';
@@ -8,6 +8,7 @@ import { getAPIUrl } from '../../utils/configManager';
 const { Title, Text } = Typography;
 
 const Login = () => {
+  const { message } = App.useApp();
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
@@ -25,9 +26,13 @@ const Login = () => {
     try {
       const API_URL = getAPIUrl();
       console.log('🔐 Attempting login with API_URL:', API_URL);
+      
+      // Set timeout for axios request
       const response = await axios.post(`${API_URL}/auth/login`, {
         email: values.email,
         password: values.password
+      }, {
+        timeout: 10000 // 10 seconds timeout
       });
 
       console.log('✅ Login response:', response.data);
@@ -59,7 +64,37 @@ const Login = () => {
       }
     } catch (error) {
       console.error('❌ Login error:', error);
-      message.error(error.response?.data?.message || 'Đăng nhập thất bại. Vui lòng kiểm tra kết nối server.');
+      
+      // Handle different types of errors
+      let errorMessage = 'Đăng nhập thất bại.';
+      
+      if (error.code === 'ECONNABORTED' || error.message.includes('timeout')) {
+        errorMessage = 'Kết nối đến server bị timeout. Vui lòng kiểm tra:';
+        errorMessage += '\n- Server có đang chạy không?';
+        errorMessage += '\n- Địa chỉ IP server có đúng không?';
+        errorMessage += `\n- Đang kết nối đến: ${getAPIUrl()}`;
+        message.error({
+          content: errorMessage,
+          duration: 8
+        });
+      } else if (error.code === 'ERR_NETWORK' || error.message.includes('ERR_CONNECTION_TIMED_OUT')) {
+        errorMessage = 'Không thể kết nối đến server. Vui lòng kiểm tra:';
+        errorMessage += '\n- Server có đang chạy không?';
+        errorMessage += '\n- Địa chỉ IP và cổng có đúng không?';
+        errorMessage += `\n- Đang kết nối đến: ${getAPIUrl()}`;
+        errorMessage += '\n- Kiểm tra cài đặt IP trong Settings';
+        message.error({
+          content: errorMessage,
+          duration: 8
+        });
+      } else if (error.response) {
+        // Server responded with error status
+        errorMessage = error.response.data?.message || `Lỗi: ${error.response.status} - ${error.response.statusText}`;
+        message.error(errorMessage);
+      } else {
+        errorMessage = error.message || 'Đăng nhập thất bại. Vui lòng thử lại.';
+        message.error(errorMessage);
+      }
     } finally {
       setLoading(false);
     }
@@ -92,6 +127,14 @@ const Login = () => {
           <div style={{ marginTop: '8px', fontSize: '12px', color: '#999' }}>
             Server: {getAPIUrl()}
           </div>
+          <Button
+            type="link"
+            icon={<SettingOutlined />}
+            onClick={() => navigate('/ip-config')}
+            style={{ marginTop: '8px', fontSize: '12px', padding: 0 }}
+          >
+            Cấu hình IP Server
+          </Button>
         </div>
 
         <Form

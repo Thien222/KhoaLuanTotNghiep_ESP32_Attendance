@@ -16,8 +16,10 @@ import ReportsManagement from './pages/reports/ReportsManagement';
 import ChatBot from './pages/chatbot/ChatBot';
 import ESP32Management from './pages/esp32/ESP32Management';
 import SettingsManagement from './pages/settings/SettingsManagement';
+import IPConfiguration from './pages/settings/IPConfiguration';
 import Profile from './pages/profile/Profile';
 import CompleteProfile from './pages/profile/CompleteProfile';
+import ShiftManagement from './pages/shift/ShiftManagement';
 
 const App = () => {
   return (
@@ -37,6 +39,9 @@ const App = () => {
             {/* Login page without layout */}
             <Route path="/login" element={<Login />} />
             <Route path="/" element={<Login />} />
+            
+            {/* IP Configuration page - public, no authentication required */}
+            <Route path="/ip-config" element={<IPConfiguration />} />
             
             <Route path="/dashboard" element={
               <MainLayout>
@@ -72,7 +77,7 @@ const App = () => {
             
             <Route path="/payroll" element={
               <MainLayout>
-                <ProtectedRoute allowedRoles={['employee', 'manager']} requireProfileComplete={true}>
+                <ProtectedRoute allowedRoles={['employee', 'manager', 'accountant']} requireProfileComplete={true}>
                   <PayrollManagement />
                 </ProtectedRoute>
               </MainLayout>
@@ -106,6 +111,14 @@ const App = () => {
               <MainLayout>
                 <ProtectedRoute allowedRoles={['manager']}>
                   <SettingsManagement />
+                </ProtectedRoute>
+              </MainLayout>
+            } />
+            
+            <Route path="/shifts" element={
+              <MainLayout>
+                <ProtectedRoute allowedRoles={['manager']}>
+                  <ShiftManagement />
                 </ProtectedRoute>
               </MainLayout>
             } />

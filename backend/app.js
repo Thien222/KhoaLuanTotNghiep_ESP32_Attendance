@@ -14,7 +14,9 @@ const holidayRoutes = require('./routes/holidayRoutes');
 const dashboardRoutes = require('./routes/dashboardRoutes');
 const leaveRoutes = require('./routes/leaveRoutes');
 const payrollRoutes = require('./routes/payrollRoutes');
+const shiftRoutes = require('./routes/shiftRoutes');
 const chatRoutes = require('./routes/chatRoutes');
+const testRoutes = require('./routes/testRoutes');
 const errorHandler = require('./middleware/errorHandler');
 
 const app = express();
@@ -49,7 +51,24 @@ mongoose.connect(mongoURI, {
   useNewUrlParser: true,
   useUnifiedTopology: true
 })
-.then(() => console.log('MongoDB connected successfully'))
+.then(async () => {
+  console.log('MongoDB connected successfully');
+  
+  // Load ESP32 IP from database on startup
+  try {
+    const ESP32Config = require('./models/ESP32Config');
+    const latestConfig = await ESP32Config.findOne().sort({ lastSeen: -1 });
+    if (latestConfig && latestConfig.esp32Ip) {
+      esp32Info.ip = latestConfig.esp32Ip;
+      esp32Info.lastSeen = latestConfig.lastSeen?.toISOString() || new Date().toISOString();
+      console.log(`✅ Loaded ESP32 IP from database: ${esp32Info.ip}`);
+    } else {
+      console.log('ℹ️ No ESP32 IP found in database. Will use configured IP or wait for ESP32 registration.');
+    }
+  } catch (error) {
+    console.error('Error loading ESP32 config from database:', error);
+  }
+})
 .catch(err => console.error('MongoDB connection error:', err));
 
 // ===== ESP32 state (in-memory) =====
@@ -320,6 +339,8 @@ app.use('/api/holidays', holidayRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/leave', leaveRoutes);
 app.use('/api/payroll', payrollRoutes);
+app.use('/api/shifts', shiftRoutes);
+app.use('/api/test', testRoutes); // Time Machine routes (only works if ENABLE_TEST_MODE=true)
 // Chat routes with mock user for testing
 app.use((req, res, next) => {
   if (req.path.startsWith('/api/chat')) {
@@ -358,12 +379,34 @@ app.get('/api/enroll', async (req, res) => {
       });
     }
 
-    // Use registered ESP32 IP if available, otherwise fallback to configured IP but warn
-    const configuredIp = process.env.IP_ESP32 || '192.168.1.101';
-    const esp32Ip = esp32Info.ip || configuredIp;
-
-    if (!esp32Info.ip) {
-      console.warn('ESP32 IP not registered; using configured fallback IP. Recommend calling /esp32-register from ESP32.');
+    // Try to get ESP32 IP from multiple sources
+    let esp32Ip = null;
+    
+    // 1. First try in-memory (from registration)
+    if (esp32Info.ip) {
+      esp32Ip = esp32Info.ip;
+    } else {
+      // 2. Try to load from database
+      try {
+        const ESP32Config = require('./models/ESP32Config');
+        const latestConfig = await ESP32Config.findOne().sort({ lastSeen: -1 });
+        if (latestConfig && latestConfig.esp32Ip) {
+          esp32Ip = latestConfig.esp32Ip;
+          // Update in-memory cache
+          esp32Info.ip = latestConfig.esp32Ip;
+          esp32Info.lastSeen = latestConfig.lastSeen?.toISOString() || new Date().toISOString();
+          console.log(`✅ Loaded ESP32 IP from database: ${esp32Ip}`);
+        }
+      } catch (dbError) {
+        console.error('Error loading ESP32 IP from database:', dbError);
+      }
+      
+      // 3. Fallback to configured IP
+      if (!esp32Ip) {
+        esp32Ip = process.env.IP_ESP32 || '192.168.1.101';
+        console.warn(`⚠️ ESP32 IP not registered; using configured fallback IP: ${esp32Ip}`);
+        console.warn('   Recommend: ESP32 should call /esp32-register or set IP manually via /api/esp32-update-config');
+      }
     }
 
     const healthCheckUrl = `http://${esp32Ip}/healthz`;
@@ -384,11 +427,18 @@ app.get('/api/enroll', async (req, res) => {
       esp32Info.lastSeen = new Date().toISOString();
     } catch (healthError) {
       console.error('ESP32 Health Check Error:', healthError);
+      console.error('ESP32 IP attempted:', esp32Ip);
+      console.error('Health check URL:', healthCheckUrl);
       return res.status(503).json({
         success: false,
-        message: 'ESP32 device is unreachable. Ensure ESP32 is online and has called /esp32-register or check network/firewall.',
+        message: 'ESP32 thiết bị không kết nối được. Vui lòng đảm bảo:\n- ESP32 đã bật và kết nối mạng\n- IP ESP32 đã được cấu hình đúng (hiện tại: ' + esp32Ip + ')\n- ESP32 đã gọi /esp32-register hoặc kiểm tra firewall',
         error: healthError.message,
-        esp32Info
+        esp32Info: {
+          ip: esp32Ip,
+          configuredIp: configuredIp,
+          registered: !!esp32Info.ip
+        },
+        healthCheckUrl: healthCheckUrl
       });
     }
 
@@ -400,6 +450,7 @@ app.get('/api/enroll', async (req, res) => {
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
         console.log(`Attempt ${attempt} to communicate with ESP32 ${esp32Ip}...`);
+        console.log(`ESP32 URL: ${esp32Url}`);
         const controller = new AbortController();
         const timeoutDuration = baseTimeout * attempt;
         const timeoutId = setTimeout(() => controller.abort(), timeoutDuration);
@@ -408,15 +459,18 @@ app.get('/api/enroll', async (req, res) => {
         clearTimeout(timeoutId);
 
         if (!response.ok) {
-          throw new Error(`ESP32 returned status: ${response.status}`);
+          const errorText = await response.text();
+          console.error(`ESP32 returned status ${response.status}: ${errorText}`);
+          throw new Error(`ESP32 returned status: ${response.status} - ${errorText.substring(0, 100)}`);
         }
 
         const data = await response.json();
+        console.log(`ESP32 enroll response:`, JSON.stringify(data).substring(0, 200));
 
         const Employee = require('./models/Employee');
         const User = require('./models/User');
-        const { sendWelcomeEmail, sendEnrollmentNotification } = require('./services/emailService');
         
+        console.log(`Looking for employee with fingerprintId: ${fingerprintId}`);
         const updateResult = await Employee.findOneAndUpdate(
           { fingerprintId: parseInt(id) },
           { fingerprintEnrolled: true },
@@ -424,77 +478,108 @@ app.get('/api/enroll', async (req, res) => {
         );
 
         if (!updateResult) {
+          console.error(`❌ Employee not found with fingerprintId: ${fingerprintId}`);
           return res.status(404).json({
             success: false,
-            message: 'Employee not found with given fingerprint ID'
+            message: `Không tìm thấy nhân viên với Fingerprint ID: ${fingerprintId}`,
+            fingerprintId: fingerprintId
           });
         }
 
-        console.log('✅ Fingerprint enrolled for:', updateResult.name);
+        console.log('✅ Fingerprint enrolled for:', updateResult.name, 'Employee ID:', updateResult.employeeId);
 
         // Check if user account exists
-        let userAccount = await User.findOne({ username: updateResult.employeeId });
+        let userAccount = null;
+        let accountPassword = null; // Password to send in email
+        
+        try {
+          userAccount = await User.findOne({ username: updateResult.employeeId });
+        } catch (userError) {
+          console.error('Error checking user account:', userError);
+          // Continue even if user check fails
+        }
         
         if (!userAccount) {
-          console.log('📝 Creating user account for:', updateResult.employeeId);
-          
-          // Generate random password
-          const tempPassword = Math.random().toString(36).slice(-8);
-          
-          // Create user account
-          userAccount = new User({
-            username: updateResult.employeeId,
-            password: tempPassword,
-            role: 'employee',
-            employee: updateResult._id,
-            isActive: true
-          });
-          
-          await userAccount.save();
-          console.log('✅ User account created:', updateResult.employeeId);
-
-          // Send welcome email with credentials
-          if (updateResult.email) {
-            console.log('📧 Sending welcome email to:', updateResult.email);
+          // User account doesn't exist - create new one
+          try {
+            console.log('📝 Creating user account for:', updateResult.employeeId);
             
-            const emailResult = await sendWelcomeEmail(
-              {
-                name: updateResult.name,
-                email: updateResult.email,
-                employeeId: updateResult.employeeId,
-                fingerprintId: updateResult.fingerprintId,
-                position: updateResult.position,
-                department: updateResult.department,
-                fingerprintEnrolled: true
-              },
-              {
-                username: updateResult.employeeId,
-                password: tempPassword
-              }
-            );
-
-            if (emailResult.success) {
-              console.log('✅ Welcome email sent successfully!');
-            } else {
-              console.error('❌ Failed to send welcome email:', emailResult.error);
+            // Generate random password
+            accountPassword = Math.random().toString(36).slice(-8);
+            
+            // Create user account
+            userAccount = new User({
+              username: updateResult.employeeId,
+              password: accountPassword,
+              role: 'employee',
+              employee: updateResult._id,
+              isActive: true
+            });
+            
+            await userAccount.save();
+            console.log('✅ User account created:', updateResult.employeeId);
+          } catch (userCreateError) {
+            console.error('❌ Error creating user account:', userCreateError);
+            // Generate password anyway for email (even if account creation fails)
+            if (!accountPassword) {
+              accountPassword = Math.random().toString(36).slice(-8);
             }
           }
         } else {
+          // User account already exists - reset password
           console.log('ℹ️ User account already exists for:', updateResult.employeeId);
           
-          // Send enrollment notification only
-          if (updateResult.email) {
-            console.log('📧 Sending enrollment notification to:', updateResult.email);
+          try {
+            // Generate new random password
+            accountPassword = Math.random().toString(36).slice(-8);
+            
+            // Update password (will be hashed by pre-save hook)
+            userAccount.password = accountPassword;
+            await userAccount.save();
+            console.log('✅ Password reset for existing user account:', updateResult.employeeId);
+          } catch (passwordError) {
+            console.error('❌ Error resetting password:', passwordError);
+            // Generate password anyway for email (even if password reset fails)
+            if (!accountPassword) {
+              accountPassword = Math.random().toString(36).slice(-8);
+            }
+          }
+        }
+
+        // Always send email with login credentials when enroll fingerprint
+        // Ensure we have a password to send
+        if (!accountPassword) {
+          accountPassword = Math.random().toString(36).slice(-8);
+          console.log('⚠️ Generated fallback password for email');
+        }
+        
+        if (updateResult.email) {
+          try {
+            const { sendEnrollmentNotification } = require('./services/emailService');
+            console.log('📧 Sending enrollment notification with login credentials to:', updateResult.email);
+            
             const emailResult = await sendEnrollmentNotification({
               name: updateResult.name,
               email: updateResult.email,
-              fingerprintId: updateResult.fingerprintId
+              employeeId: updateResult.employeeId,
+              fingerprintId: updateResult.fingerprintId,
+              username: userAccount ? userAccount.username : updateResult.employeeId,
+              password: accountPassword, // Always include password
+              position: updateResult.position,
+              department: updateResult.department
             });
             
             if (emailResult.success) {
-              console.log('✅ Enrollment notification sent!');
+              console.log('✅ Enrollment notification with credentials sent successfully!');
+            } else {
+              console.error('❌ Failed to send enrollment notification:', emailResult.error);
             }
+          } catch (emailError) {
+            console.error('❌ Error sending enrollment notification:', emailError);
+            // Continue even if email fails
           }
+        } else if (updateResult.email && !accountPassword) {
+          console.warn('⚠️ Cannot send email: password not generated');
         }
 
         return res.json({
@@ -927,7 +1012,7 @@ app.post('/api/debug/employees', async (req, res) => {
   try {
     const Employee = require('./models/Employee');
     const User = require('./models/User');
-    const { name, position, department, email, phone, fingerprintId, contractType, salary: salaryRaw } = req.body;
+    const { name, position, department, email, phone, fingerprintId, contractType, salary: salaryRaw, createUserAccount, userRole } = req.body;
     
     console.log('📝 Creating employee with data:', req.body);
     
@@ -1118,10 +1203,56 @@ app.post('/api/debug/employees', async (req, res) => {
     const savedEmployee = await newEmployee.save();
     console.log('✅ Employee created successfully:', savedEmployee.employeeId);
     
+    // Create user account if requested
+    let userAccount = null;
+    if (createUserAccount) {
+      try {
+        // Validate role
+        const validRoles = ['employee', 'accountant', 'manager'];
+        const finalRole = validRoles.includes(userRole) ? userRole : 'employee';
+        
+        // Check if user account already exists with this email
+        const existingUser = await User.findOne({ 
+          $or: [
+            { email: normalizedEmail },
+            { username: employeeId }
+          ]
+        });
+        
+        if (existingUser) {
+          console.log('⚠️ User account already exists for this employee');
+        } else {
+          // Create user account
+          // Default password is employeeId (user should change on first login)
+          userAccount = new User({
+            email: normalizedEmail,
+            username: employeeId,
+            password: employeeId, // Default password = employeeId
+            role: finalRole,
+            employee: savedEmployee._id, // Link to employee
+            isActive: true
+          });
+          
+          await userAccount.save();
+          console.log(`✅ User account created with role: ${finalRole}`);
+        }
+      } catch (userError) {
+        console.error('❌ Error creating user account:', userError);
+        // Don't fail the employee creation if user account creation fails
+        // Just log the error
+      }
+    }
+    
     res.json({
       success: true,
       message: 'Thêm nhân viên thành công',
       data: savedEmployee,
+      userAccount: userAccount ? {
+        email: userAccount.email,
+        username: userAccount.username,
+        role: userAccount.role,
+        defaultPassword: employeeId
+      } : null,
       cleaned: {
         orphanUsers: orphanUsers.length
       }
