@@ -4,17 +4,19 @@ import {
   Button, 
   Space, 
   DatePicker, 
-  Select, 
   Card, 
   Typography,
   Tag,
   message,
   Modal,
   Form,
-  Input,
   Row,
   Col,
-  Statistic
+  Statistic,
+  TimePicker,
+  Divider,
+  Alert,
+  Select
 } from 'antd';
 import { 
   ClockCircleOutlined, 
@@ -30,7 +32,6 @@ import { getESP32Url, getAPIUrl } from '../../utils/configManager';
 
 const { Title } = Typography;
 const { RangePicker } = DatePicker;
-const { Option } = Select;
 
 const AttendanceManagement = () => {
   const [attendances, setAttendances] = useState([]);
@@ -39,11 +40,32 @@ const AttendanceManagement = () => {
   const [modalVisible, setModalVisible] = useState(false);
   const [form] = Form.useForm();
   const [esp32Connected, setEsp32Connected] = useState(false);
+  const [previewData, setPreviewData] = useState(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [employees, setEmployees] = useState([]);
 
   useEffect(() => {
     fetchAttendances();
     checkESP32Connection();
+    fetchEmployees();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dateRange]);
+
+  const fetchEmployees = async () => {
+    try {
+      const API_URL = getAPIUrl();
+      const response = await axios.get(`${API_URL}/employees`, {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        }
+      });
+      if (response.data.success) {
+        setEmployees(response.data.data || []);
+      }
+    } catch (error) {
+      console.error('Error fetching employees:', error);
+    }
+  };
 
   const checkESP32Connection = async () => {
     try {
@@ -132,24 +154,186 @@ const AttendanceManagement = () => {
     setModalVisible(true);
   };
 
+  // Auto-fill existing attendance data when employee and date are selected
+  const autoFillExistingData = async (employeeId, date) => {
+    if (!employeeId || !date) return;
+    
+    try {
+      const dateStr = moment(date).format('YYYY-MM-DD');
+      // Find existing attendance for this employee on this date
+      const existingAttendance = attendances.find(att => 
+        att.employee?._id === employeeId && 
+        moment(att.date).format('YYYY-MM-DD') === dateStr
+      );
+      
+      if (existingAttendance) {
+        console.log('Found existing attendance, auto-filling:', existingAttendance);
+        
+        // Auto-fill the time fields
+        const formValues = {
+          employeeId: employeeId,
+          date: date
+        };
+        
+        if (existingAttendance.checkIn?.time) {
+          const checkInTime = moment(existingAttendance.checkIn.time);
+          formValues.checkInTime = checkInTime;
+        }
+        
+        if (existingAttendance.checkOut?.time) {
+          const checkOutTime = moment(existingAttendance.checkOut.time);
+          formValues.checkOutTime = checkOutTime;
+        }
+        
+        form.setFieldsValue(formValues);
+        
+        // Trigger preview calculation
+        if (formValues.checkInTime && formValues.checkOutTime) {
+          calculatePreview(formValues);
+        }
+      }
+    } catch (error) {
+      console.error('Error auto-filling existing data:', error);
+    }
+  };
+
+  // Calculate preview when form values change
+  const calculatePreview = async (values) => {
+    if (!values.date || !values.checkInTime || !values.checkOutTime || !values.employeeId) {
+      setPreviewData(null);
+      return;
+    }
+    
+    // Validate time values
+    if (!moment(values.checkInTime).isValid() || !moment(values.checkOutTime).isValid()) {
+      console.warn('Invalid time values:', { checkInTime: values.checkInTime, checkOutTime: values.checkOutTime });
+      setPreviewData(null);
+      return;
+    }
+    
+    try {
+      setPreviewLoading(true);
+      const API_URL = getAPIUrl();
+      
+      // Format: date = "YYYY-MM-DD", time = "HH:mm"
+      const dateStr = moment(values.date).format('YYYY-MM-DD');
+      const checkInTimeStr = moment(values.checkInTime).format('HH:mm');
+      const checkOutTimeStr = moment(values.checkOutTime).format('HH:mm');
+      
+      // REMOVED: Validation chặn giờ ra phải sau giờ vào
+      // Backend sẽ tự động xử lý ca qua đêm (nếu giờ ra <= giờ vào thì cộng 1 ngày)
+      
+      console.log('Calculating preview:', {
+        userId: values.employeeId,
+        date: dateStr,
+        checkInTime: checkInTimeStr,
+        checkOutTime: checkOutTimeStr,
+        preview: true
+      });
+      
+      const response = await axios.post(`${API_URL}/attendance/manual`, {
+        userId: values.employeeId,
+        date: dateStr,
+        checkInTime: checkInTimeStr,
+        checkOutTime: checkOutTimeStr,
+        preview: true
+      }, {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        }
+      });
+      
+      if (response.data.success) {
+        setPreviewData(response.data.data);
+      }
+    } catch (error) {
+      console.error('Error calculating preview:', error);
+      console.error('Preview error details:', {
+        status: error.response?.status,
+        data: error.response?.data,
+        message: error.response?.data?.message || error.message
+      });
+      setPreviewData(null);
+    } finally {
+      setPreviewLoading(false);
+    }
+  };
+
   const handleManualSubmit = async (values) => {
     try {
-      // Mock manual check-in
-      const newAttendance = {
-        _id: Date.now().toString(),
-        date: new Date(),
-        employee: { name: values.employeeName, fingerprintId: values.fingerprintId },
-        checkIn: { time: new Date() },
-        checkOut: null,
-        workingHours: null,
-        status: 'present'
-      };
-      setAttendances(prev => [newAttendance, ...prev]);
-      message.success('Chấm công thủ công thành công');
-      setModalVisible(false);
-      form.resetFields();
+      setLoading(true);
+      const API_URL = getAPIUrl();
+      
+      // Validate required fields
+      if (!values.date || !values.checkInTime || !values.checkOutTime || !values.employeeId) {
+        message.error('Vui lòng điền đầy đủ thông tin');
+        setLoading(false);
+        return;
+      }
+      
+      // Validate time values
+      if (!moment(values.checkInTime).isValid() || !moment(values.checkOutTime).isValid()) {
+        message.error('Giờ vào/ra không hợp lệ');
+        setLoading(false);
+        return;
+      }
+      
+      // Format: date = "YYYY-MM-DD", time = "HH:mm"
+      const dateStr = moment(values.date).format('YYYY-MM-DD');
+      const checkInTimeStr = moment(values.checkInTime).format('HH:mm');
+      const checkOutTimeStr = moment(values.checkOutTime).format('HH:mm');
+      
+      // Backend sẽ tự động xử lý ca qua đêm (nếu giờ ra <= giờ vào thì cộng 1 ngày)
+      // Không cần validation ở frontend nữa
+      
+      console.log('Submitting manual attendance:', {
+        userId: values.employeeId,
+        date: dateStr,
+        checkInTime: checkInTimeStr,
+        checkOutTime: checkOutTimeStr
+      });
+      
+      const response = await axios.post(
+        `${API_URL}/attendance/manual`,
+        {
+          userId: values.employeeId,
+          date: dateStr,
+          checkInTime: checkInTimeStr,
+          checkOutTime: checkOutTimeStr,
+          preview: false
+        },
+        {
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem('token')}`
+          }
+        }
+      );
+      
+      if (response.data.success) {
+        message.success('Chấm công thủ công thành công');
+        setModalVisible(false);
+        form.resetFields();
+        setPreviewData(null);
+        fetchAttendances(); // Refresh list
+      } else {
+        // Xử lý lỗi từ backend (bao gồm cả lỗi "Giờ ra phải sau giờ vào" nếu có)
+        const errorMsg = response.data.message || 'Lỗi khi chấm công thủ công';
+        message.error(errorMsg);
+      }
     } catch (error) {
-      message.error('Lỗi khi chấm công thủ công');
+      console.error('Error submitting manual attendance:', error);
+      
+      // Xử lý lỗi từ API response
+      const errorMessage = error.response?.data?.message || 'Lỗi khi chấm công thủ công';
+      
+      // Nếu lỗi là "Giờ ra phải sau giờ vào", thông báo rõ ràng hơn
+      if (errorMessage.includes('Giờ ra phải sau giờ vào')) {
+        message.warning('Lưu ý: Nếu là ca qua đêm (ví dụ: vào 22:00, ra 06:00), hệ thống sẽ tự động tính là ngày hôm sau.');
+      } else {
+        message.error(errorMessage);
+      }
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -199,7 +383,14 @@ const AttendanceManagement = () => {
       dataIndex: ['employee', 'name'],
       key: 'employeeName',
       width: 150,
-      render: (name, record) => record.employee?.name || 'Không xác định',
+      render: (name, record) => (
+        <Space>
+          {record.employee?.name || 'Không xác định'}
+          {record.isManual && (
+            <Tag color="blue" size="small">Thủ công</Tag>
+          )}
+        </Space>
+      ),
       fixed: 'left',
     },
     {
@@ -465,48 +656,140 @@ const AttendanceManagement = () => {
       <Modal
         title="Chấm công thủ công"
         open={modalVisible}
-        onCancel={() => setModalVisible(false)}
+        onCancel={() => {
+          setModalVisible(false);
+          form.resetFields();
+          setPreviewData(null);
+        }}
         footer={null}
-        width={500}
+        width={700}
       >
         <Form
           form={form}
           layout="vertical"
           onFinish={handleManualSubmit}
+          onValuesChange={(changedValues, allValues) => {
+            // Auto-fill existing data when employee or date changes
+            if (changedValues.employeeId || changedValues.date) {
+              autoFillExistingData(allValues.employeeId, allValues.date);
+            }
+            // Calculate preview when any value changes
+            calculatePreview(allValues);
+          }}
         >
           <Form.Item
-            name="employeeName"
-            label="Tên nhân viên"
-            rules={[{ required: true, message: 'Vui lòng nhập tên nhân viên' }]}
+            name="employeeId"
+            label="Nhân viên"
+            rules={[{ required: true, message: 'Vui lòng chọn nhân viên' }]}
           >
-            <Input placeholder="Nhập tên nhân viên" />
-          </Form.Item>
-
-          <Form.Item
-            name="fingerprintId"
-            label="ID Vân tay"
-            rules={[{ required: true, message: 'Vui lòng nhập ID vân tay' }]}
-          >
-            <Input type="number" placeholder="Nhập ID vân tay" />
-          </Form.Item>
-
-          <Form.Item
-            name="action"
-            label="Hành động"
-            rules={[{ required: true, message: 'Vui lòng chọn hành động' }]}
-          >
-            <Select placeholder="Chọn hành động">
-              <Option value="checkin">Check-in (Vào)</Option>
-              <Option value="checkout">Check-out (Ra)</Option>
+            <Select
+              showSearch
+              placeholder="Tìm theo tên hoặc mã nhân viên"
+              optionFilterProp="children"
+              filterOption={(input, option) => {
+                const label = option?.children || '';
+                return label.toLowerCase().includes(input.toLowerCase());
+              }}
+            >
+              {employees.map(emp => (
+                <Select.Option key={emp._id} value={emp._id}>
+                  {emp.name} ({emp.employeeId}) {emp.fingerprintId ? `[#${emp.fingerprintId}]` : ''}
+                </Select.Option>
+              ))}
             </Select>
           </Form.Item>
 
-          <Form.Item style={{ marginBottom: 0, textAlign: 'right' }}>
+          <Form.Item
+            name="date"
+            label="Ngày chấm công"
+            rules={[{ required: true, message: 'Vui lòng chọn ngày' }]}
+            initialValue={moment()}
+          >
+            <DatePicker style={{ width: '100%' }} format="DD/MM/YYYY" />
+          </Form.Item>
+
+          <Row gutter={16}>
+            <Col span={12}>
+              <Form.Item
+                name="checkInTime"
+                label="Giờ vào"
+                rules={[{ required: true, message: 'Vui lòng chọn giờ vào' }]}
+              >
+                <TimePicker style={{ width: '100%' }} format="HH:mm" />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+          <Form.Item
+                name="checkOutTime"
+                label="Giờ ra"
+                rules={[{ required: true, message: 'Vui lòng chọn giờ ra' }]}
+          >
+                <TimePicker style={{ width: '100%' }} format="HH:mm" />
+          </Form.Item>
+            </Col>
+          </Row>
+
+          {/* Preview Section */}
+          {previewData && (
+            <>
+              <Divider>Xem trước kết quả</Divider>
+              <Card size="small" style={{ backgroundColor: '#f5f5f5', marginBottom: 16 }}>
+                <Row gutter={[16, 12]}>
+                  <Col span={12}>
+                    <Typography.Text strong>Tổng giờ làm:</Typography.Text>
+                    <div style={{ fontSize: 16, fontWeight: 'bold' }}>{previewData.workingHours}h</div>
+                  </Col>
+                  <Col span={12}>
+                    <Typography.Text strong>Giờ OT:</Typography.Text>
+                    <div style={{ fontSize: 16, fontWeight: 'bold', color: previewData.overtimeHours > 0 ? '#52c41a' : 'inherit' }}>
+                      {previewData.overtimeHours}h (x{previewData.overtimeRate})
+                    </div>
+                  </Col>
+                  <Col span={12}>
+                    <Typography.Text strong>Số phút muộn:</Typography.Text>
+                    <div style={{ fontSize: 16, fontWeight: 'bold', color: previewData.lateMinutes > 0 ? '#ff4d4f' : 'inherit' }}>
+                      {previewData.lateMinutes} phút
+                    </div>
+                  </Col>
+                  <Col span={12}>
+                    <Typography.Text strong>Tiền phạt:</Typography.Text>
+                    <div style={{ fontSize: 16, fontWeight: 'bold', color: '#ff4d4f' }}>
+                      -{formatCurrency(previewData.actualPenalty)} đ
+                    </div>
+                  </Col>
+                  <Col span={12}>
+                    <Typography.Text strong>Tiền OT:</Typography.Text>
+                    <div style={{ fontSize: 16, fontWeight: 'bold', color: '#52c41a' }}>
+                      +{formatCurrency(previewData.estimatedOTSalary)} đ
+                    </div>
+                  </Col>
+                  <Col span={12}>
+                    <Typography.Text strong>Trạng thái:</Typography.Text>
+                    <div>
+                      <Tag color={previewData.status === 'present' ? 'green' : previewData.status === 'half-day' ? 'orange' : 'red'}>
+                        {previewData.status === 'present' ? 'Có mặt' : previewData.status === 'half-day' ? 'Nửa công' : 'Vắng mặt'}
+                      </Tag>
+                    </div>
+                  </Col>
+                </Row>
+              </Card>
+            </>
+          )}
+
+          {previewLoading && (
+            <Alert message="Đang tính toán..." type="info" showIcon style={{ marginBottom: 16 }} />
+          )}
+
+          <Form.Item style={{ marginBottom: 0, textAlign: 'right', marginTop: 16 }}>
             <Space>
-              <Button onClick={() => setModalVisible(false)}>
+              <Button onClick={() => {
+                setModalVisible(false);
+                form.resetFields();
+                setPreviewData(null);
+              }}>
                 Hủy
               </Button>
-              <Button type="primary" htmlType="submit">
+              <Button type="primary" htmlType="submit" loading={loading}>
                 Chấm công
               </Button>
             </Space>
