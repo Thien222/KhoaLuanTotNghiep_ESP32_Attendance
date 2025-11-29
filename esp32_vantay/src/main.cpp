@@ -452,6 +452,44 @@ String todayKey()
   return String(buf);
 }
 
+/**
+ * Kiểm tra thời gian chấm công hợp lệ (NEW - Timeline v2.0)
+ * Check-in: 7h00 - 24h00
+ * Check-out: Luôn OK (server sẽ xử lý logic phức tạp)
+ * @param isCheckIn: true = check-in, false = check-out
+ * @return: 0 = OK, 1 = Too early (< 7h)
+ */
+int validateAttendanceTime(bool isCheckIn)
+{
+  if (!timeReady)
+  {
+    return 0; // Nếu chưa sync time, cho phép (để không block)
+  }
+
+  time_t now = time(nullptr);
+  struct tm tm;
+  localtime_r(&now, &tm);
+
+  int hour = tm.tm_hour;
+
+  if (isCheckIn)
+  {
+    // Check-in: Chỉ cho phép từ 7h00 trở đi
+    // Nếu < 7h: quá sớm
+    if (hour < 7)
+    {
+      return 1; // Too early
+    }
+    return 0; // OK
+  }
+  else
+  {
+    // Check-out: Luôn OK, server sẽ xử lý logic
+    // (về sớm < 16h56, sau 24h tính tròn 23h59, OT từ 19h)
+    return 0;
+  }
+}
+
 // ================== BACKEND URL (DYNAMIC - Tự động lấy từ backend) ==================
 const char *DEFAULT_SERVER_URL = "http://172.20.10.7:3000/api"; // Fallback only
 String serverUrl = DEFAULT_SERVER_URL;
@@ -842,18 +880,19 @@ bool registerEsp32ToServer()
   String body = String("{\"ip\":\"") + WiFi.localIP().toString() + "\"}";
   int code = 0;
   String resp;
-  
+
   Serial.println("\n==========================================");
   Serial.println("📝 Registering ESP32 to server...");
   Serial.println("ESP32 IP: " + WiFi.localIP().toString());
   Serial.println("Server URL: " + serverUrl);
   Serial.println("Register URL: " + url);
   Serial.println("==========================================");
-  
+
   bool ok = httpPostJson(url, body, code, resp);
   Serial.printf("register => %d\n", code);
-  
-  if (code > 0) {
+
+  if (code > 0)
+  {
     Serial.println("Response: " + resp.substring(0, 200));
   }
 
@@ -1442,32 +1481,247 @@ void loop()
   // Quyết định action auto theo NVS local
   const char *action = "auto"; // luôn auto; server quyết định in/out
 
+  // *** REMOVED CLIENT-SIDE TIME VALIDATION ***
+  // ESP32 không validate time nữa - để server xử lý hoàn toàn
+  // Server sẽ dùng Time Machine (virtual time) để validate
+  // Điều này cho phép test với thời gian ảo từ UI
+
   // Gửi server
   int code = 0;
   String resp;
   bool ok = sendAttendance(id, action, code, resp);
-  if (!ok)
+
+  // Phân tích phản hồi đơn giản bằng contains
+  auto contains = [&](const char *needle)
+  { return resp.indexOf(needle) >= 0; };
+
+  // Xử lý các trường hợp đặc biệt trước (kể cả khi code 400/404/403/500)
+  // Vì server có thể trả về các code này với thông tin hữu ích
+
+  // [NEW] Xử lý DELETE_FINGER command - Ghost Fingerprint Fix
+  // Khi server trả về command: DELETE_FINGER, nghĩa là ID này không tồn tại trong DB
+  // -> Xóa luôn khỏi cảm biến để tránh lỗi lần sau
+  if (contains("\"command\":\"DELETE_FINGER\""))
   {
-    oledPrintCenter("GUI SERVER FAIL", "Thu lai nhe", sTime + "  " + sDate);
+    // Parse ID từ response
+    int idIdx = resp.indexOf("\"id\":");
+    uint16_t deleteId = id; // Default là ID vừa quét
+    if (idIdx >= 0)
+    {
+      int start = idIdx + 5;
+      int end = start;
+      while (end < (int)resp.length() && (isdigit(resp[end])))
+        end++;
+      if (end > start)
+      {
+        deleteId = resp.substring(start, end).toInt();
+      }
+    }
+
+    Serial.printf("⚠️ GHOST FINGERPRINT: Deleting ID #%u from sensor...\n", deleteId);
+    oledPrintCenter("XOA VAN TAY", "ID #" + String(deleteId), "Khong co trong he thong");
+
+    // Xóa khỏi cảm biến
+    if (deleteFingerprint(deleteId))
+    {
+      Serial.printf("✓ Deleted ID #%u from sensor\n", deleteId);
+      oledPrintCenter("DA XOA VAN TAY", "ID #" + String(deleteId), "Lien he Admin");
+      beepError();
+    }
+    else
+    {
+      Serial.printf("✗ Failed to delete ID #%u\n", deleteId);
+      oledPrintCenter("XOA THAT BAI", "ID #" + String(deleteId), "Thu lai");
+      beepError();
+    }
+    delay(2000);
+    return;
+  }
+
+  // [NEW] Xử lý blocked từ server (ngoài giờ làm việc)
+  if (contains("\"what\":\"blocked\""))
+  {
+    String msg = getJsonStringValue(resp, "message");
+    String subMsg = getJsonStringValue(resp, "sub_message");
+    if (msg.length() == 0)
+      msg = "Ngoai gio lam";
+    if (subMsg.length() == 0)
+      subMsg = "";
+    oledPrintCenter(msg, subMsg, sTime + "  " + sDate);
+    beepShort();
+    delay(1500);
+    return;
+  }
+
+  // [NEW] Xử lý lỗi 404 - Employee not found (legacy)
+  if (code == 404 && contains("Employee not found"))
+  {
+    int msgIdx = resp.indexOf("\"message\":\"");
+    String errorMsg = "NV khong ton tai";
+    if (msgIdx >= 0)
+    {
+      int start = msgIdx + 11;
+      int end = resp.indexOf("\"", start);
+      if (end > start)
+      {
+        String fullMsg = resp.substring(start, end);
+        if (fullMsg.indexOf("fingerprint ID") >= 0)
+          errorMsg = "Chua enroll van tay";
+      }
+    }
+    oledPrintCenter("LOI", errorMsg, sTime + "  " + sDate);
+    beepError();
+    delay(1500);
+    return;
+  }
+
+  // [NEW] Xử lý lỗi 403 - Employee not enrolled
+  if (code == 403 && (contains("not enrolled") || contains("enroll-required")))
+  {
+    oledPrintCenter("CHUA ENROLL", "Can enroll van tay", sTime + "  " + sDate);
+    beepError();
+    delay(1500);
+    return;
+  }
+
+  // [NEW] Xử lý lỗi 500 - Server error (validation error, etc.)
+  if (code == 500)
+  {
+    int msgIdx = resp.indexOf("\"message\":\"");
+    String errorMsg = "LOI SERVER";
+    if (msgIdx >= 0)
+    {
+      int start = msgIdx + 11;
+      int end = resp.indexOf("\"", start);
+      if (end > start)
+      {
+        String fullMsg = resp.substring(start, end);
+        if (fullMsg.indexOf("ValidationError") >= 0)
+          errorMsg = "LOI DU LIEU";
+        else if (fullMsg.length() < 20)
+          errorMsg = fullMsg;
+      }
+    }
+    oledPrintCenter(errorMsg, "Thu lai nhe", sTime + "  " + sDate);
+    beepError();
+    delay(1500);
+    return;
+  }
+
+  if (contains("\"needInFirst\":true"))
+  {
+    oledPrintCenter("CHUA DIEM DANH", "Khong the KET THUC", sTime + "  " + sDate);
+    beepShort();
+    delay(900);
+    return;
+  }
+
+  // [UPDATED] Xử lý too-early từ server (fallback nếu ESP32 validation miss)
+  if (contains("\"what\":\"too-early\"") || contains("\"what\":\"tooEarly\""))
+  {
+    // Hiển thị thông báo rõ ràng
+    oledPrintCenter("CHUA TOI GIO", "Cham cong tu 7h00", sTime + "  " + sDate);
+    beepShort();
+    delay(1500);
+    return;
+  }
+
+  if (contains("\"what\":\"ignored\""))
+  {
+    oledPrintCenter("THAO TAC QUA NHANH", "Cho vai giay...", sTime + "  " + sDate);
+    beepShort();
+    delay(900);
+    return;
+  }
+
+  if (contains("\"what\":\"error\""))
+  {
+    // Parse error message nếu có
+    int msgIdx = resp.indexOf("\"message\":\"");
+    String errorMsg = "";
+    if (msgIdx >= 0)
+    {
+      int start = msgIdx + 11;
+      int end = resp.indexOf("\"", start);
+      if (end > start)
+        errorMsg = resp.substring(start, end);
+    }
+    if (errorMsg.length() > 0 && errorMsg.length() < 20)
+    {
+      oledPrintCenter("LOI", errorMsg, sTime + "  " + sDate);
+    }
+    else
+    {
+      oledPrintCenter("LOI SERVER", "Thu lai nhe", sTime + "  " + sDate);
+    }
     beepError();
     delay(900);
     return;
   }
 
-  // Phân tích phản hồi đơn giản bằng contains
-  auto contains = [&](const char *needle)
-  { return resp.indexOf(needle) >= 0; };
+  // Nếu không phải lỗi đặc biệt và code không phải 200-299 → lỗi kết nối/server
+  if (!ok)
+  {
+    // Chỉ hiển thị "GUI SERVER FAIL" nếu thực sự là lỗi kết nối hoặc code 500 (đã xử lý ở trên)
+    if (code == 0)
+    {
+      oledPrintCenter("GUI SERVER FAIL", "Thu lai nhe", sTime + "  " + sDate);
+      beepError();
+      delay(900);
+      return;
+    }
+    // Code 400/404/403/500 đã xử lý ở trên, còn lại là lỗi khác
+    oledPrintCenter("LOI", "Code: " + String(code), sTime + "  " + sDate);
+    beepError();
+    delay(900);
+    return;
+  }
 
   if (contains("\"what\":\"in\"") || contains("\"what\":\"in-exists\""))
   {
     // Đã check-in (mới hoặc tồn tại) -> mark IN local
     if (!hasIn)
       markCheckedToday(id);
-    oledPrintCenter(contains("\"in-exists\"") ? "DA DIEM DANH" : "DIEM DANH OK",
-                    "ID #" + String(id),
-                    sTime + "  " + sDate);
+
+    // Parse message và sub_message từ server response (NEW ESP32 Protocol)
+    String line1 = getJsonStringValue(resp, "message");
+    String line2 = getJsonStringValue(resp, "sub_message");
+
+    // Fallback nếu không có message mới
+    if (line1.length() == 0)
+    {
+      line1 = contains("\"in-exists\"") ? "DA DIEM DANH" : "DIEM DANH OK";
+    }
+    if (line2.length() == 0)
+    {
+      line2 = "ID #" + String(id);
+
+      // Kiểm tra có thông tin trễ không (legacy support)
+      int lateIdx = resp.indexOf("\"lateMinutes\":");
+      if (lateIdx >= 0)
+      {
+        int start = lateIdx + 14;
+        int end = start;
+        while (end < (int)resp.length() && (isdigit(resp[end]) || resp[end] == '.'))
+          end++;
+        if (end > start)
+        {
+          int lateMin = resp.substring(start, end).toInt();
+          if (lateMin >= 120)
+          {
+            line2 = "Tre >= 2h - Mat cong";
+          }
+          else if (lateMin > 0)
+          {
+            line2 = "Tre " + String(lateMin) + "p";
+          }
+        }
+      }
+    }
+
+    oledPrintCenter(line1, line2, sTime + "  " + sDate);
     beepSuccess();
-    delay(900);
+    delay(1200);
     return;
   }
 
@@ -1478,9 +1732,61 @@ void loop()
       markCheckedToday(id);
     if (!hasOut)
       markCheckedOutToday(id);
-    oledPrintCenter("KET THUC NGAY", "ID #" + String(id), sTime + "  " + sDate);
+
+    // Parse message và sub_message từ server response (NEW ESP32 Protocol)
+    String line1 = getJsonStringValue(resp, "message");
+    String line2 = getJsonStringValue(resp, "sub_message");
+
+    // Fallback nếu không có message mới
+    if (line1.length() == 0)
+    {
+      line1 = "KET THUC CA LAM";
+    }
+    if (line2.length() == 0)
+    {
+      line2 = "Hen gap lai";
+
+      // Kiểm tra có thông tin OT không (legacy support)
+      int otIdx = resp.indexOf("\"overtimeHours\":");
+      if (otIdx >= 0)
+      {
+        int start = otIdx + 16;
+        int end = start;
+        while (end < (int)resp.length() && (isdigit(resp[end]) || resp[end] == '.'))
+          end++;
+        if (end > start)
+        {
+          float otHours = resp.substring(start, end).toFloat();
+          if (otHours > 0)
+          {
+            int otH = (int)otHours;
+            line2 = "OT: " + String(otH) + "h";
+
+            // Thêm tiền OT nếu có
+            int otSalaryIdx = resp.indexOf("\"otSalary\":");
+            if (otSalaryIdx >= 0)
+            {
+              int sStart = otSalaryIdx + 11;
+              int sEnd = sStart;
+              while (sEnd < (int)resp.length() && (isdigit(resp[sEnd])))
+                sEnd++;
+              if (sEnd > sStart)
+              {
+                int otSalary = resp.substring(sStart, sEnd).toInt();
+                if (otSalary > 0)
+                {
+                  line2 += " - +" + String(otSalary / 1000) + "k";
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+
+    oledPrintCenter(line1, line2, sTime + "  " + sDate);
     beepSuccess();
-    delay(900);
+    delay(1200);
     return;
   }
 
@@ -1490,14 +1796,6 @@ void loop()
     markCheckedToday(id);
     markCheckedOutToday(id);
     oledPrintCenter("DA HOAN TAT", "HOM NAY ROI", sTime + "  " + sDate);
-    beepShort();
-    delay(900);
-    return;
-  }
-
-  if (contains("\"needInFirst\":true"))
-  {
-    oledPrintCenter("CHUA DIEM DANH", "Khong the KET THUC", sTime + "  " + sDate);
     beepShort();
     delay(900);
     return;

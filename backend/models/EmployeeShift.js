@@ -24,6 +24,10 @@ const employeeShiftSchema = new mongoose.Schema({
   isActive: {
     type: Boolean,
     default: true
+  },
+  isOvertimeShift: {
+    type: Boolean,
+    default: false
   }
 }, {
   timestamps: true

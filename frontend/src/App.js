@@ -10,16 +10,15 @@ import Dashboard from './pages/Dashboard';
 import Login from './pages/auth/Login';
 import EmployeeManagement from './pages/employee/EmployeeManagement';
 import AttendanceManagement from './pages/attendance/AttendanceManagement';
-import LeaveManagement from './pages/leave/LeaveManagement';
 import PayrollManagement from './pages/payroll/PayrollManagement';
-import ReportsManagement from './pages/reports/ReportsManagement';
 import ChatBot from './pages/chatbot/ChatBot';
-import ESP32Management from './pages/esp32/ESP32Management';
+import RequestManagement from './pages/requests/RequestManagement';
 import SettingsManagement from './pages/settings/SettingsManagement';
 import IPConfiguration from './pages/settings/IPConfiguration';
 import Profile from './pages/profile/Profile';
 import CompleteProfile from './pages/profile/CompleteProfile';
 import ShiftManagement from './pages/shift/ShiftManagement';
+import StatisticsPage from './pages/statistics/StatisticsPage';
 
 const App = () => {
   return (
@@ -67,10 +66,11 @@ const App = () => {
               </MainLayout>
             } />
             
-            <Route path="/leave-requests" element={
+            {/* Unified Request Management (Leave + OT) */}
+            <Route path="/requests" element={
               <MainLayout>
                 <ProtectedRoute allowedRoles={['employee', 'manager']} requireProfileComplete={true}>
-                  <LeaveManagement />
+                  <RequestManagement />
                 </ProtectedRoute>
               </MainLayout>
             } />
@@ -83,26 +83,10 @@ const App = () => {
               </MainLayout>
             } />
             
-            <Route path="/reports" element={
-              <MainLayout>
-                <ProtectedRoute allowedRoles={['manager']}>
-                  <ReportsManagement />
-                </ProtectedRoute>
-              </MainLayout>
-            } />
-            
             <Route path="/chatbot" element={
               <MainLayout>
                 <ProtectedRoute allowedRoles={['employee', 'manager']} requireProfileComplete={true}>
                   <ChatBot />
-                </ProtectedRoute>
-              </MainLayout>
-            } />
-            
-            <Route path="/esp32" element={
-              <MainLayout>
-                <ProtectedRoute allowedRoles={['manager']}>
-                  <ESP32Management />
                 </ProtectedRoute>
               </MainLayout>
             } />
@@ -119,6 +103,14 @@ const App = () => {
               <MainLayout>
                 <ProtectedRoute allowedRoles={['manager']}>
                   <ShiftManagement />
+                </ProtectedRoute>
+              </MainLayout>
+            } />
+            
+            <Route path="/statistics" element={
+              <MainLayout>
+                <ProtectedRoute allowedRoles={['manager']}>
+                  <StatisticsPage />
                 </ProtectedRoute>
               </MainLayout>
             } />

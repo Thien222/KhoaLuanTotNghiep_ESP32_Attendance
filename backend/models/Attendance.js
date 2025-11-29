@@ -88,6 +88,18 @@ const attendanceSchema = new mongoose.Schema({
     default: 0  // Total penalty: late + forgot checkout + half-day
   },
   
+  // OT Approval flag (for salary calculation)
+  is_ot_approved: {
+    type: Boolean,
+    default: false
+  },
+  
+  // Manual attendance flag (to distinguish from ESP32 data)
+  isManual: {
+    type: Boolean,
+    default: false
+  },
+  
   notes: String
 }, {
   timestamps: true

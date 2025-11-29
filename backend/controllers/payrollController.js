@@ -56,14 +56,21 @@ exports.listMonthly = async (req, res) => {
           name: employee.name || '',
           employeeId: employee.employeeId || '',
           position: employee.position || '',
-          department: employee.department || ''
+          department: employee.department || '',
+          // Include baseSalary from employee for reference
+          baseSalary: employee.baseSalary || employee.salary || 0
         },
         month: parsed.month,
         year: parsed.year,
         monthStr: doc.month,
 
-        // Lương cơ bản
+        // NEW: Lương cơ bản THÁNG (do admin set) - Hiển thị trên bảng lương
+        basicSalaryFull: doc.basicSalaryFull || employee.baseSalary || employee.salary || 0,
+        // Lương tính theo ngày công (prorated)
         baseSalary: doc.baseSalary || doc.basicSalary || 0,
+        // Lương 1 ngày công
+        dailyRate: doc.dailyRate || Math.round((employee.baseSalary || employee.salary || 0) / 26),
+        
         seniorityAllowance: doc.seniorityAllowance || 0,
         positionAllowance: doc.positionAllowance || 0,
 

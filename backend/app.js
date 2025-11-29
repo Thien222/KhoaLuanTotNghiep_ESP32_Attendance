@@ -17,6 +17,10 @@ const payrollRoutes = require('./routes/payrollRoutes');
 const shiftRoutes = require('./routes/shiftRoutes');
 const chatRoutes = require('./routes/chatRoutes');
 const testRoutes = require('./routes/testRoutes');
+const timeMachineRoutes = require('./routes/timeMachineRoutes'); // NEW
+const salaryRoutes = require('./routes/salaryRoutes');
+const settingsRoutes = require('./routes/settingsRoutes'); // Settings
+const overtimeRoutes = require('./routes/overtimeRoutes'); // Overtime requests
 const errorHandler = require('./middleware/errorHandler');
 
 const app = express();
@@ -340,7 +344,11 @@ app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/leave', leaveRoutes);
 app.use('/api/payroll', payrollRoutes);
 app.use('/api/shifts', shiftRoutes);
-app.use('/api/test', testRoutes); // Time Machine routes (only works if ENABLE_TEST_MODE=true)
+app.use('/api/test', testRoutes); // Test routes
+app.use('/api/timemachine', timeMachineRoutes); // NEW: Time Machine API (Admin only)
+app.use('/api/salary', salaryRoutes); // Salary calculation routes
+app.use('/api/settings', settingsRoutes); // Settings routes
+app.use('/api/overtime', overtimeRoutes); // Overtime request routes
 // Chat routes with mock user for testing
 app.use((req, res, next) => {
   if (req.path.startsWith('/api/chat')) {

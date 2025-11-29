@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Form, Input, Button, Card, Typography, Divider, App } from 'antd';
+import { Form, Input, Button, Card, Typography, App } from 'antd';
 import { UserOutlined, LockOutlined, LoginOutlined, SettingOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
@@ -16,8 +16,34 @@ const Login = () => {
   useEffect(() => {
     // Check if already logged in
     const token = localStorage.getItem('token');
-    if (token) {
-      navigate('/dashboard');
+    const userData = localStorage.getItem('user');
+    
+    if (token && userData) {
+      try {
+        const user = JSON.parse(userData);
+        const userRole = user.role;
+        const profileCompleted = user.profileCompleted !== false;
+        
+        // Redirect based on role
+        if (userRole === 'manager') {
+          navigate('/dashboard');
+        } else if (userRole === 'employee') {
+          if (!profileCompleted) {
+            navigate('/complete-profile');
+          } else {
+            navigate('/requests');
+          }
+        } else if (userRole === 'accountant') {
+          navigate('/payroll');
+        } else {
+          navigate('/dashboard');
+        }
+      } catch (error) {
+        console.error('Error parsing user data:', error);
+        // Clear invalid data
+        localStorage.removeItem('token');
+        localStorage.removeItem('user');
+      }
     }
   }, [navigate]);
 
@@ -56,7 +82,7 @@ const Login = () => {
             message.warning('Vui lòng hoàn thiện thông tin cá nhân trước khi sử dụng hệ thống');
             navigate('/complete-profile');
           } else {
-            navigate('/leave-requests');
+            navigate('/requests');
           }
         } else {
           navigate('/payroll');
@@ -184,14 +210,6 @@ const Login = () => {
           </Form.Item>
         </Form>
 
-        <Divider>Thông tin demo</Divider>
-        
-        <div style={{ fontSize: '12px', color: '#666' }}>
-          <p><strong>Admin:</strong> admin / admin123</p>
-          <p><strong>Quản lý:</strong> admin@company.com / 123456</p>
-          <p><strong>Kế toán:</strong> accountant@company.com / 123456</p>
-          <p><strong>Nhân viên:</strong> employee@company.com / 123456</p>
-        </div>
       </Card>
     </div>
   );

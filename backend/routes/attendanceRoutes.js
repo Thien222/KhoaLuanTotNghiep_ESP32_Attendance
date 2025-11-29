@@ -1,28 +1,31 @@
 const express = require('express');
 const router = express.Router();
-const {
-  addAttendance,
-  handleAttendance,
-  getEmployeeAttendance,
-  getTodayAttendance,
-  getAllAttendance,
-  deleteTodayAttendance,
-  deleteAllAttendance
-} = require('../controllers/attendanceController');
-const { protect } = require('../middleware/authMiddleware');
 
-// Public routes (for ESP32)
-router.post('/fingerprint', handleAttendance);
-router.post('/add', addAttendance);
+const attendanceController = require('../controllers/attendanceController');
+const { protect, restrictTo } = require('../middleware/authMiddleware');
 
-// Protected routes (for frontend)
-router.get('/employee/:employeeId', protect, getEmployeeAttendance);
-router.get('/today', protect, getTodayAttendance);
-router.get('/all', protect, getAllAttendance); // Alias for backward compatibility
-router.get('/', protect, getAllAttendance); // Main route for frontend - Get all attendance records with query params (MUST BE LAST)
+// Public routes (ESP32)
+router.post('/fingerprint', attendanceController.handleAttendance);
+router.post('/add', attendanceController.addAttendance);
 
-// PRODUCTION: Commented out dangerous delete routes
-// router.delete('/today', protect, deleteTodayAttendance); // Delete today's attendance (for testing) - DISABLED IN PRODUCTION
-// router.delete('/all', protect, deleteAllAttendance); // Delete all attendance records (for testing) - DISABLED IN PRODUCTION
+// Protected routes (frontend)
+router.get('/employee/:employeeId', protect, attendanceController.getEmployeeAttendance);
+router.get('/today', protect, attendanceController.getTodayAttendance);
+router.get('/all', protect, attendanceController.getAllAttendance);
+router.get('/', protect, attendanceController.getAllAttendance);
+
+// Manual attendance (preview + save dùng chung endpoint này)
+// ⚠️ SECURITY: Chỉ Manager mới được tạo dữ liệu giả lập (test mode)
+router.post('/manual', protect, restrictTo('manager'), attendanceController.manualCheckIn);
+
+// Update a single attendance record (for editing work hours)
+router.put('/:id', protect, restrictTo('manager'), attendanceController.updateAttendance);
+
+// Delete a single attendance record
+router.delete('/:id', protect, restrictTo('manager'), attendanceController.deleteAttendance);
+
+// (Nếu muốn test xoá thì bật lại 2 cái dưới, còn không thì để comment)
+//// router.delete('/today', protect, attendanceController.deleteTodayAttendance);
+//// router.delete('/all', protect, attendanceController.deleteAllAttendance);
 
 module.exports = router;

@@ -1,402 +1,634 @@
 import React, { useState, useEffect } from 'react';
-import {
-  Card,
-  Row,
-  Col,
-  Statistic,
-  Typography,
-  Space,
+import { 
+  Card, 
+  Row, 
+  Col, 
+  Statistic, 
+  Typography, 
   Spin,
-  Alert,
-  List,
-  Progress,
+  Table,
   Tag,
-  Avatar,
-  Empty,
-  Divider,
-  Badge
+  Progress,
+  DatePicker,
+  Button,
+  Space,
+  Tooltip,
+  Divider
 } from 'antd';
-import {
-  UserOutlined,
-  ClockCircleOutlined,
-  DollarOutlined,
-  CheckCircleOutlined,
-  LoadingOutlined,
-  CalendarOutlined,
-  MedicineBoxOutlined,
-  HomeOutlined,
-  HeartOutlined,
+import { 
+  UserOutlined, 
+  ClockCircleOutlined, 
+  DollarOutlined, 
   FileTextOutlined,
   TeamOutlined,
+  CheckCircleOutlined,
+  WarningOutlined,
   RiseOutlined,
-  FallOutlined,
-  ArrowUpOutlined,
-  ArrowDownOutlined,
-  PieChartOutlined
+  FieldTimeOutlined,
+  ReloadOutlined,
+  DashboardOutlined,
+  CalendarOutlined,
+  TrophyOutlined,
+  AlertOutlined
 } from '@ant-design/icons';
 import {
-  PieChart, Pie, Cell,
-  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, Legend, ResponsiveContainer,
-  AreaChart, Area, BarChart, Bar
+  PieChart,
+  Pie,
+  Cell,
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip as RechartsTooltip,
+  Legend,
+  ResponsiveContainer,
+  LineChart,
+  Line,
+  Area,
+  AreaChart
 } from 'recharts';
 import axios from 'axios';
-import moment from 'moment';
 import { getAPIUrl } from '../utils/configManager';
+import { message } from 'antd';
+import moment from 'moment';
 
 const { Title, Text } = Typography;
+const { RangePicker } = DatePicker;
 
-// Color Palette
-const COLORS = ['#1890ff', '#52c41a', '#faad14', '#f5222d', '#722ed1', '#13c2c2', '#eb2f96', '#2f54eb'];
+// Colors for charts
+const COLORS = ['#52c41a', '#faad14', '#ff4d4f', '#1890ff', '#722ed1', '#13c2c2'];
+const ATTENDANCE_COLORS = {
+  present: '#52c41a',
+  late: '#faad14', 
+  absent: '#ff4d4f',
+  'half-day': '#1890ff'
+};
 
 const Dashboard = () => {
-  const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-  const [userRole, setUserRole] = useState(null);
+  const [stats, setStats] = useState(null);
+  const [reportData, setReportData] = useState({});
+  const [weeklyData, setWeeklyData] = useState([]);
+  const [departmentData, setDepartmentData] = useState([]);
+  const [dateRange, setDateRange] = useState([moment().startOf('month'), moment()]);
 
   useEffect(() => {
-    const userData = localStorage.getItem('user');
-    if (userData) {
-      try {
-        const parsed = JSON.parse(userData);
-        setUserRole(parsed.role);
-      } catch (e) {
-        console.error('Error parsing user data', e);
-      }
-    }
     fetchDashboardStats();
-    
-    // Refresh data every 30 seconds
-    const interval = setInterval(fetchDashboardStats, 30000);
-    return () => clearInterval(interval);
+    fetchReportData();
   }, []);
 
+  useEffect(() => {
+    fetchReportData();
+  }, [dateRange]);
+
   const fetchDashboardStats = async () => {
+    setLoading(true);
     try {
       const API_URL = getAPIUrl();
       const token = localStorage.getItem('token');
       
       if (!token) {
-        setError('Chưa đăng nhập');
-        setLoading(false);
+        message.error('Chưa đăng nhập');
         return;
       }
-      
+
       const response = await axios.get(`${API_URL}/dashboard/stats`, {
         headers: {
           Authorization: `Bearer ${token}`
         }
       });
-      
+
       if (response.data.success) {
         setStats(response.data.data);
-        setError(null);
+        
+        // Process department data for pie chart
+        if (response.data.data?.departmentStats) {
+          const deptData = response.data.data.departmentStats.map((d, i) => ({
+            name: d._id || 'Chưa phân loại',
+            value: d.count,
+            color: COLORS[i % COLORS.length]
+          }));
+          setDepartmentData(deptData);
+        }
       }
     } catch (error) {
       console.error('Error fetching dashboard stats:', error);
-      setError(error.response?.data?.message || 'Không thể tải dữ liệu dashboard');
     } finally {
       setLoading(false);
     }
   };
 
-  if (loading && !stats) {
-    return (
-      <div style={{ 
-        display: 'flex', 
-        justifyContent: 'center', 
-        alignItems: 'center', 
-        height: '100vh',
-        background: '#f0f2f5' 
-      }}>
-        <Spin size="large" tip="Đang tải dữ liệu..." />
-      </div>
-    );
-  }
+  const fetchReportData = async () => {
+    try {
+      const API_URL = getAPIUrl();
+      const token = localStorage.getItem('token');
+      
+      if (!token) return;
 
-  if (error) {
-    return (
-      <div style={{ padding: 24 }}>
-        <Alert message="Lỗi" description={error} type="error" showIcon />
-      </div>
-    );
-  }
+      const startDate = dateRange[0].format('YYYY-MM-DD');
+      const endDate = dateRange[1].format('YYYY-MM-DD');
 
-  // Prepare Data for Charts
-  const deptData = stats?.departmentStats?.map((d, index) => ({
-    name: d._id || 'Khác',
-    value: d.count,
-    color: COLORS[index % COLORS.length]
-  })) || [];
+      const [attendanceResponse, employeesResponse] = await Promise.all([
+        axios.get(`${API_URL}/attendance`, {
+          params: { startDate, endDate },
+          headers: { Authorization: `Bearer ${token}` }
+        }),
+        axios.get(`${API_URL}/employees`, {
+          headers: { Authorization: `Bearer ${token}` }
+        })
+      ]);
 
-  const trendData = stats?.attendanceTrend?.map(d => ({
-    name: moment(d._id).format('DD/MM'),
-    fullDate: d._id,
-    present: d.present,
-    late: d.late
-  })) || [];
+      if (attendanceResponse.data.success && employeesResponse.data.success) {
+        const attendances = attendanceResponse.data.data || [];
+        const employees = employeesResponse.data.data || [];
+        
+        const start = moment(startDate);
+        const end = moment(endDate);
+        const totalWorkingDays = end.diff(start, 'days') + 1;
+        
+        // Process employee stats
+        const employeeStats = {};
+        const dailyStats = {};
+        
+        attendances.forEach(att => {
+          const empId = att.employee?._id;
+          if (!empId) return;
+          
+          // Employee stats
+          if (!employeeStats[empId]) {
+            employeeStats[empId] = {
+              employeeName: att.employee?.name,
+              department: att.employee?.department,
+              workingDays: 0,
+              overtimeHours: 0,
+              lateCount: 0,
+              totalPenalty: 0,
+              totalOTSalary: 0
+            };
+          }
+          
+          if (att.status === 'present' || att.status === 'half-day') {
+            employeeStats[empId].workingDays += att.status === 'half-day' ? 0.5 : 1;
+          }
+          employeeStats[empId].overtimeHours += att.overtimeHours || 0;
+          employeeStats[empId].totalOTSalary += att.estimatedOTSalary || 0;
+          if (att.lateMinutes > 0) {
+            employeeStats[empId].lateCount++;
+            employeeStats[empId].totalPenalty += att.actualPenalty || 0;
+          }
+          
+          // Daily stats for line chart
+          const dateKey = moment(att.date).format('DD/MM');
+          if (!dailyStats[dateKey]) {
+            dailyStats[dateKey] = {
+              date: dateKey,
+              present: 0,
+              late: 0,
+              absent: 0,
+              overtime: 0
+            };
+          }
+          
+          if (att.status === 'present' || att.status === 'half-day') {
+            dailyStats[dateKey].present++;
+          }
+          if (att.lateMinutes > 0) {
+            dailyStats[dateKey].late++;
+          }
+          if (att.status === 'absent') {
+            dailyStats[dateKey].absent++;
+          }
+          if (att.overtimeHours > 0) {
+            dailyStats[dateKey].overtime++;
+          }
+        });
 
-  const onTimeData = [
-    { name: 'Đúng giờ', value: stats?.todayAttendance?.details?.ontime || 0, color: '#52c41a' },
-    { name: 'Đi muộn', value: stats?.todayAttendance?.details?.late || 0, color: '#f5222d' },
-  ].filter(d => d.value > 0);
+        // Top employees
+        const topEmployees = Object.values(employeeStats)
+          .map(emp => ({
+            ...emp,
+            attendanceRate: totalWorkingDays > 0 
+              ? Math.round((emp.workingDays / totalWorkingDays) * 100) 
+              : 0
+          }))
+          .sort((a, b) => b.workingDays - a.workingDays)
+          .slice(0, 5);
 
-  const isManager = userRole === 'manager';
+        // Weekly chart data
+        const weeklyChartData = Object.values(dailyStats).slice(-7);
+        setWeeklyData(weeklyChartData);
 
-  const cardStyle = {
-    borderRadius: '12px',
-    boxShadow: '0 4px 20px rgba(0,0,0,0.05)',
-    border: 'none',
-    height: '100%'
+        // Summary stats
+        const totalEmployees = employees.filter(e => e.status === 'active').length;
+        const totalAttendanceDays = Object.values(employeeStats).reduce((sum, emp) => sum + emp.workingDays, 0);
+        const averageAttendance = totalEmployees > 0 && totalWorkingDays > 0
+          ? Math.round((totalAttendanceDays / (totalEmployees * totalWorkingDays)) * 100 * 10) / 10
+          : 0;
+
+        const totalOTHours = Object.values(employeeStats).reduce((sum, emp) => sum + emp.overtimeHours, 0);
+        const totalOTSalary = Object.values(employeeStats).reduce((sum, emp) => sum + emp.totalOTSalary, 0);
+        const totalPenalty = Object.values(employeeStats).reduce((sum, emp) => sum + emp.totalPenalty, 0);
+        const totalLateCount = Object.values(employeeStats).reduce((sum, emp) => sum + emp.lateCount, 0);
+
+        setReportData({
+          totalEmployees,
+          averageAttendance,
+          totalOTHours: Math.round(totalOTHours * 10) / 10,
+          totalOTSalary,
+          totalPenalty,
+          totalLateCount,
+          topEmployees,
+          totalWorkingDays
+        });
+      }
+    } catch (error) {
+      console.error('Error fetching report data:', error);
+    }
   };
 
+  const topEmployeeColumns = [
+    {
+      title: 'Nhân viên',
+      dataIndex: 'employeeName',
+      key: 'employeeName',
+      width: 140,
+      render: (text) => <Text strong>{text}</Text>
+    },
+    {
+      title: 'Phòng ban',
+      dataIndex: 'department',
+      key: 'department',
+      width: 100,
+      render: (text) => <Tag color="blue">{text || 'N/A'}</Tag>
+    },
+    {
+      title: 'Công',
+      dataIndex: 'workingDays',
+      key: 'workingDays',
+      width: 60,
+      align: 'center',
+      render: (days) => <Tag color="green">{days}</Tag>
+    },
+    {
+      title: 'OT',
+      dataIndex: 'overtimeHours',
+      key: 'overtimeHours',
+      width: 50,
+      align: 'center',
+      render: (hours) => hours > 0 ? <Tag color="purple">{hours}h</Tag> : '-'
+    },
+    {
+      title: 'Muộn',
+      dataIndex: 'lateCount',
+      key: 'lateCount',
+      width: 50,
+      align: 'center',
+      render: (count) => count > 0 ? <Tag color="orange">{count}</Tag> : <Tag color="green">0</Tag>
+    }
+  ];
+
+  // Attendance pie chart data
+  const attendancePieData = stats?.todayAttendance?.details ? [
+    { name: 'Đúng giờ', value: stats.todayAttendance.details.ontime || 0, color: '#52c41a' },
+    { name: 'Đi muộn', value: stats.todayAttendance.details.late || 0, color: '#faad14' },
+    { name: 'Vắng mặt', value: (stats.totalEmployees || 0) - (stats.todayAttendance.count || 0), color: '#ff4d4f' }
+  ].filter(d => d.value > 0) : [];
+
+  if (loading && !stats) {
+    return (
+      <div style={{ textAlign: 'center', padding: '50px' }}>
+        <Spin size="large" />
+      </div>
+    );
+  }
+
+  const currency = (value) => new Intl.NumberFormat('vi-VN').format(value || 0);
+
   return (
-    <div style={{ paddingBottom: 24 }}>
-      <div style={{ marginBottom: 24 }}>
-        <Title level={2} style={{ margin: 0 }}>Dashboard Tổng Quan</Title>
-        <Text type="secondary">
-          Cập nhật lần cuối: {moment().format('HH:mm DD/MM/YYYY')}
-        </Text>
+    <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+      {/* Header */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+        <Title level={4} style={{ margin: 0 }}>
+          <DashboardOutlined style={{ marginRight: 8, color: '#1890ff' }} />
+          Dashboard
+        </Title>
+        <Space size="small">
+          <RangePicker
+            value={dateRange}
+            onChange={setDateRange}
+            format="DD/MM/YYYY"
+            size="small"
+          />
+          <Button 
+            icon={<ReloadOutlined />} 
+            onClick={() => { fetchDashboardStats(); fetchReportData(); }}
+            loading={loading}
+            size="small"
+          >
+            Làm mới
+          </Button>
+        </Space>
       </div>
       
-      {/* Key Metrics Row */}
-      <Row gutter={[24, 24]}>
-        <Col xs={24} sm={12} lg={6}>
-          <Card style={cardStyle} bodyStyle={{ padding: '20px 24px' }}>
-            <Statistic
-              title={<Text type="secondary"><TeamOutlined /> Tổng Nhân Viên</Text>}
-              value={stats?.totalEmployees || 0}
-              valueStyle={{ color: '#1890ff', fontWeight: 'bold', fontSize: 32 }}
-            />
-            {stats?.turnoverRate !== undefined && (
-              <div style={{ marginTop: 8 }}>
-                <Tag color={parseFloat(stats.turnoverRate) > 5 ? 'error' : 'success'}>
-                  Biến động: {stats.turnoverRate}%
-                </Tag>
-              </div>
-            )}
-          </Card>
-        </Col>
-        
-        <Col xs={24} sm={12} lg={6}>
-          <Card style={cardStyle} bodyStyle={{ padding: '20px 24px' }}>
-            <Statistic
-              title={<Text type="secondary"><ClockCircleOutlined /> Chấm Công Hôm Nay</Text>}
-              value={stats?.todayAttendance?.count || 0}
-              suffix={<span style={{ fontSize: 14, color: '#999' }}>/ {stats?.totalEmployees}</span>}
-              valueStyle={{ color: '#52c41a', fontWeight: 'bold', fontSize: 32 }}
-            />
-            <div style={{ marginTop: 8 }}>
-              <Progress 
-                percent={stats?.todayAttendance?.percentage || 0} 
-                strokeColor={{ '0%': '#108ee9', '100%': '#87d068' }}
-                showInfo={false}
-                size="small"
+      {/* Main Content - Scrollable */}
+      <div style={{ flex: 1, overflow: 'auto', paddingRight: 4 }}>
+        {/* Stats Cards Row 1 */}
+        <Row gutter={[12, 12]} style={{ marginBottom: 12 }}>
+          <Col xs={12} sm={6}>
+            <Card size="small" bodyStyle={{ padding: 12 }} style={{ background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' }}>
+              <Statistic
+                title={<span style={{ color: 'rgba(255,255,255,0.85)', fontSize: 12 }}>Tổng nhân viên</span>}
+                value={stats?.totalEmployees || reportData.totalEmployees || 0}
+                prefix={<TeamOutlined />}
+                valueStyle={{ color: '#fff', fontSize: 24, fontWeight: 'bold' }}
               />
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4 }}>
-                <Text type="secondary" style={{ fontSize: 12 }}>Tỷ lệ: {stats?.todayAttendance?.percentage}%</Text>
-              </div>
-            </div>
-          </Card>
-        </Col>
-        
-        <Col xs={24} sm={12} lg={6}>
-          <Card style={cardStyle} bodyStyle={{ padding: '20px 24px' }}>
-            <Statistic
-              title={<Text type="secondary"><DollarOutlined /> Tổng Lương (Tạm tính)</Text>}
-              value={stats?.totalSalary || 0}
-              valueStyle={{ color: '#722ed1', fontWeight: 'bold', fontSize: 24 }}
-              formatter={(value) => new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(value)}
-            />
-             <div style={{ marginTop: 8 }}>
-               <Text type="secondary" style={{ fontSize: 12 }}>Tháng {moment().format('MM/YYYY')}</Text>
-             </div>
-          </Card>
-        </Col>
-        
-        <Col xs={24} sm={12} lg={6}>
-          <Card style={cardStyle} bodyStyle={{ padding: '20px 24px' }}>
-            <Statistic
-              title={<Text type="secondary"><FileTextOutlined /> Yêu Cầu Nghỉ Phép</Text>}
-              value={stats?.pendingLeaveRequests || 0}
-              valueStyle={{ color: '#faad14', fontWeight: 'bold', fontSize: 32 }}
-            />
-            <div style={{ marginTop: 8 }}>
-              <Tag color={stats?.pendingLeaveRequests > 0 ? 'warning' : 'default'}>
-                {stats?.pendingLeaveRequests > 0 ? 'Cần duyệt ngay' : 'Không có yêu cầu'}
-              </Tag>
-            </div>
-          </Card>
-        </Col>
-      </Row>
+            </Card>
+          </Col>
+          <Col xs={12} sm={6}>
+            <Card size="small" bodyStyle={{ padding: 12 }} style={{ background: 'linear-gradient(135deg, #11998e 0%, #38ef7d 100%)' }}>
+              <Statistic
+                title={<span style={{ color: 'rgba(255,255,255,0.85)', fontSize: 12 }}>Chấm công hôm nay</span>}
+                value={stats?.todayAttendance?.count || 0}
+                prefix={<CheckCircleOutlined />}
+                suffix={<span style={{ fontSize: 12, color: 'rgba(255,255,255,0.7)' }}>/{stats?.totalEmployees || 0}</span>}
+                valueStyle={{ color: '#fff', fontSize: 24, fontWeight: 'bold' }}
+              />
+            </Card>
+          </Col>
+          <Col xs={12} sm={6}>
+            <Card size="small" bodyStyle={{ padding: 12 }} style={{ background: 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)' }}>
+              <Statistic
+                title={<span style={{ color: 'rgba(255,255,255,0.85)', fontSize: 12 }}>Đi muộn</span>}
+                value={stats?.todayAttendance?.details?.late || 0}
+                prefix={<WarningOutlined />}
+                valueStyle={{ color: '#fff', fontSize: 24, fontWeight: 'bold' }}
+              />
+            </Card>
+          </Col>
+          <Col xs={12} sm={6}>
+            <Card size="small" bodyStyle={{ padding: 12 }} style={{ background: 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)' }}>
+              <Statistic
+                title={<span style={{ color: 'rgba(255,255,255,0.85)', fontSize: 12 }}>Tổng giờ OT</span>}
+                value={reportData.totalOTHours || 0}
+                prefix={<FieldTimeOutlined />}
+                suffix="h"
+                valueStyle={{ color: '#fff', fontSize: 24, fontWeight: 'bold' }}
+              />
+            </Card>
+          </Col>
+        </Row>
 
-      {/* Charts Row (Manager Only) */}
-      {isManager && (
-        <Row gutter={[24, 24]} style={{ marginTop: 24 }}>
-          {/* Attendance Trend */}
-          <Col xs={24} lg={16}>
-            <Card title="Xu hướng chấm công (7 ngày qua)" style={cardStyle}>
-              {trendData.length > 0 ? (
-                <div style={{ height: 300 }}>
-                  <ResponsiveContainer width="100%" height="100%">
-                    <AreaChart data={trendData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
-                      <defs>
-                        <linearGradient id="colorPresent" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="#1890ff" stopOpacity={0.8}/>
-                          <stop offset="95%" stopColor="#1890ff" stopOpacity={0}/>
-                        </linearGradient>
-                      </defs>
-                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
-                      <XAxis dataKey="name" axisLine={false} tickLine={false} />
-                      <YAxis axisLine={false} tickLine={false} />
-                      <RechartsTooltip 
-                        contentStyle={{ borderRadius: 8, border: 'none', boxShadow: '0 2px 8px rgba(0,0,0,0.15)' }}
-                      />
-                      <Legend />
-                      <Area 
-                        type="monotone" 
-                        dataKey="present" 
-                        name="Đi làm"
-                        stroke="#1890ff" 
-                        fillOpacity={1} 
-                        fill="url(#colorPresent)" 
-                      />
-                      <Area 
-                        type="monotone" 
-                        dataKey="late" 
-                        name="Đi muộn"
-                        stroke="#ff4d4f" 
-                        fill="none" 
-                      />
-                    </AreaChart>
-                  </ResponsiveContainer>
-                </div>
+        {/* Stats Cards Row 2 */}
+        <Row gutter={[12, 12]} style={{ marginBottom: 12 }}>
+          <Col xs={12} sm={6}>
+            <Card size="small" bodyStyle={{ padding: 12 }}>
+              <Statistic
+                title={<span style={{ fontSize: 12 }}><DollarOutlined /> Tiền OT</span>}
+                value={reportData.totalOTSalary || 0}
+                valueStyle={{ color: '#52c41a', fontSize: 18 }}
+                formatter={(value) => currency(value) + 'đ'}
+              />
+            </Card>
+          </Col>
+          <Col xs={12} sm={6}>
+            <Card size="small" bodyStyle={{ padding: 12 }}>
+              <Statistic
+                title={<span style={{ fontSize: 12 }}><AlertOutlined /> Tiền phạt</span>}
+                value={reportData.totalPenalty || 0}
+                valueStyle={{ color: '#ff4d4f', fontSize: 18 }}
+                formatter={(value) => currency(value) + 'đ'}
+              />
+            </Card>
+          </Col>
+          <Col xs={12} sm={6}>
+            <Card size="small" bodyStyle={{ padding: 12 }}>
+              <Statistic
+                title={<span style={{ fontSize: 12 }}><ClockCircleOutlined /> Lần muộn</span>}
+                value={reportData.totalLateCount || 0}
+                valueStyle={{ color: '#faad14', fontSize: 18 }}
+                suffix="lần"
+              />
+            </Card>
+          </Col>
+          <Col xs={12} sm={6}>
+            <Card size="small" bodyStyle={{ padding: 12 }}>
+              <Statistic
+                title={<span style={{ fontSize: 12 }}><FileTextOutlined /> Đơn chờ duyệt</span>}
+                value={stats?.pendingLeaveRequests || 0}
+                valueStyle={{ color: (stats?.pendingLeaveRequests || 0) > 0 ? '#ff4d4f' : '#52c41a', fontSize: 18 }}
+              />
+            </Card>
+          </Col>
+        </Row>
+
+        {/* Charts Row */}
+        <Row gutter={[12, 12]} style={{ marginBottom: 12 }}>
+          {/* Today's Attendance Pie Chart */}
+          <Col xs={24} md={8}>
+            <Card 
+              size="small" 
+              title={<span style={{ fontSize: 13 }}><CheckCircleOutlined /> Chấm công hôm nay</span>}
+              bodyStyle={{ padding: 8, height: 220 }}
+            >
+              {attendancePieData.length > 0 ? (
+                <ResponsiveContainer width="100%" height={200}>
+                  <PieChart>
+                    <Pie
+                      data={attendancePieData}
+                      cx="50%"
+                      cy="50%"
+                      innerRadius={40}
+                      outerRadius={70}
+                      paddingAngle={5}
+                      dataKey="value"
+                      label={({ name, value }) => `${name}: ${value}`}
+                      labelLine={false}
+                    >
+                      {attendancePieData.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={entry.color} />
+                      ))}
+                    </Pie>
+                    <RechartsTooltip />
+                  </PieChart>
+                </ResponsiveContainer>
               ) : (
-                <Empty description="Chưa có dữ liệu xu hướng" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+                <div style={{ textAlign: 'center', padding: 40, color: '#999' }}>
+                  Chưa có dữ liệu
+                </div>
               )}
             </Card>
           </Col>
 
-          {/* Department Distribution & On-Time */}
-          <Col xs={24} lg={8}>
-            <Space direction="vertical" size={24} style={{ width: '100%' }}>
-              <Card title="Nhân sự theo phòng ban" style={cardStyle}>
-                {deptData.length > 0 ? (
-                  <div style={{ height: 200 }}>
-                    <ResponsiveContainer width="100%" height="100%">
-                      <PieChart>
-                        <Pie
-                          data={deptData}
-                          cx="50%"
-                          cy="50%"
-                          innerRadius={60}
-                          outerRadius={80}
-                          paddingAngle={5}
-                          dataKey="value"
-                        >
-                          {deptData.map((entry, index) => (
-                            <Cell key={`cell-${index}`} fill={entry.color} />
-                          ))}
-                        </Pie>
-                        <RechartsTooltip />
-                        <Legend layout="vertical" verticalAlign="middle" align="right" />
-                      </PieChart>
-                    </ResponsiveContainer>
-                  </div>
-                ) : (
-                  <Empty description="Chưa có dữ liệu phòng ban" image={Empty.PRESENTED_IMAGE_SIMPLE} />
-                )}
-              </Card>
+          {/* Department Distribution */}
+          <Col xs={24} md={8}>
+            <Card 
+              size="small" 
+              title={<span style={{ fontSize: 13 }}><TeamOutlined /> Phân bổ phòng ban</span>}
+              bodyStyle={{ padding: 8, height: 220 }}
+            >
+              {departmentData.length > 0 ? (
+                <ResponsiveContainer width="100%" height={200}>
+                  <PieChart>
+                    <Pie
+                      data={departmentData}
+                      cx="50%"
+                      cy="50%"
+                      innerRadius={40}
+                      outerRadius={70}
+                      paddingAngle={5}
+                      dataKey="value"
+                      label={({ name, value }) => `${name}: ${value}`}
+                      labelLine={false}
+                    >
+                      {departmentData.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={entry.color} />
+                      ))}
+                    </Pie>
+                    <RechartsTooltip />
+                  </PieChart>
+                </ResponsiveContainer>
+              ) : (
+                <div style={{ textAlign: 'center', padding: 40, color: '#999' }}>
+                  Chưa có dữ liệu
+                </div>
+              )}
+            </Card>
+          </Col>
 
-              <Card title="Tỷ lệ đúng giờ hôm nay" style={cardStyle}>
-                {onTimeData.length > 0 ? (
-                  <div style={{ height: 150, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                     <ResponsiveContainer width="100%" height="100%">
-                      <PieChart>
-                        <Pie
-                          data={onTimeData}
-                          cx="50%"
-                          cy="50%"
-                          outerRadius={60}
-                          dataKey="value"
-                          label={({ name, percent }) => `${(percent * 100).toFixed(0)}%`}
-                        >
-                          {onTimeData.map((entry, index) => (
-                            <Cell key={`cell-${index}`} fill={entry.color} />
-                          ))}
-                        </Pie>
-                        <RechartsTooltip />
-                      </PieChart>
-                    </ResponsiveContainer>
-                  </div>
-                ) : (
-                   <div style={{ textAlign: 'center', padding: 20 }}>
-                     <Text type="secondary">Chưa có dữ liệu chấm công hôm nay</Text>
-                   </div>
-                )}
-              </Card>
-            </Space>
+          {/* Attendance Rate Progress */}
+          <Col xs={24} md={8}>
+            <Card 
+              size="small" 
+              title={<span style={{ fontSize: 13 }}><RiseOutlined /> Tỷ lệ chấm công</span>}
+              bodyStyle={{ padding: 16, height: 220 }}
+            >
+              <div style={{ textAlign: 'center', marginBottom: 16 }}>
+                <Progress
+                  type="dashboard"
+                  percent={reportData.averageAttendance || 0}
+                  strokeColor={{
+                    '0%': '#108ee9',
+                    '100%': '#87d068',
+                  }}
+                  format={(percent) => (
+                    <span style={{ fontSize: 18, fontWeight: 'bold' }}>
+                      {percent}%
+                    </span>
+                  )}
+                  width={120}
+                />
+              </div>
+              <div style={{ textAlign: 'center' }}>
+                <Text type="secondary">
+                  {reportData.totalWorkingDays || 0} ngày làm việc
+                </Text>
+              </div>
+            </Card>
           </Col>
         </Row>
-      )}
 
-      {/* Activity & Personal Stats */}
-      <Row gutter={[24, 24]} style={{ marginTop: 24 }}>
-        <Col xs={24} lg={isManager ? 24 : 12}>
-          <Card title="Hoạt động gần đây" style={cardStyle}>
-            <List
-              itemLayout="horizontal"
-              dataSource={stats?.recentActivities || []}
-              renderItem={(item) => (
-                <List.Item>
-                  <List.Item.Meta
-                    avatar={<Avatar icon={<UserOutlined />} style={{ backgroundColor: '#1890ff' }} />}
-                    title={<Text strong>{item.employee?.name || 'Nhân viên'}</Text>}
-                    description={
-                      <Space>
-                        <Tag color={item.checkIn?.time ? 'blue' : 'default'}>
-                          {item.checkIn?.time ? 'Check-in' : 'Check-out'}
-                        </Tag>
-                        <Text type="secondary">
-                          {moment(item.updatedAt).format('HH:mm:ss DD/MM/YYYY')}
-                        </Text>
-                      </Space>
-                    }
-                  />
-                </List.Item>
+        {/* Weekly Chart */}
+        <Row gutter={[12, 12]} style={{ marginBottom: 12 }}>
+          <Col xs={24}>
+            <Card 
+              size="small" 
+              title={<span style={{ fontSize: 13 }}><CalendarOutlined /> Thống kê chấm công theo ngày</span>}
+              bodyStyle={{ padding: 8 }}
+            >
+              {weeklyData.length > 0 ? (
+                <ResponsiveContainer width="100%" height={200}>
+                  <AreaChart data={weeklyData}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="date" tick={{ fontSize: 11 }} />
+                    <YAxis tick={{ fontSize: 11 }} />
+                    <RechartsTooltip />
+                    <Legend wrapperStyle={{ fontSize: 11 }} />
+                    <Area type="monotone" dataKey="present" name="Có mặt" stackId="1" stroke="#52c41a" fill="#52c41a" fillOpacity={0.6} />
+                    <Area type="monotone" dataKey="late" name="Muộn" stackId="2" stroke="#faad14" fill="#faad14" fillOpacity={0.6} />
+                    <Area type="monotone" dataKey="overtime" name="OT" stackId="3" stroke="#722ed1" fill="#722ed1" fillOpacity={0.6} />
+                  </AreaChart>
+                </ResponsiveContainer>
+              ) : (
+                <div style={{ textAlign: 'center', padding: 40, color: '#999' }}>
+                  Chưa có dữ liệu trong khoảng thời gian này
+                </div>
               )}
-              locale={{ emptyText: 'Không có hoạt động nào gần đây' }}
-            />
-          </Card>
-        </Col>
-
-        {!isManager && stats?.leaveStats && (
-          <Col xs={24} lg={12}>
-             <Card title="Thông tin nghỉ phép của bạn" style={cardStyle}>
-               <Row gutter={[16, 16]}>
-                 <Col span={12}>
-                   <Statistic 
-                     title="Phép năm còn lại"
-                     value={stats.leaveStats.annual.remaining}
-                     suffix={`/ ${stats.leaveStats.annual.total}`}
-                     valueStyle={{ color: '#1890ff' }}
-                   />
-                   <Progress percent={stats.leaveStats.annual.percentage} size="small" showInfo={false} />
-                 </Col>
-                 <Col span={12}>
-                   <Statistic 
-                     title="Nghỉ ốm (giờ)"
-                     value={stats.leaveStats.sick.remainingHours}
-                     suffix={`/ ${stats.leaveStats.sick.totalHours}`}
-                     valueStyle={{ color: '#ff4d4f' }}
-                   />
-                   <Progress percent={stats.leaveStats.sick.percentage} status="exception" size="small" showInfo={false} />
-                 </Col>
-               </Row>
-             </Card>
+            </Card>
           </Col>
-        )}
-      </Row>
+        </Row>
+
+        {/* Two Column Layout - Top Employees & Recent Activities */}
+        <Row gutter={[12, 12]}>
+          {/* Left Column - Top Employees */}
+          <Col xs={24} lg={12}>
+            <Card 
+              size="small" 
+              title={<span style={{ fontSize: 13 }}><TrophyOutlined style={{ color: '#faad14' }} /> Top nhân viên chăm chỉ</span>}
+              bodyStyle={{ padding: 8 }}
+            >
+              {reportData.topEmployees && reportData.topEmployees.length > 0 ? (
+                <Table
+                  columns={topEmployeeColumns}
+                  dataSource={reportData.topEmployees}
+                  pagination={false}
+                  size="small"
+                  rowKey="employeeName"
+                  scroll={{ x: 400 }}
+                />
+              ) : (
+                <div style={{ textAlign: 'center', padding: 20, color: '#999' }}>
+                  Chưa có dữ liệu
+                </div>
+              )}
+            </Card>
+          </Col>
+
+          {/* Right Column - Recent Activities */}
+          <Col xs={24} lg={12}>
+            <Card 
+              size="small" 
+              title={<span style={{ fontSize: 13 }}><ClockCircleOutlined /> Hoạt động gần đây</span>}
+              bodyStyle={{ padding: 8, maxHeight: 300, overflow: 'auto' }}
+            >
+              {stats?.recentActivities && stats.recentActivities.length > 0 ? (
+                <div>
+                  {stats.recentActivities.slice(0, 8).map((activity, index) => (
+                    <div 
+                      key={index} 
+                      style={{ 
+                        display: 'flex', 
+                        justifyContent: 'space-between', 
+                        alignItems: 'center',
+                        padding: '8px 0',
+                        borderBottom: index < 7 ? '1px solid #f0f0f0' : 'none'
+                      }}
+                    >
+                      <div>
+                        <Text strong style={{ fontSize: 13 }}>{activity.employee?.name || 'N/A'}</Text>
+                        <br />
+                        <Text type="secondary" style={{ fontSize: 11 }}>
+                          {activity.time ? moment(activity.time).format('HH:mm') : 'N/A'}
+                        </Text>
+                      </div>
+                      <div>
+                        <Tag color={activity.type === 'checkIn' ? 'green' : 'blue'}>
+                          {activity.type === 'checkIn' ? 'Vào' : 'Ra'}
+                        </Tag>
+                        {activity.status === 'late' && <Tag color="orange">Muộn</Tag>}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div style={{ textAlign: 'center', padding: 20, color: '#999' }}>
+                  Chưa có hoạt động
+                </div>
+              )}
+            </Card>
+          </Col>
+        </Row>
+      </div>
     </div>
   );
 };

@@ -73,6 +73,15 @@ const employeeSchema = new mongoose.Schema({
     type: Number,
     default: 0
   },
+  // Salary calculation fields
+  allowance_rate: {
+    type: Number,
+    default: 0.1  // 10% allowance
+  },
+  tax_rate: {
+    type: Number,
+    default: 0.05  // 5% tax
+  },
   
   // Lịch sử tăng lương
   salaryHistory: [{

@@ -36,6 +36,7 @@ const SystemSettings = () => {
 
   useEffect(() => {
     fetchSettings();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const fetchSettings = async () => {
@@ -45,10 +46,14 @@ const SystemSettings = () => {
       const token = localStorage.getItem('token');
 
       // Fetch all settings types
-      const types = ['working-hours', 'overtime', 'late-policy', 'leave-policy', 'auto-checkout'];
+      const types = ['working-hours', 'overtime', 'late-policy', 'leave-policy', 'auto-checkout', 'ot-rate', 'tax-config', 'salary-structure'];
       const promises = types.map(type =>
         axios.get(`${API_URL}/settings?type=${type}`, {
           headers: { Authorization: `Bearer ${token}` }
+        }).catch(error => {
+          console.error(`Error fetching setting ${type}:`, error);
+          // Return a default response structure
+          return { data: { success: false, data: null } };
         })
       );
 
@@ -56,8 +61,23 @@ const SystemSettings = () => {
       const settingsData = {};
 
       responses.forEach((response, index) => {
-        if (response.data.success && response.data.data) {
+        if (response.data && response.data.success && response.data.data) {
           settingsData[types[index]] = response.data.data.value;
+        } else {
+          // Use defaults if fetch failed
+          const defaults = {
+            'working-hours': { startTime: '08:00', endTime: '17:00' },
+            'overtime': { weekdayRate: 1.5, weekendRate: 2.0, holidayRate: 3.0, minDuration: 1 },
+            'late-policy': { graceMinutes: 15, penaltyAfterGrace: 50000, halfDayThreshold: 60 },
+            'leave-policy': { annualDays: 12, carryOverDays: 3, resetMonth: 1 },
+            'auto-checkout': { enabled: true, defaultTime: '17:00', applyAfterHours: 2 },
+            'ot-rate': { ratePerHour: 100000, startTime: '19:00' },
+            'tax-config': { enabled: true, taxRate: 10 },
+            'salary-structure': { generalAllowanceRate: 5 }
+          };
+          if (defaults[types[index]]) {
+            settingsData[types[index]] = defaults[types[index]];
+          }
         }
       });
 
@@ -89,6 +109,17 @@ const SystemSettings = () => {
         autoCheckoutEnabled: settingsData['auto-checkout']?.enabled || true,
         autoCheckoutTime: settingsData['auto-checkout']?.defaultTime ? moment(settingsData['auto-checkout'].defaultTime, 'HH:mm') : moment('17:00', 'HH:mm'),
         autoCheckoutAfterHours: settingsData['auto-checkout']?.applyAfterHours || 2,
+
+        // OT Rate (NEW)
+        otRatePerHour: settingsData['ot-rate']?.ratePerHour || 100000,
+        otStartTime: settingsData['ot-rate']?.startTime ? moment(settingsData['ot-rate'].startTime, 'HH:mm') : moment('19:00', 'HH:mm'),
+
+        // Tax Config (NEW)
+        taxEnabled: settingsData['tax-config']?.enabled !== false,
+        taxRate: settingsData['tax-config']?.taxRate || 10,
+
+        // Allowance Config (NEW)
+        generalAllowanceRate: settingsData['salary-structure']?.generalAllowanceRate || 5,
       });
     } catch (error) {
       console.error('Error fetching settings:', error);
@@ -104,22 +135,22 @@ const SystemSettings = () => {
       const API_URL = getAPIUrl();
       const token = localStorage.getItem('token');
 
-      // Prepare settings updates
+      // Prepare settings updates with default values for optional fields
       const updates = [
         {
           type: 'working-hours',
           value: {
-            startTime: values.startTime.format('HH:mm'),
-            endTime: values.endTime.format('HH:mm')
+            startTime: values.startTime?.format('HH:mm') || '08:00',
+            endTime: values.endTime?.format('HH:mm') || '17:00'
           }
         },
         {
           type: 'overtime',
           value: {
-            weekdayRate: values.overtimeWeekdayRate,
-            weekendRate: values.overtimeWeekendRate,
-            holidayRate: values.overtimeHolidayRate,
-            minDuration: values.overtimeMinDuration,
+            weekdayRate: values.overtimeWeekdayRate || 1.5,
+            weekendRate: values.overtimeWeekendRate || 2.0,
+            holidayRate: values.overtimeHolidayRate || 3.0,
+            minDuration: values.overtimeMinDuration || 1,
             maxTime: '23:30',
             roundingRule: 'hour'
           }
@@ -127,26 +158,64 @@ const SystemSettings = () => {
         {
           type: 'late-policy',
           value: {
-            graceMinutes: values.lateGraceMinutes,
-            penaltyAfterGrace: values.latePenaltyAfterGrace,
-            halfDayThreshold: values.lateHalfDayThreshold,
+            graceMinutes: values.lateGraceMinutes || 15,
+            penaltyAfterGrace: values.latePenaltyAfterGrace || 50000,
+            halfDayThreshold: values.lateHalfDayThreshold || 60,
             penaltyPerMinute: 0
           }
         },
         {
           type: 'leave-policy',
           value: {
-            annualDays: values.leaveAnnualDays,
-            carryOverDays: values.leaveCarryOverDays,
-            resetMonth: values.leaveResetMonth
+            annualDays: values.leaveAnnualDays || 12,
+            carryOverDays: values.leaveCarryOverDays || 3,
+            resetMonth: values.leaveResetMonth || 1
           }
         },
         {
           type: 'auto-checkout',
           value: {
-            enabled: values.autoCheckoutEnabled,
-            defaultTime: values.autoCheckoutTime.format('HH:mm'),
-            applyAfterHours: values.autoCheckoutAfterHours
+            enabled: values.autoCheckoutEnabled !== false,
+            defaultTime: values.autoCheckoutTime?.format('HH:mm') || '17:00',
+            applyAfterHours: values.autoCheckoutAfterHours || 2
+          }
+        },
+        // OT Rate
+        {
+          type: 'ot-rate',
+          value: {
+            enabled: true,
+            ratePerHour: values.otRatePerHour || 100000,
+            calculationType: 'fixed',
+            percentage: 0,
+            startTime: values.otStartTime?.format('HH:mm') || '19:00',
+            breakTime: {
+              start: '18:00',
+              end: '18:59'
+            }
+          }
+        },
+        // Tax Config
+        {
+          type: 'tax-config',
+          value: {
+            enabled: values.taxEnabled !== false,
+            taxRate: values.taxRate || 10,
+            applyTo: 'gross-minus-penalty',
+            description: 'Thuế TNCN + Bảo hiểm'
+          }
+        },
+        // Salary Structure (Update allowance rate)
+        {
+          type: 'salary-structure',
+          value: {
+            generalAllowanceRate: values.generalAllowanceRate || 5,
+            // Keep existing values from defaults
+            positionBaseSalary: settings['salary-structure']?.positionBaseSalary || {},
+            positionOvertimeMultiplier: settings['salary-structure']?.positionOvertimeMultiplier || {},
+            seniorityPolicy: settings['salary-structure']?.seniorityPolicy || { percentPerYear: 2, maxPercent: 20 },
+            positionAllowance: settings['salary-structure']?.positionAllowance || {},
+            contractMultiplier: settings['salary-structure']?.contractMultiplier || {}
           }
         }
       ];
@@ -175,12 +244,13 @@ const SystemSettings = () => {
   };
 
   return (
-    <Card>
-      <div style={{ marginBottom: 24 }}>
-        <Title level={4} style={{ margin: 0 }}>
-          <SettingOutlined /> Cấu hình hệ thống
+    <div>
+      <div style={{ marginBottom: 16 }}>
+        <Title level={5} style={{ margin: '0 0 8px 0' }}>
+          <SettingOutlined style={{ marginRight: 8 }} />
+          Cấu hình hệ thống
         </Title>
-        <Text type="secondary">
+        <Text type="secondary" style={{ fontSize: 13 }}>
           Cấu hình các chính sách về giờ làm việc, OT, đi muộn, nghỉ phép
         </Text>
       </div>
@@ -190,7 +260,11 @@ const SystemSettings = () => {
         layout="vertical"
         onFinish={handleSave}
       >
-        <Collapse defaultActiveKey={['1', '2', '3', '4', '5']} accordion={false}>
+        <Collapse 
+          defaultActiveKey={['1', '2', '2b', '2c', '3', '4', '5']} 
+          accordion={false}
+          style={{ marginBottom: 16 }}
+        >
           {/* Working Hours */}
           <Panel
             header={
@@ -205,25 +279,24 @@ const SystemSettings = () => {
               message="Cấu hình giờ vào/ra chuẩn cho tất cả nhân viên"
               type="info"
               showIcon
-              style={{ marginBottom: 16 }}
+              style={{ marginBottom: 12 }}
+              size="small"
             />
             <Row gutter={16}>
               <Col span={12}>
                 <Form.Item
                   name="startTime"
                   label="Giờ vào"
-                  rules={[{ required: true, message: 'Vui lòng chọn giờ vào' }]}
                 >
-                  <TimePicker format="HH:mm" style={{ width: '100%' }} />
+                  <TimePicker format="HH:mm" style={{ width: '100%' }} placeholder="08:00" />
                 </Form.Item>
               </Col>
               <Col span={12}>
                 <Form.Item
                   name="endTime"
                   label="Giờ ra"
-                  rules={[{ required: true, message: 'Vui lòng chọn giờ ra' }]}
                 >
-                  <TimePicker format="HH:mm" style={{ width: '100%' }} />
+                  <TimePicker format="HH:mm" style={{ width: '100%' }} placeholder="17:00" />
                 </Form.Item>
               </Col>
             </Row>
@@ -243,14 +316,14 @@ const SystemSettings = () => {
               message="Hệ số lương khi làm OT: Ngày thường x1.5, Cuối tuần x2.0, Ngày lễ x3.0"
               type="info"
               showIcon
-              style={{ marginBottom: 16 }}
+              style={{ marginBottom: 12 }}
+              size="small"
             />
             <Row gutter={16}>
               <Col span={8}>
                 <Form.Item
                   name="overtimeWeekdayRate"
                   label="Hệ số ngày thường"
-                  rules={[{ required: true }]}
                 >
                   <InputNumber
                     min={1.0}
@@ -258,6 +331,7 @@ const SystemSettings = () => {
                     step={0.1}
                     style={{ width: '100%' }}
                     addonAfter="x"
+                    placeholder="1.5"
                   />
                 </Form.Item>
               </Col>
@@ -265,7 +339,6 @@ const SystemSettings = () => {
                 <Form.Item
                   name="overtimeWeekendRate"
                   label="Hệ số cuối tuần"
-                  rules={[{ required: true }]}
                 >
                   <InputNumber
                     min={1.0}
@@ -273,6 +346,7 @@ const SystemSettings = () => {
                     step={0.1}
                     style={{ width: '100%' }}
                     addonAfter="x"
+                    placeholder="2.0"
                   />
                 </Form.Item>
               </Col>
@@ -280,7 +354,6 @@ const SystemSettings = () => {
                 <Form.Item
                   name="overtimeHolidayRate"
                   label="Hệ số ngày lễ"
-                  rules={[{ required: true }]}
                 >
                   <InputNumber
                     min={1.0}
@@ -288,6 +361,7 @@ const SystemSettings = () => {
                     step={0.1}
                     style={{ width: '100%' }}
                     addonAfter="x"
+                    placeholder="3.0"
                   />
                 </Form.Item>
               </Col>
@@ -295,7 +369,6 @@ const SystemSettings = () => {
             <Form.Item
               name="overtimeMinDuration"
               label="Thời gian tối thiểu để tính OT (giờ)"
-              rules={[{ required: true }]}
             >
               <InputNumber
                 min={0.5}
@@ -305,6 +378,137 @@ const SystemSettings = () => {
                 addonAfter="giờ"
               />
             </Form.Item>
+          </Panel>
+
+          {/* NEW: OT Rate Panel */}
+          <Panel
+            header={
+              <Space>
+                <DollarOutlined />
+                <Text strong>Cấu hình OT (Mới)</Text>
+              </Space>
+            }
+            key="2b"
+          >
+            <Alert
+              message="Cấu hình mức lương OT cố định: 100k VND/1h (mặc định). OT bắt đầu từ 19h00."
+              type="success"
+              showIcon
+              style={{ marginBottom: 12 }}
+              size="small"
+            />
+            <Row gutter={16}>
+              <Col span={12}>
+                <Form.Item
+                  name="otRatePerHour"
+                  label="Mức lương OT (VND/giờ)"
+                  help="Lương OT cố định cho mỗi giờ làm thêm"
+                >
+                  <InputNumber
+                    min={50000}
+                    max={500000}
+                    step={10000}
+                    style={{ width: '100%' }}
+                    formatter={value => `${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
+                    parser={value => value.replace(/\$\s?|(,*)/g, '')}
+                    addonAfter="VND/h"
+                    placeholder="100,000"
+                  />
+                </Form.Item>
+              </Col>
+              <Col span={12}>
+                <Form.Item
+                  name="otStartTime"
+                  label="Giờ bắt đầu tính OT"
+                  help="18h00-18h59 không tính OT, từ 19h00 mới tính"
+                >
+                  <TimePicker format="HH:mm" style={{ width: '100%' }} placeholder="19:00" />
+                </Form.Item>
+              </Col>
+            </Row>
+          </Panel>
+
+          {/* NEW: Tax Config Panel */}
+          <Panel
+            header={
+              <Space>
+                <DollarOutlined />
+                <Text strong>Cấu hình Thuế (Mới)</Text>
+              </Space>
+            }
+            key="2c"
+          >
+            <Alert
+              message="Thuế 10% bao gồm: Thuế TNCN + Bảo hiểm xã hội. Tính trên (Gross - Phạt)."
+              type="warning"
+              showIcon
+              style={{ marginBottom: 12 }}
+              size="small"
+            />
+            <Row gutter={16}>
+              <Col span={12}>
+                <Form.Item
+                  name="taxEnabled"
+                  label="Bật tính thuế"
+                  valuePropName="checked"
+                >
+                  <Switch checkedChildren="Bật" unCheckedChildren="Tắt" />
+                </Form.Item>
+              </Col>
+              <Col span={12}>
+                <Form.Item
+                  name="taxRate"
+                  label="Tỷ lệ thuế (%)"
+                  help="Mặc định 10% (bao gồm thuế + TNCN + bảo hiểm)"
+                >
+                  <InputNumber
+                    min={0}
+                    max={50}
+                    step={1}
+                    style={{ width: '100%' }}
+                    addonAfter="%"
+                    placeholder="10"
+                  />
+                </Form.Item>
+              </Col>
+            </Row>
+          </Panel>
+
+          {/* NEW: Allowance Config Panel */}
+          <Panel
+            header={
+              <Space>
+                <DollarOutlined />
+                <Text strong>Phụ cấp</Text>
+              </Space>
+            }
+            key="2d"
+          >
+            <Alert
+              message="Phụ cấp được tính theo % của lương cơ bản. Áp dụng cho tất cả nhân viên."
+              type="info"
+              showIcon
+              style={{ marginBottom: 12 }}
+              size="small"
+            />
+            <Row gutter={16}>
+              <Col span={12}>
+                <Form.Item
+                  name="generalAllowanceRate"
+                  label="Tỷ lệ phụ cấp chung (%)"
+                  help="Tỷ lệ % của lương cơ bản. Ví dụ: 5% = 5% lương cơ bản"
+                >
+                  <InputNumber
+                    min={0}
+                    max={50}
+                    step={0.5}
+                    style={{ width: '100%' }}
+                    addonAfter="%"
+                    placeholder="5"
+                  />
+                </Form.Item>
+              </Col>
+            </Row>
           </Panel>
 
           {/* Late Policy */}
@@ -321,12 +525,12 @@ const SystemSettings = () => {
               message="Quy định phạt khi nhân viên đi muộn"
               type="warning"
               showIcon
-              style={{ marginBottom: 16 }}
+              style={{ marginBottom: 12 }}
+              size="small"
             />
             <Form.Item
               name="lateGraceMinutes"
               label="Thời gian cho phép muộn (phút)"
-              rules={[{ required: true }]}
               help="Ví dụ: 15 phút = Được phép muộn tối đa 15 phút mà không bị phạt"
             >
               <InputNumber
@@ -334,12 +538,12 @@ const SystemSettings = () => {
                 max={60}
                 style={{ width: '100%' }}
                 addonAfter="phút"
+                placeholder="15"
               />
             </Form.Item>
             <Form.Item
               name="latePenaltyAfterGrace"
               label="Tiền phạt sau khi hết thời gian cho phép (VND)"
-              rules={[{ required: true }]}
             >
               <InputNumber
                 min={0}
@@ -349,12 +553,12 @@ const SystemSettings = () => {
                 formatter={value => `${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
                 parser={value => value.replace(/\$\s?|(,*)/g, '')}
                 addonAfter="VND"
+                placeholder="50,000"
               />
             </Form.Item>
             <Form.Item
               name="lateHalfDayThreshold"
               label="Ngưỡng trừ 1/2 ngày công (phút)"
-              rules={[{ required: true }]}
               help="Ví dụ: 60 phút = Muộn trên 1 tiếng sẽ bị trừ 1/2 ngày công"
             >
               <InputNumber
@@ -362,6 +566,7 @@ const SystemSettings = () => {
                 max={240}
                 style={{ width: '100%' }}
                 addonAfter="phút"
+                placeholder="60"
               />
             </Form.Item>
           </Panel>
@@ -380,12 +585,12 @@ const SystemSettings = () => {
               message="Quy định về số ngày nghỉ phép năm của nhân viên"
               type="info"
               showIcon
-              style={{ marginBottom: 16 }}
+              style={{ marginBottom: 12 }}
+              size="small"
             />
             <Form.Item
               name="leaveAnnualDays"
               label="Số ngày phép/năm"
-              rules={[{ required: true }]}
               help="Thông thường là 12 ngày/năm (1 ngày/tháng)"
             >
               <InputNumber
@@ -393,30 +598,31 @@ const SystemSettings = () => {
                 max={30}
                 style={{ width: '100%' }}
                 addonAfter="ngày"
+                placeholder="12"
               />
             </Form.Item>
             <Form.Item
               name="leaveCarryOverDays"
               label="Số ngày được chuyển sang năm sau"
-              rules={[{ required: true }]}
             >
               <InputNumber
                 min={0}
                 max={10}
                 style={{ width: '100%' }}
                 addonAfter="ngày"
+                placeholder="3"
               />
             </Form.Item>
             <Form.Item
               name="leaveResetMonth"
               label="Tháng reset quota (1-12)"
-              rules={[{ required: true }]}
               help="Tháng nào sẽ reset lại số ngày phép (thường là tháng 1)"
             >
               <InputNumber
                 min={1}
                 max={12}
                 style={{ width: '100%' }}
+                placeholder="1"
               />
             </Form.Item>
           </Panel>
@@ -435,7 +641,8 @@ const SystemSettings = () => {
               message="Tự động checkout cho nhân viên quên chấm công ra"
               type="info"
               showIcon
-              style={{ marginBottom: 16 }}
+              style={{ marginBottom: 12 }}
+              size="small"
             />
             <Form.Item
               name="autoCheckoutEnabled"
@@ -447,14 +654,12 @@ const SystemSettings = () => {
             <Form.Item
               name="autoCheckoutTime"
               label="Giờ tự động checkout"
-              rules={[{ required: true }]}
             >
-              <TimePicker format="HH:mm" style={{ width: '100%' }} />
+              <TimePicker format="HH:mm" style={{ width: '100%' }} placeholder="17:00" />
             </Form.Item>
             <Form.Item
               name="autoCheckoutAfterHours"
               label="Sau bao nhiêu giờ sẽ tự động checkout"
-              rules={[{ required: true }]}
               help="Ví dụ: 2 giờ = Sau 2 tiếng không checkout sẽ tự động checkout"
             >
               <InputNumber
@@ -462,30 +667,38 @@ const SystemSettings = () => {
                 max={12}
                 style={{ width: '100%' }}
                 addonAfter="giờ"
+                placeholder="2"
               />
             </Form.Item>
           </Panel>
         </Collapse>
 
-        <Divider />
-
-        <Form.Item style={{ marginBottom: 0, textAlign: 'right' }}>
-          <Space>
-            <Button onClick={() => fetchSettings()}>
-              Hủy
-            </Button>
-            <Button
-              type="primary"
-              htmlType="submit"
-              icon={<SaveOutlined />}
-              loading={loading}
-            >
-              Lưu cấu hình
-            </Button>
-          </Space>
-        </Form.Item>
+        <div style={{ 
+          position: 'sticky', 
+          bottom: 0, 
+          background: '#fff', 
+          padding: '16px 0',
+          borderTop: '1px solid #f0f0f0',
+          marginTop: 16
+        }}>
+          <Form.Item style={{ marginBottom: 0, textAlign: 'right' }}>
+            <Space>
+              <Button onClick={() => fetchSettings()}>
+                Hủy
+              </Button>
+              <Button
+                type="primary"
+                htmlType="submit"
+                icon={<SaveOutlined />}
+                loading={loading}
+              >
+                Lưu cấu hình
+              </Button>
+            </Space>
+          </Form.Item>
+        </div>
       </Form>
-    </Card>
+    </div>
   );
 };
 

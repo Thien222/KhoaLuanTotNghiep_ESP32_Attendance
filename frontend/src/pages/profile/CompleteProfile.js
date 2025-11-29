@@ -115,9 +115,9 @@ const CompleteProfile = () => {
         setCurrentStep(2);
         fetchMyProfile();
         
-        // Redirect to leave-requests after a short delay
+        // Redirect to requests after a short delay
         setTimeout(() => {
-          window.location.href = '/leave-requests';
+          window.location.href = '/requests';
         }, 2000);
       }
     } catch (error) {

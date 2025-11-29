@@ -22,13 +22,22 @@ async function calculateMonthlySalary(employeeId, year, month) {
   const startDate = moment(`${year}-${String(month).padStart(2, '0')}-01`).startOf('day');
   const endDate = startDate.clone().endOf('month');
   
-  // Lấy settings
-  const [attendanceSettings, overtimeSettings, latePolicy, salaryStructure] = await Promise.all([
+  // Lấy TẤT CẢ settings từ database
+  const [attendanceSettings, overtimeSettings, latePolicy, salaryStructure, taxConfig, otRateConfig] = await Promise.all([
     Settings.findOne({ type: 'working-hours' }),
     Settings.findOne({ type: 'overtime' }),
     Settings.findOne({ type: 'late-policy' }),
-    Settings.findOne({ type: 'salary-structure' })
+    Settings.findOne({ type: 'salary-structure' }),
+    Settings.findOne({ type: 'tax-config' }),
+    Settings.findOne({ type: 'ot-rate' })
   ]);
+  
+  console.log('📊 [SALARY CALC] Settings loaded:', {
+    allowanceRate: salaryStructure?.config?.generalAllowanceRate || 5,
+    taxRate: taxConfig?.config?.taxRate || 10,
+    otRatePerHour: otRateConfig?.config?.ratePerHour || overtimeSettings?.config?.otRate || 100000,
+    latePenaltyPer15Min: latePolicy?.config?.penaltyRate || 20000
+  });
   
   // Lấy attendance
   const attendances = await Attendance.find({
@@ -62,97 +71,119 @@ async function calculateMonthlySalary(employeeId, year, month) {
   
   const leaveStats = calculateLeaveStats(leaves, startDate, endDate);
   
-  // 4. TÍNH LƯƠNG CƠ BẢN
-  const baseSalary = employee.baseSalary || employee.salary || 0;
+  // 4. TÍNH LƯƠNG CƠ BẢN (UPDATED - Theo ngày công / 30)
+  const baseSalaryFull = employee.baseSalary || employee.salary || 0;
   
-  // 5. TÍNH PHỤ CẤP THÂM NIÊN
+  // NEW: Lương cơ bản = LCB × (số ngày công / 30)
+  const workDaysInMonth = stats.workingDays + (stats.halfDays * 0.5);
+  const baseSalary = Math.round((baseSalaryFull * workDaysInMonth) / 30);
+  
+  // 5. TÍNH PHỤ CẤP (UPDATED - 5% thay vì 10%)
+  const allowanceRate = salaryStructure?.config?.generalAllowanceRate || 5;
+  const generalAllowance = Math.round((baseSalaryFull * allowanceRate) / 100);
+  
+  // 6. TÍNH PHỤ CẤP THÂM NIÊN
   const seniorityAllowance = calculateSeniorityAllowance(
-    baseSalary, 
+    baseSalaryFull, 
     employee.joinDate,
     salaryStructure?.config
   );
   
-  // 6. TÍNH PHỤ CẤP CHỨC VỤ
+  // 7. TÍNH PHỤ CẤP CHỨC VỤ
   const positionAllowance = calculatePositionAllowance(
-    baseSalary,
+    baseSalaryFull,
     employee.position,
     salaryStructure?.config
   );
   
-  // 7. TÍNH LƯƠNG OT
-  const overtimePay = calculateOvertimePay(
-    employee,
-    stats.overtimeHours,
-    stats.overtimeDetails,
-    overtimeSettings?.config
-  );
+  // 8. TÍNH LƯƠNG OT (UPDATED - Dùng estimatedOTSalary từ attendance records)
+  // Vì estimatedOTSalary đã được tính với hệ số đúng (weekday/weekend/holiday) trong attendanceController
+  // Nên chỉ cần cộng lại từ các attendance records
+  let overtimePay = 0;
+  attendances.forEach(att => {
+    if (att.estimatedOTSalary) {
+      overtimePay += att.estimatedOTSalary;
+    }
+  });
   
-  // 8. TÍNH LƯƠNG LÀM VIỆC NGÀY LỄ
+  // Fallback: Nếu không có estimatedOTSalary, tính theo rate cố định (không có hệ số)
+  if (overtimePay === 0 && stats.overtimeHours > 0) {
+    const otRatePerHour = otRateConfig?.config?.ratePerHour || overtimeSettings?.config?.otRate || 100000;
+    overtimePay = calculateOvertimePayFixed(
+      stats.overtimeHours,
+      { ...overtimeSettings?.config, otRate: otRatePerHour }
+    );
+    console.log(`⚠️ [PAYROLL] Using fallback OT calculation (no estimatedOTSalary in attendance records)`);
+  }
+  
+  // 9. TÍNH LƯƠNG LÀM VIỆC NGÀY LỄ
   const holidayWorkPay = calculateHolidayWorkPay(
     employee,
     stats.holidayWorkDays,
-    baseSalary
+    baseSalaryFull
   );
   
-  // 9. TÍNH LƯƠNG LÀM VIỆC CUỐI TUẦN
+  // 10. TÍNH LƯƠNG LÀM VIỆC CUỐI TUẦN
   const weekendWorkPay = calculateWeekendWorkPay(
     employee,
     stats.weekendWorkDays,
-    baseSalary,
+    baseSalaryFull,
     overtimeSettings?.config
   );
   
-  // 10. TÍNH PHẠT ĐI MUỘN
-  const latePenalty = calculateLatePenalty(
-    stats.lateCount,
-    stats.lateMinutes,
-    latePolicy?.config
-  );
+  // 11. TÍNH TỔNG PHẠT (ĐI MUỘN + VỀ SỚM)
+  const latePenalty = stats.totalPenalty || 0; // Đã tính trong attendance
   
-  // 11. TÍNH KHẤU TRỪ NGHỈ
+  // 12. TÍNH KHẤU TRỪ NGHỈ (UPDATED - Dựa trên baseSalaryFull)
   const absentDeduction = calculateAbsentDeduction(
-    baseSalary,
+    baseSalaryFull,
     stats.absentDays
   );
   
   const unpaidLeaveDeduction = calculateUnpaidLeaveDeduction(
-    baseSalary,
+    baseSalaryFull,
     leaveStats.unpaidDays
   );
   
   const halfDayDeduction = calculateHalfDayDeduction(
-    baseSalary,
+    baseSalaryFull,
     stats.halfDays
   );
   
-  // 12. TÍNH CHẾ ĐỘ THAI SẢN
+  // 13. TÍNH CHẾ ĐỘ THAI SẢN
   const maternityPay = calculateMaternityPay(
     employee,
-    baseSalary,
+    baseSalaryFull,
     leaveStats.maternityDays,
     startDate,
     endDate
   );
   
-  // 13. TÍNH NGHỈ ỐM CÓ LƯƠNG
+  // 14. TÍNH NGHỈ ỐM CÓ LƯƠNG
   const sickLeavePay = calculateSickLeavePay(
-    baseSalary,
+    baseSalaryFull,
     leaveStats.sickLeaveDays
   );
   
-  // 14. TÍNH NGHỈ PHÉP CÓ LƯƠNG
+  // 15. TÍNH NGHỈ PHÉP CÓ LƯƠNG
   const annualLeavePay = calculateAnnualLeavePay(
-    baseSalary,
+    baseSalaryFull,
     leaveStats.annualLeaveDays
   );
   
-  // 15. TẠO PAYROLL OBJECT
+  // 16. TẠO PAYROLL OBJECT (UPDATED)
   const payroll = {
     employee: employeeId,
     month: `${year}-${String(month).padStart(2, '0')}`,
     
-    // Lương cơ bản
+    // NEW: Lương cơ bản THÁNG (do admin set) - Hiển thị trên bảng lương
+    basicSalaryFull: baseSalaryFull,
+    // Lương tính theo ngày công = LCB × (số ngày / 30)
     baseSalary: baseSalary,
+    // Lương 1 ngày công = LCB / 26
+    dailyRate: Math.round(baseSalaryFull / 26),
+    
+    generalAllowance: generalAllowance, // NEW: Phụ cấp 5%
     seniorityAllowance: seniorityAllowance,
     positionAllowance: positionAllowance,
     
@@ -194,8 +225,9 @@ async function calculateMonthlySalary(employeeId, year, month) {
     calculatedAt: new Date()
   };
   
-  // Tính tổng
+  // Tính Gross Salary
   payroll.grossSalary = payroll.baseSalary + 
+                       payroll.generalAllowance +
                        payroll.seniorityAllowance + 
                        payroll.positionAllowance +
                        payroll.overtimePay + 
@@ -208,12 +240,26 @@ async function calculateMonthlySalary(employeeId, year, month) {
                        payroll.sickLeavePay +
                        payroll.annualLeavePay;
   
+  // NEW: TÍNH THUẾ (từ Settings - mặc định 10%)
+  // taxConfig đã được load ở trên, không cần query lại
+  const taxRate = taxConfig?.config?.taxRate || 10;
+  const taxableIncome = payroll.grossSalary - latePenalty;
+  const taxAmount = Math.round((taxableIncome * taxRate) / 100);
+  
+  console.log(`📊 [SALARY] ${employee.name}: Gross=${payroll.grossSalary}, Tax=${taxRate}% (${taxAmount}), Net=${payroll.grossSalary - taxAmount - latePenalty}`);
+  
+  payroll.taxAmount = taxAmount; // NEW
+  payroll.taxRate = taxRate; // NEW
+  
+  // Tổng khấu trừ (bao gồm thuế)
   payroll.totalDeductions = payroll.latePenalty + 
                             payroll.absentDeduction + 
                             payroll.unpaidLeaveDeduction +
                             payroll.halfDayDeduction +
+                            payroll.taxAmount + // NEW
                             payroll.otherDeductions;
   
+  // Net Salary = Gross - Tổng khấu trừ
   payroll.netSalary = payroll.grossSalary - payroll.totalDeductions;
   
   return payroll;
@@ -244,7 +290,7 @@ function calculatePositionAllowance(baseSalary, position, salaryConfig) {
 }
 
 /**
- * Tính lương OT
+ * Tính lương OT (OLD - Keep for compatibility)
  */
 function calculateOvertimePay(employee, overtimeHours, overtimeDetails, overtimeConfig) {
   const baseSalary = employee.baseSalary || employee.salary || 0;
@@ -265,6 +311,21 @@ function calculateOvertimePay(employee, overtimeHours, overtimeDetails, overtime
   // Fallback: tính đơn giản nếu không có chi tiết
   const defaultRate = config.weekdayRate || 1.5;
   return Math.round(hourlyRate * overtimeHours * defaultRate);
+}
+
+/**
+ * Tính lương OT theo rate cố định (NEW)
+ * OT rate: 100k VND/1h (mặc định)
+ */
+function calculateOvertimePayFixed(overtimeHours, overtimeConfig) {
+  if (!overtimeHours || overtimeHours <= 0) {
+    return 0;
+  }
+  
+  const config = overtimeConfig || {};
+  const ratePerHour = config.otRate || 100000; // 100k VND/1h
+  
+  return Math.round(overtimeHours * ratePerHour);
 }
 
 /**
@@ -384,6 +445,8 @@ async function calculateAttendanceStats(attendances, startDate, endDate, holiday
   
   const overtimeDetails = [];
   
+  let totalPenalty = 0; // NEW: Tổng phạt từ attendance
+  
   attendances.forEach(att => {
     const attDate = moment(att.date).format('YYYY-MM-DD');
     const isHoliday = holidayDates.has(attDate);
@@ -404,9 +467,14 @@ async function calculateAttendanceStats(attendances, startDate, endDate, holiday
       absentDays++;
     }
     
-    if (att.status === 'late') {
+    if (att.checkIn && att.checkIn.status === 'late') {
       lateCount++;
       lateMinutes += att.lateMinutes || 0;
+    }
+    
+    // NEW: Cộng tổng phạt từ actualPenalty
+    if (att.actualPenalty) {
+      totalPenalty += att.actualPenalty;
     }
     
     if (att.overtimeHours > 0) {
@@ -414,7 +482,8 @@ async function calculateAttendanceStats(attendances, startDate, endDate, holiday
       overtimeDetails.push({
         hours: att.overtimeHours,
         isHoliday: isHoliday,
-        isWeekend: isWeekend
+        isWeekend: isWeekend,
+        estimatedOTSalary: att.estimatedOTSalary || 0  // Lưu OT salary đã tính (có hệ số)
       });
     }
   });
@@ -425,6 +494,7 @@ async function calculateAttendanceStats(attendances, startDate, endDate, holiday
     halfDays,
     lateCount,
     lateMinutes,
+    totalPenalty, // NEW
     overtimeHours,
     overtimeDetails,
     holidayWorkDays,
@@ -474,6 +544,7 @@ module.exports = {
   calculateMonthlySalary,
   calculateSeniorityAllowance,
   calculateOvertimePay,
+  calculateOvertimePayFixed,
   calculateHolidayWorkPay,
   calculateLatePenalty
 };

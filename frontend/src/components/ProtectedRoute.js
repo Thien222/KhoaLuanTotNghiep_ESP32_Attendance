@@ -35,13 +35,13 @@ const ProtectedRoute = ({ children, allowedRoles = [], requireProfileComplete = 
       return children;
     }
 
-    // Redirect based on role - user goes to leave-requests, manager to dashboard
+    // Redirect based on role - user goes to requests, manager to dashboard
     if (userRole === 'employee') {
       // Check profile completion before redirecting
       if (!profileCompleted) {
         return <Navigate to="/complete-profile" replace />;
       }
-      return <Navigate to="/leave-requests" replace />;
+      return <Navigate to="/requests" replace />;
     }
     return <Navigate to="/dashboard" replace />;
   } catch (error) {

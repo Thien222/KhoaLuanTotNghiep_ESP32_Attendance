@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Layout as AntLayout, Menu, Button, Avatar, Dropdown, Space, Typography, Badge } from 'antd';
+import { Layout as AntLayout, Menu, Button, Avatar, Dropdown, Space, Typography, Badge, Switch, Tooltip } from 'antd';
 import { 
   MenuFoldOutlined, 
   MenuUnfoldOutlined, 
@@ -11,10 +11,10 @@ import {
   ClockCircleOutlined,
   FileTextOutlined,
   DollarOutlined,
-  BarChartOutlined,
   RobotOutlined,
   SettingOutlined,
-  WifiOutlined
+  SwapOutlined,
+  BarChartOutlined
 } from '@ant-design/icons';
 import { useNavigate, useLocation } from 'react-router-dom';
 import TimeControl from './TimeControl';
@@ -24,6 +24,7 @@ const { Text } = Typography;
 
 const MainLayout = ({ children }) => {
   const [collapsed, setCollapsed] = useState(false);
+  const [viewMode, setViewMode] = useState('admin'); // 'admin' or 'personal'
   const navigate = useNavigate();
   const location = useLocation();
   
@@ -50,105 +51,124 @@ const MainLayout = ({ children }) => {
   }, [user, navigate]);
   
   if (!user) {
-    return null; // Will redirect to login
+    return null;
   }
   
-  const logout = () => {
-    console.log('Logout clicked');
-  };
-
-  const menuItems = [
+  const isAdmin = user?.role === 'manager';
+  const isAccountant = user?.role === 'accountant';
+  
+  const adminMenuItems = [
     {
       key: '/dashboard',
       icon: <DashboardOutlined />,
-      label: 'Dashboard',
-      roles: ['manager'] // Only admin
+      label: 'Dashboard'
     },
     {
       key: '/attendance',
       icon: <ClockCircleOutlined />,
-      label: 'Chấm công',
-      roles: ['manager'] // Only admin
+      label: 'Chấm công'
     },
     {
       key: '/employees',
       icon: <TeamOutlined />,
-      label: 'Quản lý nhân sự',
-      roles: ['manager'] // Only admin
+      label: 'Quản lý nhân sự'
     },
     {
-      key: '/leave-requests',
+      key: '/requests',
       icon: <FileTextOutlined />,
-      label: 'Nghỉ phép',
-      roles: ['employee', 'manager'] // User và admin
+      label: 'Duyệt đơn'
     },
     {
       key: '/payroll',
       icon: <DollarOutlined />,
-      label: 'Bảng lương',
-      roles: ['employee', 'manager', 'accountant'] // User, admin và kế toán
+      label: 'Bảng lương'
     },
     {
-      key: '/reports',
+      key: '/statistics',
       icon: <BarChartOutlined />,
-      label: 'Báo cáo',
-      roles: ['manager'] // Only admin
+      label: 'Thống kê'
     },
     {
       key: '/chatbot',
       icon: <RobotOutlined />,
-      label: 'ChatBot',
-      roles: ['employee', 'manager'] // User và admin
-    },
-    {
-      key: '/esp32',
-      icon: <WifiOutlined />,
-      label: 'Quản lý ESP32',
-      roles: ['manager'] // Only admin
-    },
-    {
-      key: '/settings',
-      icon: <SettingOutlined />,
-      label: 'Cài đặt',
-      roles: ['manager'] // Only admin
+      label: 'ChatBot AI'
     },
     {
       key: '/shifts',
       icon: <ClockCircleOutlined />,
-      label: 'Quản lý ca làm việc',
-      roles: ['manager'] // Only admin
+      label: 'Ca làm việc'
+    },
+    {
+      key: '/settings',
+      icon: <SettingOutlined />,
+      label: 'Cài đặt'
     }
   ];
 
-  // Filter menu items based on user role
-  const filteredMenuItems = menuItems.filter(item => {
-    if (!user || !user.role) return false;
-    return item.roles.includes(user.role);
-  });
+  const personalMenuItems = [
+    {
+      key: '/requests',
+      icon: <FileTextOutlined />,
+      label: 'Gửi yêu cầu'
+    },
+    {
+      key: '/payroll',
+      icon: <DollarOutlined />,
+      label: 'Bảng lương'
+    },
+    {
+      key: '/chatbot',
+      icon: <RobotOutlined />,
+      label: 'ChatBot AI'
+    }
+  ];
+
+  const accountantMenuItems = [
+    {
+      key: '/payroll',
+      icon: <DollarOutlined />,
+      label: 'Bảng lương'
+    }
+  ];
+
+  // Get menu items based on role and view mode
+  const getMenuItems = () => {
+    if (isAccountant) {
+      return accountantMenuItems;
+    }
+    
+    if (isAdmin) {
+      return viewMode === 'admin' ? adminMenuItems : personalMenuItems;
+    }
+    
+    return personalMenuItems;
+  };
 
   const handleMenuClick = ({ key }) => {
     navigate(key);
   };
 
   const handleLogout = () => {
-    // Clear localStorage
     localStorage.removeItem('token');
     localStorage.removeItem('user');
-    logout();
-    navigate('/');
-    // Reload page to clear state
     window.location.href = '/';
   };
 
+  const toggleViewMode = () => {
+    setViewMode(prev => prev === 'admin' ? 'personal' : 'admin');
+  };
+
   return (
-    <AntLayout style={{ minHeight: '100vh' }}>
+    <AntLayout style={{ height: '100vh', overflow: 'hidden' }}>
       <Sider 
         trigger={null} 
         collapsible 
         collapsed={collapsed}
         style={{
-          background: '#fff',
-          boxShadow: '2px 0 8px rgba(0,0,0,0.1)'
+          background: 'linear-gradient(180deg, #001529 0%, #002140 100%)',
+          boxShadow: '2px 0 8px rgba(0,0,0,0.15)',
+          height: '100vh',
+          overflow: 'auto'
         }}
       >
         <div style={{ 
@@ -156,44 +176,63 @@ const MainLayout = ({ children }) => {
           display: 'flex', 
           alignItems: 'center', 
           justifyContent: 'center',
-          borderBottom: '1px solid #f0f0f0'
+          borderBottom: '1px solid rgba(255,255,255,0.1)'
         }}>
-          <Text strong style={{ fontSize: collapsed ? '16px' : '18px', color: '#1890ff' }}>
-            {collapsed ? 'HR' : 'HR Management'}
+          <Text strong style={{ fontSize: collapsed ? '14px' : '16px', color: '#fff' }}>
+            {collapsed ? '⏰' : '⏰ ESP32 Attendance'}
           </Text>
         </div>
         
         <Menu
           mode="inline"
+          theme="dark"
           selectedKeys={[location.pathname]}
-          items={filteredMenuItems}
+          items={getMenuItems()}
           onClick={handleMenuClick}
-          style={{ borderRight: 0 }}
+          style={{ borderRight: 0, background: 'transparent' }}
         />
       </Sider>
       
-      <AntLayout>
+      <AntLayout style={{ height: '100vh', overflow: 'hidden' }}>
         <Header style={{ 
-          padding: '0 24px', 
+          padding: '0 16px', 
           background: '#fff',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
-          boxShadow: '0 2px 8px rgba(0,0,0,0.1)'
+          boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+          height: 56,
+          lineHeight: '56px'
         }}>
-          <Button
-            type="text"
-            icon={collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
-            onClick={() => setCollapsed(!collapsed)}
-            style={{ fontSize: '16px', width: 64, height: 64 }}
-          />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Button
+              type="text"
+              icon={collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
+              onClick={() => setCollapsed(!collapsed)}
+              style={{ fontSize: '16px' }}
+            />
+            
+            {/* View Mode Toggle for Admin */}
+            {isAdmin && (
+              <Tooltip title={viewMode === 'admin' ? 'Chuyển sang chế độ cá nhân' : 'Chuyển sang chế độ quản trị'}>
+                <Button 
+                  type={viewMode === 'admin' ? 'primary' : 'default'}
+                  icon={<SwapOutlined />}
+                  onClick={toggleViewMode}
+                  size="small"
+                >
+                  {viewMode === 'admin' ? 'Admin' : 'Cá nhân'}
+                </Button>
+              </Tooltip>
+            )}
+          </div>
           
           <Space size="middle">
             <Badge count={0} size="small">
               <Button type="text" icon={<BellOutlined />} />
             </Badge>
             
-                        <Dropdown menu={{ 
+            <Dropdown menu={{ 
               items: [
                 {
                   key: 'profile',
@@ -208,14 +247,18 @@ const MainLayout = ({ children }) => {
                   key: 'logout',
                   icon: <LogoutOutlined />,
                   label: 'Đăng xuất',
-                  onClick: handleLogout
+                  onClick: handleLogout,
+                  danger: true
                 }
               ]
             }} trigger={['click']}>
               <Button type="text" style={{ height: 'auto', padding: '4px 8px' }}>
                 <Space>
-                  <Avatar size="small" icon={<UserOutlined />} />
-                  <Text>{user?.name || user?.employee?.name || user?.email || user?.username || 'User'}</Text>
+                  <Avatar size="small" icon={<UserOutlined />} style={{ backgroundColor: '#1890ff' }} />
+                  <Text>{user?.name || user?.employee?.name || user?.email || 'User'}</Text>
+                  <Text type="secondary" style={{ fontSize: 12 }}>
+                    ({user?.role === 'manager' ? 'Admin' : user?.role === 'accountant' ? 'Kế toán' : 'NV'})
+                  </Text>
                 </Space>
               </Button>
             </Dropdown>
@@ -223,17 +266,30 @@ const MainLayout = ({ children }) => {
         </Header>
         
         <Content style={{ 
-          margin: '24px 16px',
-          padding: 24,
-          background: '#fff',
-          borderRadius: '8px',
-          minHeight: 'calc(100vh - 112px)',
-          position: 'relative' // Thêm relative để định vị con
+          margin: 0,
+          padding: 12,
+          background: '#f0f2f5',
+          height: 'calc(100vh - 56px)',
+          overflow: 'hidden',
+          display: 'flex',
+          flexDirection: 'column'
         }}>
-          {children}
+          <div style={{ 
+            flex: 1, 
+            background: '#fff', 
+            borderRadius: 6, 
+            padding: 12,
+            overflow: 'auto',
+            display: 'flex',
+            flexDirection: 'column',
+            position: 'relative',
+            minHeight: 0
+          }}>
+            {children}
+          </div>
           
-          {/* Time Control Component */}
-          <TimeControl />
+          {/* Time Control Component - for Admin only */}
+          {isAdmin && <TimeControl />}
         </Content>
       </AntLayout>
     </AntLayout>

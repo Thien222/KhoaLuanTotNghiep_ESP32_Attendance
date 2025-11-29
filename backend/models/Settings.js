@@ -4,7 +4,7 @@ const mongoose = require('mongoose');
 const settingsSchema = new mongoose.Schema({
   type: {
     type: String,
-    enum: ['working-hours', 'overtime', 'late-policy', 'early-checkin', 'salary-structure', 'leave-policy', 'auto-checkout'],
+    enum: ['working-hours', 'overtime', 'late-policy', 'early-checkin', 'salary-structure', 'leave-policy', 'auto-checkout', 'tax-config', 'ot-rate'],
     required: true,
     unique: true
   },
@@ -39,13 +39,34 @@ settingsSchema.statics.getDefaultSettings = function() {
       roundingRule: 'hour',
       weekdayRate: 1.5,
       weekendRate: 2.0,
-      holidayRate: 3.0
+      holidayRate: 3.0,
+      otRate: 100000 // NEW: OT rate 100k/1h (cố định)
     },
     'late-policy': {
-      graceMinutes: 15,
-      penaltyAfterGrace: 50000,  // 50k VND per late (after grace)
-      halfDayThreshold: 60,      // Late >60 mins = deduct half day
-      penaltyPerMinute: 0        // Not used if penaltyAfterGrace is set
+      graceMinutes: 4,           // NEW: Grace period 4 phút (8h04)
+      penaltyRate: 20000,        // NEW: Phạt 20k/15 phút
+      penaltyInterval: 15,       // NEW: Mỗi 15 phút
+      lateThreshold2Hours: 120,  // NEW: >= 2h mất ngày công
+      penaltyAfterGrace: 50000,  // Legacy (không dùng nữa)
+      halfDayThreshold: 60,      // Legacy (không dùng nữa)
+      penaltyPerMinute: 0        // Legacy (không dùng nữa)
+    },
+    'ot-rate': {
+      enabled: true,
+      ratePerHour: 100000,       // NEW: 100k VND/1h
+      calculationType: 'fixed',  // 'fixed' hoặc 'percentage'
+      percentage: 0,             // Nếu dùng % lương
+      startTime: '19:00',        // NEW: OT bắt đầu từ 19h
+      breakTime: {               // NEW: Giờ nghỉ không tính OT
+        start: '18:00',
+        end: '18:59'
+      }
+    },
+    'tax-config': {
+      enabled: true,
+      taxRate: 10,               // NEW: 10% (bao gồm thuế + TNCN + bảo hiểm)
+      applyTo: 'gross-minus-penalty', // Tính thuế trên (Gross - Phạt)
+      description: 'Thuế TNCN + Bảo hiểm (10%)'
     },
     'early-checkin': {
       allowed: true,
@@ -87,6 +108,8 @@ settingsSchema.statics.getDefaultSettings = function() {
         'Manager': 20,
         'Director': 30
       },
+      // NEW: Phụ cấp chung (5% thay vì 10%)
+      generalAllowanceRate: 5, // 5% LCB
       // Hệ số theo loại hợp đồng
       contractMultiplier: {
         'intern': 0.8,

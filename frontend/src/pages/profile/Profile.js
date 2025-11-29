@@ -12,7 +12,10 @@ import {
   Tag,
   Select,
   Alert,
-  message
+  message,
+  Modal,
+  DatePicker,
+  Space
 } from 'antd';
 import { 
   UserOutlined, 
@@ -22,27 +25,32 @@ import {
   SaveOutlined,
   WarningOutlined,
   BankOutlined,
-  IdcardOutlined
+  IdcardOutlined,
+  LockOutlined,
+  CalendarOutlined,
+  SafetyCertificateOutlined
 } from '@ant-design/icons';
 import axios from 'axios';
+import moment from 'moment';
 import { getAPIUrl } from '../../utils/configManager';
 
 const { Option } = Select;
-
 const { Title, Text } = Typography;
 
 const Profile = () => {
   const [form] = Form.useForm();
+  const [passwordForm] = Form.useForm();
   const [loading, setLoading] = useState(false);
+  const [passwordLoading, setPasswordLoading] = useState(false);
   const [userInfo, setUserInfo] = useState(null);
   const [profileIncomplete, setProfileIncomplete] = useState(false);
+  const [passwordModalVisible, setPasswordModalVisible] = useState(false);
 
   const fetchProfileData = useCallback(async () => {
     try {
       const API_URL = getAPIUrl();
       const token = localStorage.getItem('token');
       
-      // Get user info from localStorage first (for basic info)
       const userData = localStorage.getItem('user');
       let user = null;
       if (userData) {
@@ -54,7 +62,6 @@ const Profile = () => {
         }
       }
 
-      // Fetch latest employee profile from API
       if (user && user.role === 'employee') {
         try {
           const response = await axios.get(`${API_URL}/employees/profile/me`, {
@@ -64,7 +71,6 @@ const Profile = () => {
           if (response.data.success && response.data.data.employee) {
             const employee = response.data.data.employee;
             
-            // Update userInfo with latest data
             const updatedUser = {
               ...user,
               ...employee,
@@ -80,12 +86,10 @@ const Profile = () => {
             
             setUserInfo(updatedUser);
             
-            // Check if profile is incomplete
             if (!employee.profileCompleted) {
               setProfileIncomplete(true);
             }
-            
-            // Populate form with latest data
+        
             form.setFieldsValue({
               name: updatedUser.name || updatedUser.email || user.email,
               email: updatedUser.email || user.email,
@@ -93,19 +97,17 @@ const Profile = () => {
               address: updatedUser.address || employee.address || '',
               citizenId: updatedUser.citizenId || employee.citizenId || '',
               socialInsuranceNumber: updatedUser.socialInsuranceNumber || employee.socialInsuranceNumber || '',
-              dateOfBirth: employee.dateOfBirth ? (typeof employee.dateOfBirth === 'string' ? employee.dateOfBirth.split('T')[0] : employee.dateOfBirth) : (user.dateOfBirth ? (typeof user.dateOfBirth === 'string' ? user.dateOfBirth.split('T')[0] : user.dateOfBirth) : ''),
+              dateOfBirth: employee.dateOfBirth ? moment(employee.dateOfBirth) : (user.dateOfBirth ? moment(user.dateOfBirth) : null),
               gender: updatedUser.gender || employee.gender || '',
               bankName: employee.bankAccount?.bankName || user.bankAccount?.bankName || '',
               accountNumber: employee.bankAccount?.accountNumber || user.bankAccount?.accountNumber || '',
               accountName: employee.bankAccount?.accountName || user.bankAccount?.accountName || ''
             });
             
-            // Update localStorage with latest data
             localStorage.setItem('user', JSON.stringify(updatedUser));
           }
         } catch (apiError) {
           console.error('Error fetching profile from API:', apiError);
-          // Fallback to localStorage data if API fails
           if (user) {
             form.setFieldsValue({
               name: user.name || user.email,
@@ -114,7 +116,7 @@ const Profile = () => {
               address: user.address || '',
               citizenId: user.citizenId || '',
               socialInsuranceNumber: user.socialInsuranceNumber || '',
-              dateOfBirth: user.dateOfBirth ? user.dateOfBirth.split('T')[0] : '',
+              dateOfBirth: user.dateOfBirth ? moment(user.dateOfBirth) : null,
               gender: user.gender || '',
               bankName: user.bankAccount?.bankName || '',
               accountNumber: user.bankAccount?.accountNumber || '',
@@ -123,7 +125,6 @@ const Profile = () => {
           }
         }
       } else if (user) {
-        // For non-employee users, use localStorage data
         form.setFieldsValue({
           name: user.name || user.email,
           email: user.email,
@@ -131,7 +132,7 @@ const Profile = () => {
           address: user.address || '',
           citizenId: user.citizenId || '',
           socialInsuranceNumber: user.socialInsuranceNumber || '',
-          dateOfBirth: user.dateOfBirth ? user.dateOfBirth.split('T')[0] : '',
+          dateOfBirth: user.dateOfBirth ? moment(user.dateOfBirth) : null,
           gender: user.gender || '',
           bankName: user.bankAccount?.bankName || '',
           accountNumber: user.bankAccount?.accountNumber || '',
@@ -160,7 +161,6 @@ const Profile = () => {
       
       const user = JSON.parse(userData);
       
-      // Call API to update profile using updateMyProfile endpoint
       const response = await axios.put(
         `${API_URL}/employees/profile/me`,
         {
@@ -168,7 +168,7 @@ const Profile = () => {
           address: values.address,
           citizenId: values.citizenId,
           socialInsuranceNumber: values.socialInsuranceNumber,
-          dateOfBirth: values.dateOfBirth,
+          dateOfBirth: values.dateOfBirth ? values.dateOfBirth.format('YYYY-MM-DD') : null,
           gender: values.gender,
           bankAccount: {
             bankName: values.bankName,
@@ -185,8 +185,6 @@ const Profile = () => {
       
       if (response.data.success) {
         message.success('Cập nhật hồ sơ thành công!');
-        
-        // Fetch latest data from API to ensure consistency
         await fetchProfileData();
         setProfileIncomplete(false);
       }
@@ -195,6 +193,41 @@ const Profile = () => {
       message.error(error.response?.data?.message || 'Lỗi khi cập nhật thông tin');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleChangePassword = async (values) => {
+    if (values.newPassword !== values.confirmPassword) {
+      message.error('Mật khẩu xác nhận không khớp');
+      return;
+    }
+
+    setPasswordLoading(true);
+    try {
+      const API_URL = getAPIUrl();
+      const response = await axios.put(
+        `${API_URL}/auth/change-password`,
+        {
+          currentPassword: values.currentPassword,
+          newPassword: values.newPassword
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${localStorage.getItem('token')}`
+          }
+        }
+      );
+
+      if (response.data.success) {
+        message.success('Đổi mật khẩu thành công!');
+        setPasswordModalVisible(false);
+        passwordForm.resetFields();
+      }
+    } catch (error) {
+      console.error('Error changing password:', error);
+      message.error(error.response?.data?.message || 'Lỗi khi đổi mật khẩu');
+    } finally {
+      setPasswordLoading(false);
     }
   };
 
@@ -217,169 +250,183 @@ const Profile = () => {
   };
 
   return (
-    <div>
-      <Card>
-        <Title level={3} style={{ margin: 0, marginBottom: 24 }}>
-          <UserOutlined /> Thông tin cá nhân
+    <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+      <div style={{ marginBottom: 12 }}>
+        <Title level={4} style={{ margin: 0 }}>
+          <UserOutlined style={{ marginRight: 8 }} />
+          Thông tin cá nhân
         </Title>
+      </div>
 
-        <Row gutter={[24, 24]}>
-          {/* Left Column - Avatar & Basic Info */}
-          <Col xs={24} md={8}>
-            <Card size="small" style={{ textAlign: 'center' }}>
+      <div style={{ flex: 1, overflow: 'auto' }}>
+        <Row gutter={[16, 16]} style={{ height: '100%' }}>
+          {/* Left Column - Avatar & Read-only Info (25-30%) */}
+          <Col xs={24} md={7}>
+            <Card 
+              size="small" 
+              style={{ 
+                textAlign: 'center',
+                height: '100%',
+                display: 'flex',
+                flexDirection: 'column'
+              }}
+              bodyStyle={{ 
+                padding: 16,
+                display: 'flex',
+                flexDirection: 'column',
+                flex: 1
+              }}
+            >
               <Avatar 
-                size={120} 
+                size={100} 
                 icon={<UserOutlined />} 
-                style={{ marginBottom: 16, backgroundColor: '#1890ff' }}
+                style={{ marginBottom: 12, backgroundColor: '#1890ff' }}
               />
-              <Title level={4} style={{ marginBottom: 8 }}>
+              <Title level={5} style={{ marginBottom: 8, fontSize: 16 }}>
                 {userInfo?.name || userInfo?.email || 'User'}
               </Title>
-              <Tag color={getRoleColor(userInfo?.role)} style={{ marginBottom: 16 }}>
+              <Tag color={getRoleColor(userInfo?.role)} style={{ marginBottom: 16, fontSize: 12 }}>
                 {getRoleText(userInfo?.role)}
               </Tag>
-              <Divider />
-              <div style={{ textAlign: 'left' }}>
-                <Text type="secondary">Email:</Text>
-                <br />
-                <Text strong>{userInfo?.email || 'N/A'}</Text>
-                <br /><br />
-                <Text type="secondary">Mã nhân viên:</Text>
-                <br />
-                <Text strong>{userInfo?.employeeId || 'N/A'}</Text>
-                <br /><br />
-                <Text type="secondary">Trạng thái:</Text>
-                <br />
-                <Tag color="green">Hoạt động</Tag>
+              
+              <Divider style={{ margin: '12px 0' }} />
+              
+              <div style={{ textAlign: 'left', flex: 1 }}>
+                <div style={{ marginBottom: 12 }}>
+                  <Text type="secondary" style={{ fontSize: 12 }}>Email:</Text>
+                  <br />
+                  <Text strong style={{ fontSize: 13 }}>{userInfo?.email || 'N/A'}</Text>
+                </div>
+                
+                <div style={{ marginBottom: 12 }}>
+                  <Text type="secondary" style={{ fontSize: 12 }}>Mã nhân viên:</Text>
+                  <br />
+                  <Text strong style={{ fontSize: 13 }}>{userInfo?.employeeId || 'N/A'}</Text>
+                </div>
+                
+                {userInfo?.socialInsuranceNumber && (
+                  <div style={{ marginBottom: 12 }}>
+                    <Text type="secondary" style={{ fontSize: 12 }}>Mã BHXH:</Text>
+                    <br />
+                    <Text strong style={{ fontSize: 13 }}>{userInfo.socialInsuranceNumber}</Text>
+                  </div>
+                )}
+                
+                <div style={{ marginBottom: 12 }}>
+                  <Text type="secondary" style={{ fontSize: 12 }}>Trạng thái:</Text>
+                  <br />
+                  <Tag color="green" style={{ fontSize: 12 }}>Hoạt động</Tag>
+                </div>
               </div>
             </Card>
           </Col>
 
-          {/* Right Column - Edit Form */}
-          <Col xs={24} md={16}>
+          {/* Right Column - Edit Form (70-75%) */}
+          <Col xs={24} md={17}>
             {profileIncomplete && (
               <Alert
                 message="Hồ sơ chưa hoàn thiện"
-                description="Vui lòng điền đầy đủ thông tin cá nhân bên dưới để hoàn thiện hồ sơ của bạn."
+                description="Vui lòng điền đầy đủ thông tin cá nhân bên dưới."
                 type="warning"
                 showIcon
                 icon={<WarningOutlined />}
-                style={{ marginBottom: 16 }}
+                style={{ marginBottom: 12 }}
                 closable
+                size="small"
               />
             )}
             
-            <Card size="small" title="Chỉnh sửa thông tin">
+            <Card 
+              size="small" 
+              title={<span style={{ fontSize: 14 }}>Chỉnh sửa thông tin</span>}
+              bodyStyle={{ padding: 16 }}
+            >
               <Form
                 form={form}
                 layout="vertical"
                 onFinish={handleSubmit}
+                size="small"
               >
-                <Divider orientation="left">Thông tin cơ bản</Divider>
+                {/* Thông tin cơ bản - Grid Layout */}
+                <div style={{ marginBottom: 12 }}>
+                  <Text strong style={{ fontSize: 13, color: '#1890ff' }}>Thông tin cơ bản</Text>
+                </div>
                 
-                <Form.Item
-                  name="name"
-                  label="Họ và tên"
-                  rules={[{ required: true, message: 'Vui lòng nhập họ tên' }]}
-                >
-                  <Input 
-                    prefix={<UserOutlined />} 
-                    placeholder="Nhập họ và tên"
-                    disabled
-                  />
-                </Form.Item>
-
-                <Row gutter={16}>
-                  <Col xs={24} md={12}>
+                <Row gutter={[12, 8]}>
+                  <Col xs={24} sm={12}>
+                    <Form.Item
+                      name="name"
+                      label={<span style={{ fontSize: 12 }}>Họ và tên</span>}
+                      rules={[{ required: true, message: 'Vui lòng nhập họ tên' }]}
+                      style={{ marginBottom: 8 }}
+                    >
+                      <Input 
+                        prefix={<UserOutlined style={{ fontSize: 12 }} />} 
+                        placeholder="Nhập họ và tên"
+                        disabled
+                        size="small"
+                      />
+                    </Form.Item>
+                  </Col>
+                  
+                  <Col xs={24} sm={12}>
                     <Form.Item
                       name="email"
-                      label="Email"
+                      label={<span style={{ fontSize: 12 }}>Email</span>}
                       rules={[
                         { required: true, message: 'Vui lòng nhập email' },
                         { type: 'email', message: 'Email không hợp lệ' }
                       ]}
+                      style={{ marginBottom: 8 }}
                     >
                       <Input 
-                        prefix={<MailOutlined />} 
+                        prefix={<MailOutlined style={{ fontSize: 12 }} />} 
                         placeholder="Nhập email"
                         disabled
+                        size="small"
                       />
                     </Form.Item>
                   </Col>
-                  
-                  <Col xs={24} md={12}>
+                </Row>
+
+                <Row gutter={[12, 8]}>
+                  <Col xs={24} sm={8}>
                     <Form.Item
                       name="phone"
-                      label="Số điện thoại"
+                      label={<span style={{ fontSize: 12 }}>Số điện thoại</span>}
                       rules={[{ required: true, message: 'Vui lòng nhập SĐT' }]}
+                      style={{ marginBottom: 8 }}
                     >
                       <Input 
-                        prefix={<PhoneOutlined />} 
+                        prefix={<PhoneOutlined style={{ fontSize: 12 }} />} 
                         placeholder="Nhập số điện thoại"
-                      />
-                    </Form.Item>
-                  </Col>
-                </Row>
-
-                <Form.Item
-                  name="address"
-                  label="Địa chỉ"
-                  rules={[{ required: true, message: 'Vui lòng nhập địa chỉ' }]}
-                >
-                  <Input.TextArea 
-                    placeholder="Nhập địa chỉ đầy đủ"
-                    rows={2}
-                  />
-                </Form.Item>
-
-                <Divider orientation="left">Thông tin cá nhân</Divider>
-                
-                <Row gutter={16}>
-                  <Col xs={24} md={12}>
-                    <Form.Item
-                      name="citizenId"
-                      label="Số CCCD/CMND"
-                      rules={[
-                        { required: true, message: 'Vui lòng nhập số CCCD' },
-                        { len: 12, message: 'CCCD phải có 12 số' }
-                      ]}
-                    >
-                      <Input 
-                        prefix={<IdcardOutlined />} 
-                        placeholder="Nhập số CCCD (12 số)"
-                        maxLength={12}
+                        size="small"
                       />
                     </Form.Item>
                   </Col>
                   
-                  <Col xs={24} md={12}>
-                    <Form.Item
-                      name="socialInsuranceNumber"
-                      label="Mã số BHXH"
-                    >
-                      <Input 
-                        placeholder="Nhập mã số BHXH (nếu có)"
-                      />
-                    </Form.Item>
-                  </Col>
-                </Row>
-
-                <Row gutter={16}>
-                  <Col xs={24} md={12}>
+                  <Col xs={24} sm={8}>
                     <Form.Item
                       name="dateOfBirth"
-                      label="Ngày sinh"
+                      label={<span style={{ fontSize: 12 }}>Ngày sinh</span>}
+                      style={{ marginBottom: 8 }}
                     >
-                      <Input type="date" />
+                      <DatePicker 
+                        style={{ width: '100%' }}
+                        format="DD/MM/YYYY"
+                        placeholder="Chọn ngày sinh"
+                        size="small"
+                      />
                     </Form.Item>
                   </Col>
                   
-                  <Col xs={24} md={12}>
+                  <Col xs={24} sm={8}>
                     <Form.Item
                       name="gender"
-                      label="Giới tính"
+                      label={<span style={{ fontSize: 12 }}>Giới tính</span>}
+                      style={{ marginBottom: 8 }}
                     >
-                      <Select placeholder="Chọn giới tính">
+                      <Select placeholder="Chọn giới tính" size="small">
                         <Option value="male">Nam</Option>
                         <Option value="female">Nữ</Option>
                         <Option value="other">Khác</Option>
@@ -388,102 +435,229 @@ const Profile = () => {
                   </Col>
                 </Row>
 
-                <Divider orientation="left">Thông tin ngân hàng</Divider>
-                
-                <Form.Item
-                  name="bankName"
-                  label="Tên ngân hàng"
-                >
-                  <Input 
-                    prefix={<BankOutlined />} 
-                    placeholder="Ví dụ: Vietcombank, ACB, BIDV..."
-                  />
-                </Form.Item>
-
-                <Row gutter={16}>
-                  <Col xs={24} md={12}>
+                <Row gutter={[12, 8]}>
+                  <Col xs={24}>
                     <Form.Item
-                      name="accountNumber"
-                      label="Số tài khoản"
+                      name="address"
+                      label={<span style={{ fontSize: 12 }}>Địa chỉ</span>}
+                      rules={[{ required: true, message: 'Vui lòng nhập địa chỉ' }]}
+                      style={{ marginBottom: 8 }}
                     >
-                      <Input placeholder="Nhập số tài khoản" />
-                    </Form.Item>
-                  </Col>
-                  
-                  <Col xs={24} md={12}>
-                    <Form.Item
-                      name="accountName"
-                      label="Tên tài khoản"
-                    >
-                      <Input placeholder="Nhập tên tài khoản (viết hoa)" />
+                      <Input.TextArea 
+                        placeholder="Nhập địa chỉ đầy đủ"
+                        rows={2}
+                        size="small"
+                      />
                     </Form.Item>
                   </Col>
                 </Row>
 
-                <Form.Item style={{ marginBottom: 0, textAlign: 'right' }}>
+                {/* Thông tin cá nhân & Ngân hàng - Grid Layout */}
+                <div style={{ marginTop: 16, marginBottom: 12 }}>
+                  <Text strong style={{ fontSize: 13, color: '#1890ff' }}>Thông tin cá nhân & Ngân hàng</Text>
+                </div>
+
+                <Row gutter={[12, 8]}>
+                  <Col xs={24} sm={12}>
+                    <Form.Item
+                      name="citizenId"
+                      label={<span style={{ fontSize: 12 }}>Số CCCD/CMND</span>}
+                      rules={[
+                        { required: true, message: 'Vui lòng nhập số CCCD' },
+                        { len: 12, message: 'CCCD phải có 12 số' }
+                      ]}
+                      style={{ marginBottom: 8 }}
+                    >
+                      <Input 
+                        prefix={<IdcardOutlined style={{ fontSize: 12 }} />} 
+                        placeholder="Nhập số CCCD (12 số)"
+                        maxLength={12}
+                        size="small"
+                      />
+                    </Form.Item>
+                  </Col>
+                  
+                  <Col xs={24} sm={12}>
+                    <Form.Item
+                      name="socialInsuranceNumber"
+                      label={<span style={{ fontSize: 12 }}>Mã số BHXH</span>}
+                      style={{ marginBottom: 8 }}
+                    >
+                      <Input 
+                        placeholder="Nhập mã số BHXH"
+                        size="small"
+                      />
+                    </Form.Item>
+                  </Col>
+                </Row>
+
+                <Row gutter={[12, 8]}>
+                  <Col xs={24} sm={12}>
+                    <Form.Item
+                      name="bankName"
+                      label={<span style={{ fontSize: 12 }}>Tên ngân hàng</span>}
+                      style={{ marginBottom: 8 }}
+                    >
+                      <Input 
+                        prefix={<BankOutlined style={{ fontSize: 12 }} />} 
+                        placeholder="Ví dụ: Vietcombank, ACB..."
+                        size="small"
+                      />
+                    </Form.Item>
+                  </Col>
+                  
+                  <Col xs={24} sm={12}>
+                    <Form.Item
+                      name="accountNumber"
+                      label={<span style={{ fontSize: 12 }}>Số tài khoản</span>}
+                      style={{ marginBottom: 8 }}
+                    >
+                      <Input 
+                        placeholder="Nhập số tài khoản"
+                        size="small"
+                      />
+                    </Form.Item>
+                  </Col>
+                </Row>
+
+                <Row gutter={[12, 8]}>
+                  <Col xs={24}>
+                    <Form.Item
+                      name="accountName"
+                      label={<span style={{ fontSize: 12 }}>Tên tài khoản</span>}
+                      style={{ marginBottom: 8 }}
+                    >
+                      <Input 
+                        placeholder="Nhập tên tài khoản (viết hoa)"
+                        size="small"
+                      />
+                    </Form.Item>
+                  </Col>
+                </Row>
+
+                <div style={{ 
+                  marginTop: 16, 
+                  paddingTop: 12, 
+                  borderTop: '1px solid #f0f0f0',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center'
+                }}>
+                  <Button 
+                    type="default"
+                    icon={<LockOutlined />}
+                    onClick={() => setPasswordModalVisible(true)}
+                    size="small"
+                  >
+                    Đổi mật khẩu
+                  </Button>
+                  
                   <Button 
                     type="primary" 
                     htmlType="submit" 
                     icon={<SaveOutlined />}
                     loading={loading}
-                    size="large"
+                    size="small"
                   >
                     {profileIncomplete ? 'Hoàn thiện hồ sơ' : 'Lưu thay đổi'}
                   </Button>
-                </Form.Item>
-              </Form>
-            </Card>
-
-            {/* Change Password Section */}
-            <Card size="small" title="Đổi mật khẩu" style={{ marginTop: 16 }}>
-              <Form layout="vertical">
-                <Form.Item
-                  label="Mật khẩu hiện tại"
-                  name="currentPassword"
-                >
-                  <Input.Password 
-                    placeholder="Nhập mật khẩu hiện tại"
-                    size="large"
-                  />
-                </Form.Item>
-
-                <Form.Item
-                  label="Mật khẩu mới"
-                  name="newPassword"
-                >
-                  <Input.Password 
-                    placeholder="Nhập mật khẩu mới"
-                    size="large"
-                  />
-                </Form.Item>
-
-                <Form.Item
-                  label="Xác nhận mật khẩu mới"
-                  name="confirmPassword"
-                >
-                  <Input.Password 
-                    placeholder="Xác nhận mật khẩu mới"
-                    size="large"
-                  />
-                </Form.Item>
-
-                <Form.Item style={{ marginBottom: 0, textAlign: 'right' }}>
-                  <Button 
-                    type="default" 
-                    size="large"
-                    onClick={() => message.info('Tính năng đổi mật khẩu sẽ được cập nhật sau')}
-                  >
-                    Đổi mật khẩu
-                  </Button>
-                </Form.Item>
+                </div>
               </Form>
             </Card>
           </Col>
         </Row>
-      </Card>
+      </div>
+
+      {/* Change Password Modal */}
+      <Modal
+        title={
+          <span>
+            <LockOutlined style={{ marginRight: 8 }} />
+            Đổi mật khẩu
+          </span>
+        }
+        open={passwordModalVisible}
+        onCancel={() => {
+          setPasswordModalVisible(false);
+          passwordForm.resetFields();
+        }}
+        footer={null}
+        width={450}
+      >
+        <Form
+          form={passwordForm}
+          layout="vertical"
+          onFinish={handleChangePassword}
+          size="small"
+        >
+          <Form.Item
+            label="Mật khẩu hiện tại"
+            name="currentPassword"
+            rules={[{ required: true, message: 'Vui lòng nhập mật khẩu hiện tại' }]}
+          >
+            <Input.Password 
+              placeholder="Nhập mật khẩu hiện tại"
+              size="small"
+            />
+          </Form.Item>
+
+          <Form.Item
+            label="Mật khẩu mới"
+            name="newPassword"
+            rules={[
+              { required: true, message: 'Vui lòng nhập mật khẩu mới' },
+              { min: 6, message: 'Mật khẩu phải có ít nhất 6 ký tự' }
+            ]}
+          >
+            <Input.Password 
+              placeholder="Nhập mật khẩu mới"
+              size="small"
+            />
+          </Form.Item>
+
+          <Form.Item
+            label="Xác nhận mật khẩu mới"
+            name="confirmPassword"
+            dependencies={['newPassword']}
+            rules={[
+              { required: true, message: 'Vui lòng xác nhận mật khẩu' },
+              ({ getFieldValue }) => ({
+                validator(_, value) {
+                  if (!value || getFieldValue('newPassword') === value) {
+                    return Promise.resolve();
+                  }
+                  return Promise.reject(new Error('Mật khẩu xác nhận không khớp'));
+                },
+              }),
+            ]}
+          >
+            <Input.Password 
+              placeholder="Xác nhận mật khẩu mới"
+              size="small"
+            />
+          </Form.Item>
+
+          <Form.Item style={{ marginBottom: 0, textAlign: 'right' }}>
+            <Space>
+              <Button onClick={() => {
+                setPasswordModalVisible(false);
+                passwordForm.resetFields();
+              }}>
+                Hủy
+              </Button>
+              <Button 
+                type="primary" 
+                htmlType="submit"
+                loading={passwordLoading}
+              >
+                Đổi mật khẩu
+              </Button>
+            </Space>
+          </Form.Item>
+        </Form>
+      </Modal>
     </div>
   );
 };
 
 export default Profile;
-

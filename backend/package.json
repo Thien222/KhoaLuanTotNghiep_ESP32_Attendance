@@ -11,7 +11,8 @@
     "seed:all": "npm run seed:settings && npm run seed:holidays",
     "migrate": "node scripts/migrateEmployeeData.js",
     "test": "node scripts/testAPI.js",
-    "setup": "npm install && npm run seed:all"
+    "setup": "npm install && npm run seed:all",
+    "cleanup:unenrolled": "node scripts/cleanupUnenrolledEmployees.js"
   },
   "dependencies": {
     "axios": "^1.6.0",

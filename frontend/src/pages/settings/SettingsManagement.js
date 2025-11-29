@@ -16,6 +16,7 @@ import {
   GlobalOutlined
 } from '@ant-design/icons';
 import IPConfiguration from './IPConfiguration';
+import SystemSettings from './SystemSettings';
 
 const { Title } = Typography;
 const { Option } = Select;
@@ -53,145 +54,40 @@ const SettingsManagement = () => {
   };
 
   return (
-    <div>
-      <Card>
-        <div style={{ marginBottom: 24 }}>
-          <Title level={3} style={{ margin: 0 }}>
-            <SettingOutlined /> Cài đặt hệ thống
-          </Title>
-        </div>
+    <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+      <div style={{ marginBottom: 16 }}>
+        <Title level={4} style={{ margin: 0 }}>
+          <SettingOutlined style={{ marginRight: 8 }} />
+          Cài đặt hệ thống
+        </Title>
+      </div>
 
+      <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
         <Tabs 
           defaultActiveKey="ip-config"
           items={[
             {
               key: 'ip-config',
               label: <span><GlobalOutlined /> Cấu hình IP & Kết nối</span>,
-              children: <IPConfiguration />
+              children: (
+                <div style={{ height: 'calc(100vh - 200px)', overflow: 'auto' }}>
+                  <IPConfiguration />
+                </div>
+              )
             },
             {
               key: 'system-settings',
               label: <span><SettingOutlined /> Cài đặt hệ thống</span>,
               children: (
-            <Form
-          form={form}
-          layout="vertical"
-          onFinish={handleSave}
-          style={{ maxWidth: 600 }}
-        >
-          <Card title="Cài đặt chung" size="small" style={{ marginBottom: 16 }}>
-            <Form.Item
-              name="companyName"
-              label="Tên công ty"
-              rules={[{ required: true, message: 'Vui lòng nhập tên công ty' }]}
-            >
-              <Input placeholder="Nhập tên công ty" />
-            </Form.Item>
-
-            <Form.Item
-              name="companyAddress"
-              label="Địa chỉ công ty"
-            >
-              <Input placeholder="Nhập địa chỉ công ty" />
-            </Form.Item>
-
-            <Form.Item
-              name="companyPhone"
-              label="Số điện thoại"
-            >
-              <Input placeholder="Nhập số điện thoại" />
-            </Form.Item>
-          </Card>
-
-          <Card title="Cài đặt chấm công" size="small" style={{ marginBottom: 16 }}>
-            <Form.Item
-              name="workingHoursPerDay"
-              label="Số giờ làm việc mỗi ngày"
-              rules={[{ required: true, message: 'Vui lòng nhập số giờ làm việc' }]}
-            >
-              <Input type="number" placeholder="8" addonAfter="giờ" />
-            </Form.Item>
-
-            <Form.Item
-              name="lateThreshold"
-              label="Ngưỡng muộn (phút)"
-              rules={[{ required: true, message: 'Vui lòng nhập ngưỡng muộn' }]}
-            >
-              <Input type="number" placeholder="15" addonAfter="phút" />
-            </Form.Item>
-
-            <Form.Item
-              name="overtimeRate"
-              label="Hệ số làm thêm giờ"
-              rules={[{ required: true, message: 'Vui lòng nhập hệ số làm thêm giờ' }]}
-            >
-              <Input type="number" placeholder="1.5" step="0.1" />
-            </Form.Item>
-          </Card>
-
-          <Card title="Cài đặt lương" size="small" style={{ marginBottom: 16 }}>
-            <Form.Item
-              name="defaultSalary"
-              label="Lương cơ bản mặc định"
-              rules={[{ required: true, message: 'Vui lòng nhập lương cơ bản' }]}
-            >
-              <Input type="number" placeholder="5000000" addonAfter="VNĐ" />
-            </Form.Item>
-
-            <Form.Item
-              name="currency"
-              label="Đơn vị tiền tệ"
-            >
-              <Select>
-                <Option value="VND">VND (Việt Nam Đồng)</Option>
-                <Option value="USD">USD (Đô la Mỹ)</Option>
-              </Select>
-            </Form.Item>
-          </Card>
-
-          <Card title="Cài đặt thông báo" size="small" style={{ marginBottom: 16 }}>
-            <Form.Item
-              name="emailNotifications"
-              label="Thông báo qua email"
-              valuePropName="checked"
-            >
-              <Switch />
-            </Form.Item>
-
-            <Form.Item
-              name="smsNotifications"
-              label="Thông báo qua SMS"
-              valuePropName="checked"
-            >
-              <Switch />
-            </Form.Item>
-
-            <Form.Item
-              name="pushNotifications"
-              label="Thông báo đẩy"
-              valuePropName="checked"
-            >
-              <Switch />
-            </Form.Item>
-          </Card>
-
-          <Form.Item style={{ marginBottom: 0, textAlign: 'right' }}>
-            <Button
-              type="primary"
-              htmlType="submit"
-              icon={<SaveOutlined />}
-              loading={loading}
-              size="large"
-            >
-              Lưu cài đặt
-            </Button>
-          </Form.Item>
-        </Form>
+                <div style={{ height: 'calc(100vh - 200px)', overflow: 'auto' }}>
+                  <SystemSettings />
+                </div>
               )
             }
           ]}
+          style={{ height: '100%', display: 'flex', flexDirection: 'column' }}
         />
-      </Card>
+      </div>
     </div>
   );
 };

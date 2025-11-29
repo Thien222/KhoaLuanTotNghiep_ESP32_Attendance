@@ -29,7 +29,8 @@ const PayrollSchema = new Schema({
   month: { type: String, required: true }, // Format: "YYYY-MM"
   
   // === LƯƠNG CƠ BẢN ===
-  baseSalary: { type: Number, default: 0 },              // Lương cơ bản
+  baseSalary: { type: Number, default: 0 },              // Lương cơ bản (theo ngày công)
+  generalAllowance: { type: Number, default: 0 },        // NEW: Phụ cấp chung 5%
   seniorityAllowance: { type: Number, default: 0 },     // Phụ cấp thâm niên (%)
   positionAllowance: { type: Number, default: 0 },     // Phụ cấp chức vụ
   
@@ -42,10 +43,12 @@ const PayrollSchema = new Schema({
   otherAllowances: { type: Number, default: 0 },       // Phụ cấp khác
   
   // === THÀNH PHẦN GIẢM ===
-  latePenalty: { type: Number, default: 0 },            // Phạt đi muộn
+  latePenalty: { type: Number, default: 0 },            // Phạt đi muộn + về sớm
   absentDeduction: { type: Number, default: 0 },      // Trừ nghỉ không lương
   unpaidLeaveDeduction: { type: Number, default: 0 },   // Trừ nghỉ không lương
   halfDayDeduction: { type: Number, default: 0 },      // Trừ nửa ngày
+  taxAmount: { type: Number, default: 0 },             // NEW: Thuế (10%)
+  taxRate: { type: Number, default: 10 },              // NEW: Tỷ lệ thuế (%)
   otherDeductions: { type: Number, default: 0 },        // Khấu trừ khác
   
   // === CHẾ ĐỘ ĐẶC BIỆT ===
@@ -101,10 +104,11 @@ PayrollSchema.index({ employee: 1, month: 1 }, { unique: true });
 PayrollSchema.index({ status: 1 });
 PayrollSchema.index({ month: 1 });
 
-// Method: Tính toán tự động
+// Method: Tính toán tự động (UPDATED)
 PayrollSchema.methods.calculate = function() {
   // Tổng thu nhập
   this.grossSalary = this.baseSalary + 
+                     this.generalAllowance + // NEW
                      this.seniorityAllowance + 
                      this.positionAllowance +
                      this.overtimePay + 
@@ -117,14 +121,19 @@ PayrollSchema.methods.calculate = function() {
                      this.sickLeavePay +
                      this.annualLeavePay;
   
-  // Tổng khấu trừ
+  // NEW: Tính thuế (trên Gross - Phạt)
+  const taxableIncome = this.grossSalary - (this.latePenalty || 0);
+  this.taxAmount = Math.round((taxableIncome * (this.taxRate || 10)) / 100);
+  
+  // Tổng khấu trừ (bao gồm thuế)
   this.totalDeductions = this.latePenalty + 
                          this.absentDeduction + 
                          this.unpaidLeaveDeduction +
                          this.halfDayDeduction +
+                         this.taxAmount + // NEW
                          this.otherDeductions;
   
-  // Lương thực nhận
+  // Lương thực nhận = Gross - Tổng khấu trừ
   this.netSalary = this.grossSalary - this.totalDeductions;
   
   // Backward compatibility

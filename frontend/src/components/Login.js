@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Form, Input, Button, Card, Typography, message, Divider } from 'antd';
+import { Form, Input, Button, Card, Typography, message } from 'antd';
 import { UserOutlined, LockOutlined, LoginOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
@@ -120,13 +120,6 @@ const Login = () => {
           </Form.Item>
         </Form>
 
-        <Divider>Thông tin demo</Divider>
-        
-        <div style={{ fontSize: '12px', color: '#666' }}>
-          <p><strong>Quản lý:</strong> admin@company.com / 123456</p>
-          <p><strong>Kế toán:</strong> accountant@company.com / 123456</p>
-          <p><strong>Nhân viên:</strong> employee@company.com / 123456</p>
-        </div>
       </Card>
     </div>
   );
