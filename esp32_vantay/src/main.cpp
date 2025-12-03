@@ -1427,7 +1427,7 @@ void loop()
   p = finger.image2Tz(1);
   if (p != FINGERPRINT_OK)
   {
-    oledPrintCenter("Anh khong ro", "Thu lai nhe");
+    oledPrintCenter("Anh khong ro", "Thu lai nhe");  // Khong dau
     delay(200);
     return;
   }
@@ -1519,19 +1519,19 @@ void loop()
     }
 
     Serial.printf("⚠️ GHOST FINGERPRINT: Deleting ID #%u from sensor...\n", deleteId);
-    oledPrintCenter("XOA VAN TAY", "ID #" + String(deleteId), "Khong co trong he thong");
+    oledPrintCenter("XOA VAN TAY", "ID #" + String(deleteId), "Khong co trong he thong");  // Khong dau
 
     // Xóa khỏi cảm biến
     if (deleteFingerprint(deleteId))
     {
       Serial.printf("✓ Deleted ID #%u from sensor\n", deleteId);
-      oledPrintCenter("DA XOA VAN TAY", "ID #" + String(deleteId), "Lien he Admin");
+      oledPrintCenter("DA XOA VAN TAY", "ID #" + String(deleteId), "Lien he Admin");  // Khong dau
       beepError();
     }
     else
     {
       Serial.printf("✗ Failed to delete ID #%u\n", deleteId);
-      oledPrintCenter("XOA THAT BAI", "ID #" + String(deleteId), "Thu lai");
+      oledPrintCenter("XOA THAT BAI", "ID #" + String(deleteId), "Thu lai");  // Khong dau
       beepError();
     }
     delay(2000);
@@ -1544,7 +1544,7 @@ void loop()
     String msg = getJsonStringValue(resp, "message");
     String subMsg = getJsonStringValue(resp, "sub_message");
     if (msg.length() == 0)
-      msg = "Ngoai gio lam";
+      msg = "Ngoai gio lam";  // Khong dau
     if (subMsg.length() == 0)
       subMsg = "";
     oledPrintCenter(msg, subMsg, sTime + "  " + sDate);
@@ -1566,7 +1566,7 @@ void loop()
       {
         String fullMsg = resp.substring(start, end);
         if (fullMsg.indexOf("fingerprint ID") >= 0)
-          errorMsg = "Chua enroll van tay";
+          errorMsg = "Chua enroll van tay";  // Khong dau
       }
     }
     oledPrintCenter("LOI", errorMsg, sTime + "  " + sDate);
@@ -1578,7 +1578,7 @@ void loop()
   // [NEW] Xử lý lỗi 403 - Employee not enrolled
   if (code == 403 && (contains("not enrolled") || contains("enroll-required")))
   {
-    oledPrintCenter("CHUA ENROLL", "Can enroll van tay", sTime + "  " + sDate);
+    oledPrintCenter("CHUA ENROLL", "Can enroll van tay", sTime + "  " + sDate);  // Khong dau
     beepError();
     delay(1500);
     return;
@@ -1602,7 +1602,7 @@ void loop()
           errorMsg = fullMsg;
       }
     }
-    oledPrintCenter(errorMsg, "Thu lai nhe", sTime + "  " + sDate);
+    oledPrintCenter(errorMsg, "Thu lai nhe", sTime + "  " + sDate);  // Khong dau
     beepError();
     delay(1500);
     return;
@@ -1610,7 +1610,7 @@ void loop()
 
   if (contains("\"needInFirst\":true"))
   {
-    oledPrintCenter("CHUA DIEM DANH", "Khong the KET THUC", sTime + "  " + sDate);
+    oledPrintCenter("CHUA DIEM DANH", "Khong the KET THUC", sTime + "  " + sDate);  // Khong dau
     beepShort();
     delay(900);
     return;
@@ -1620,7 +1620,7 @@ void loop()
   if (contains("\"what\":\"too-early\"") || contains("\"what\":\"tooEarly\""))
   {
     // Hiển thị thông báo rõ ràng
-    oledPrintCenter("CHUA TOI GIO", "Cham cong tu 7h00", sTime + "  " + sDate);
+    oledPrintCenter("CHUA TOI GIO", "Cham cong tu 7h00", sTime + "  " + sDate);  // Khong dau
     beepShort();
     delay(1500);
     return;
@@ -1628,7 +1628,7 @@ void loop()
 
   if (contains("\"what\":\"ignored\""))
   {
-    oledPrintCenter("THAO TAC QUA NHANH", "Cho vai giay...", sTime + "  " + sDate);
+    oledPrintCenter("THAO TAC QUA NHANH", "Cho vai giay...", sTime + "  " + sDate);  // Khong dau
     beepShort();
     delay(900);
     return;
@@ -1652,7 +1652,7 @@ void loop()
     }
     else
     {
-      oledPrintCenter("LOI SERVER", "Thu lai nhe", sTime + "  " + sDate);
+      oledPrintCenter("LOI SERVER", "Thu lai nhe", sTime + "  " + sDate);  // Khong dau
     }
     beepError();
     delay(900);
@@ -1665,7 +1665,7 @@ void loop()
     // Chỉ hiển thị "GUI SERVER FAIL" nếu thực sự là lỗi kết nối hoặc code 500 (đã xử lý ở trên)
     if (code == 0)
     {
-      oledPrintCenter("GUI SERVER FAIL", "Thu lai nhe", sTime + "  " + sDate);
+      oledPrintCenter("GUI SERVER FAIL", "Thu lai nhe", sTime + "  " + sDate);  // Khong dau
       beepError();
       delay(900);
       return;
@@ -1709,7 +1709,7 @@ void loop()
           int lateMin = resp.substring(start, end).toInt();
           if (lateMin >= 120)
           {
-            line2 = "Tre >= 2h - Mat cong";
+            line2 = "Tre >= 2h - Mat cong";  // Khong dau (Mat = Mat, cong = cong)
           }
           else if (lateMin > 0)
           {
@@ -1744,7 +1744,7 @@ void loop()
     }
     if (line2.length() == 0)
     {
-      line2 = "Hen gap lai";
+      line2 = "Hen gap lai";  // Khong dau
 
       // Kiểm tra có thông tin OT không (legacy support)
       int otIdx = resp.indexOf("\"overtimeHours\":");
@@ -1816,8 +1816,8 @@ void loop()
         j++;
       }
     }
-    String line2 = "Cho them " + (waitStr.length() ? waitStr : String("vai")) + "s";
-    oledPrintCenter("QUET KET THUC QUA SOM", line2, sTime + "  " + sDate);
+    String line2 = "Cho them " + (waitStr.length() ? waitStr : String("vai")) + "s";  // Khong dau
+    oledPrintCenter("QUET KET THUC QUA SOM", line2, sTime + "  " + sDate);  // Khong dau
     beepShort();
     delay(900);
     return;

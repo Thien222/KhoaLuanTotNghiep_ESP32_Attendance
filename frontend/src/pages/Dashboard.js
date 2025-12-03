@@ -56,13 +56,20 @@ import moment from 'moment';
 const { Title, Text } = Typography;
 const { RangePicker } = DatePicker;
 
-// Colors for charts
-const COLORS = ['#52c41a', '#faad14', '#ff4d4f', '#1890ff', '#722ed1', '#13c2c2'];
+// MODERNIZED: Pastel/Flat UI color palette
+const COLORS = [
+  '#6366f1', // Soft indigo
+  '#22c55e', // Fresh green
+  '#f59e0b', // Warm amber
+  '#ef4444', // Soft red
+  '#8b5cf6', // Purple
+  '#06b6d4'  // Teal
+];
 const ATTENDANCE_COLORS = {
-  present: '#52c41a',
-  late: '#faad14', 
-  absent: '#ff4d4f',
-  'half-day': '#1890ff'
+  present: '#22c55e',  // Fresh green
+  late: '#f59e0b',     // Warm amber
+  absent: '#ef4444',   // Soft red
+  'half-day': '#6366f1' // Soft indigo
 };
 
 const Dashboard = () => {
@@ -72,6 +79,19 @@ const Dashboard = () => {
   const [weeklyData, setWeeklyData] = useState([]);
   const [departmentData, setDepartmentData] = useState([]);
   const [dateRange, setDateRange] = useState([moment().startOf('month'), moment()]);
+  const [user, setUser] = useState(null);
+
+  // Get user from localStorage
+  useEffect(() => {
+    try {
+      const userData = localStorage.getItem('user');
+      if (userData) {
+        setUser(JSON.parse(userData));
+      }
+    } catch (error) {
+      console.error('Error parsing user data:', error);
+    }
+  }, []);
 
   useEffect(() => {
     fetchDashboardStats();
@@ -308,23 +328,34 @@ const Dashboard = () => {
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
       {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-        <Title level={4} style={{ margin: 0 }}>
-          <DashboardOutlined style={{ marginRight: 8, color: '#1890ff' }} />
-          Dashboard
-        </Title>
-        <Space size="small">
+      <div style={{ 
+        display: 'flex', 
+        justifyContent: 'space-between', 
+        alignItems: 'center', 
+        marginBottom: 20 
+      }}>
+        <div>
+          <Title level={2} style={{ margin: 0, fontWeight: 600, color: '#262626' }}>
+            Hello, {user?.name || user?.employee?.name || 'User'}
+          </Title>
+          <Text type="secondary" style={{ fontSize: 14, marginTop: 4, display: 'block' }}>
+            Track team progress here. You almost reach a goal!
+          </Text>
+        </div>
+        <Space size="middle">
           <RangePicker
             value={dateRange}
             onChange={setDateRange}
             format="DD/MM/YYYY"
             size="small"
+            style={{ borderRadius: 8 }}
           />
           <Button 
             icon={<ReloadOutlined />} 
             onClick={() => { fetchDashboardStats(); fetchReportData(); }}
             loading={loading}
             size="small"
+            style={{ borderRadius: 8 }}
           >
             Làm mới
           </Button>
@@ -334,102 +365,175 @@ const Dashboard = () => {
       {/* Main Content - Scrollable */}
       <div style={{ flex: 1, overflow: 'auto', paddingRight: 4 }}>
         {/* Stats Cards Row 1 */}
-        <Row gutter={[12, 12]} style={{ marginBottom: 12 }}>
+        <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
           <Col xs={12} sm={6}>
-            <Card size="small" bodyStyle={{ padding: 12 }} style={{ background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' }}>
+            <Card 
+              size="small" 
+              bodyStyle={{ padding: 12 }} 
+              style={{ 
+                borderRadius: 12,
+                border: '1px solid #f0f0f0',
+                boxShadow: '0 2px 8px rgba(0,0,0,0.04)',
+                background: '#ffffff'
+              }}
+            >
               <Statistic
-                title={<span style={{ color: 'rgba(255,255,255,0.85)', fontSize: 12 }}>Tổng nhân viên</span>}
+                title={<span style={{ color: '#8c8c8c', fontSize: 13, fontWeight: 500 }}>Tổng nhân viên</span>}
                 value={stats?.totalEmployees || reportData.totalEmployees || 0}
-                prefix={<TeamOutlined />}
-                valueStyle={{ color: '#fff', fontSize: 24, fontWeight: 'bold' }}
+                prefix={<TeamOutlined style={{ color: '#1890ff', fontSize: 20 }} />}
+                valueStyle={{ color: '#262626', fontSize: 28, fontWeight: 600 }}
               />
             </Card>
           </Col>
           <Col xs={12} sm={6}>
-            <Card size="small" bodyStyle={{ padding: 12 }} style={{ background: 'linear-gradient(135deg, #11998e 0%, #38ef7d 100%)' }}>
+            <Card 
+              size="small" 
+              bodyStyle={{ padding: 12 }} 
+              style={{ 
+                borderRadius: 12,
+                border: '1px solid #f0f0f0',
+                boxShadow: '0 2px 8px rgba(0,0,0,0.04)',
+                background: '#ffffff'
+              }}
+            >
               <Statistic
-                title={<span style={{ color: 'rgba(255,255,255,0.85)', fontSize: 12 }}>Chấm công hôm nay</span>}
+                title={<span style={{ color: '#8c8c8c', fontSize: 13, fontWeight: 500 }}>Chấm công hôm nay</span>}
                 value={stats?.todayAttendance?.count || 0}
-                prefix={<CheckCircleOutlined />}
-                suffix={<span style={{ fontSize: 12, color: 'rgba(255,255,255,0.7)' }}>/{stats?.totalEmployees || 0}</span>}
-                valueStyle={{ color: '#fff', fontSize: 24, fontWeight: 'bold' }}
+                prefix={<CheckCircleOutlined style={{ color: '#52c41a', fontSize: 20 }} />}
+                suffix={<span style={{ fontSize: 14, color: '#8c8c8c', fontWeight: 400 }}>/{stats?.totalEmployees || 0}</span>}
+                valueStyle={{ color: '#262626', fontSize: 28, fontWeight: 600 }}
               />
             </Card>
           </Col>
           <Col xs={12} sm={6}>
-            <Card size="small" bodyStyle={{ padding: 12 }} style={{ background: 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)' }}>
+            <Card 
+              size="small" 
+              bodyStyle={{ padding: 12 }} 
+              style={{ 
+                borderRadius: 12,
+                border: '1px solid #f0f0f0',
+                boxShadow: '0 2px 8px rgba(0,0,0,0.04)',
+                background: '#ffffff'
+              }}
+            >
               <Statistic
-                title={<span style={{ color: 'rgba(255,255,255,0.85)', fontSize: 12 }}>Đi muộn</span>}
+                title={<span style={{ color: '#8c8c8c', fontSize: 13, fontWeight: 500 }}>Đi muộn</span>}
                 value={stats?.todayAttendance?.details?.late || 0}
-                prefix={<WarningOutlined />}
-                valueStyle={{ color: '#fff', fontSize: 24, fontWeight: 'bold' }}
+                prefix={<WarningOutlined style={{ color: '#faad14', fontSize: 20 }} />}
+                valueStyle={{ color: '#262626', fontSize: 28, fontWeight: 600 }}
               />
             </Card>
           </Col>
           <Col xs={12} sm={6}>
-            <Card size="small" bodyStyle={{ padding: 12 }} style={{ background: 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)' }}>
+            <Card 
+              size="small" 
+              bodyStyle={{ padding: 12 }} 
+              style={{ 
+                borderRadius: 12,
+                border: '1px solid #f0f0f0',
+                boxShadow: '0 2px 8px rgba(0,0,0,0.04)',
+                background: '#ffffff'
+              }}
+            >
               <Statistic
-                title={<span style={{ color: 'rgba(255,255,255,0.85)', fontSize: 12 }}>Tổng giờ OT</span>}
+                title={<span style={{ color: '#8c8c8c', fontSize: 13, fontWeight: 500 }}>Tổng giờ OT</span>}
                 value={reportData.totalOTHours || 0}
-                prefix={<FieldTimeOutlined />}
+                prefix={<FieldTimeOutlined style={{ color: '#722ed1', fontSize: 20 }} />}
                 suffix="h"
-                valueStyle={{ color: '#fff', fontSize: 24, fontWeight: 'bold' }}
+                valueStyle={{ color: '#262626', fontSize: 28, fontWeight: 600 }}
               />
             </Card>
           </Col>
         </Row>
 
         {/* Stats Cards Row 2 */}
-        <Row gutter={[12, 12]} style={{ marginBottom: 12 }}>
+        <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
           <Col xs={12} sm={6}>
-            <Card size="small" bodyStyle={{ padding: 12 }}>
+            <Card 
+              size="small" 
+              bodyStyle={{ padding: 12 }}
+              style={{ 
+                borderRadius: 12,
+                border: '1px solid #f0f0f0',
+                boxShadow: '0 2px 8px rgba(0,0,0,0.04)'
+              }}
+            >
               <Statistic
-                title={<span style={{ fontSize: 12 }}><DollarOutlined /> Tiền OT</span>}
+                title={<span style={{ fontSize: 13, color: '#8c8c8c', fontWeight: 500 }}><DollarOutlined style={{ marginRight: 4 }} /> Tiền OT</span>}
                 value={reportData.totalOTSalary || 0}
-                valueStyle={{ color: '#52c41a', fontSize: 18 }}
+                valueStyle={{ color: '#52c41a', fontSize: 22, fontWeight: 600 }}
                 formatter={(value) => currency(value) + 'đ'}
               />
             </Card>
           </Col>
           <Col xs={12} sm={6}>
-            <Card size="small" bodyStyle={{ padding: 12 }}>
+            <Card 
+              size="small" 
+              bodyStyle={{ padding: 12 }}
+              style={{ 
+                borderRadius: 12,
+                border: '1px solid #f0f0f0',
+                boxShadow: '0 2px 8px rgba(0,0,0,0.04)'
+              }}
+            >
               <Statistic
-                title={<span style={{ fontSize: 12 }}><AlertOutlined /> Tiền phạt</span>}
+                title={<span style={{ fontSize: 13, color: '#8c8c8c', fontWeight: 500 }}><AlertOutlined style={{ marginRight: 4 }} /> Tiền phạt</span>}
                 value={reportData.totalPenalty || 0}
-                valueStyle={{ color: '#ff4d4f', fontSize: 18 }}
+                valueStyle={{ color: '#ff4d4f', fontSize: 22, fontWeight: 600 }}
                 formatter={(value) => currency(value) + 'đ'}
               />
             </Card>
           </Col>
           <Col xs={12} sm={6}>
-            <Card size="small" bodyStyle={{ padding: 12 }}>
+            <Card 
+              size="small" 
+              bodyStyle={{ padding: 12 }}
+              style={{ 
+                borderRadius: 12,
+                border: '1px solid #f0f0f0',
+                boxShadow: '0 2px 8px rgba(0,0,0,0.04)'
+              }}
+            >
               <Statistic
-                title={<span style={{ fontSize: 12 }}><ClockCircleOutlined /> Lần muộn</span>}
+                title={<span style={{ fontSize: 13, color: '#8c8c8c', fontWeight: 500 }}><ClockCircleOutlined style={{ marginRight: 4 }} /> Lần muộn</span>}
                 value={reportData.totalLateCount || 0}
-                valueStyle={{ color: '#faad14', fontSize: 18 }}
+                valueStyle={{ color: '#faad14', fontSize: 22, fontWeight: 600 }}
                 suffix="lần"
               />
             </Card>
           </Col>
           <Col xs={12} sm={6}>
-            <Card size="small" bodyStyle={{ padding: 12 }}>
+            <Card 
+              size="small" 
+              bodyStyle={{ padding: 12 }}
+              style={{ 
+                borderRadius: 12,
+                border: '1px solid #f0f0f0',
+                boxShadow: '0 2px 8px rgba(0,0,0,0.04)'
+              }}
+            >
               <Statistic
-                title={<span style={{ fontSize: 12 }}><FileTextOutlined /> Đơn chờ duyệt</span>}
+                title={<span style={{ fontSize: 13, color: '#8c8c8c', fontWeight: 500 }}><FileTextOutlined style={{ marginRight: 4 }} /> Đơn chờ duyệt</span>}
                 value={stats?.pendingLeaveRequests || 0}
-                valueStyle={{ color: (stats?.pendingLeaveRequests || 0) > 0 ? '#ff4d4f' : '#52c41a', fontSize: 18 }}
+                valueStyle={{ color: (stats?.pendingLeaveRequests || 0) > 0 ? '#ff4d4f' : '#52c41a', fontSize: 22, fontWeight: 600 }}
               />
             </Card>
           </Col>
         </Row>
 
-        {/* Charts Row */}
-        <Row gutter={[12, 12]} style={{ marginBottom: 12 }}>
+        {/* Charts Row - MODERNIZED */}
+        <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
           {/* Today's Attendance Pie Chart */}
           <Col xs={24} md={8}>
             <Card 
               size="small" 
-              title={<span style={{ fontSize: 13 }}><CheckCircleOutlined /> Chấm công hôm nay</span>}
-              bodyStyle={{ padding: 8, height: 220 }}
+              title={<span style={{ fontSize: 14, fontWeight: 600, color: '#374151' }}><CheckCircleOutlined style={{ marginRight: 6, color: '#22c55e' }} /> Chấm công hôm nay</span>}
+              bodyStyle={{ padding: 12, height: 200 }}
+              style={{ 
+                borderRadius: 12,
+                border: '1px solid #e5e7eb',
+                boxShadow: '0 1px 3px rgba(0,0,0,0.05)'
+              }}
             >
               {attendancePieData.length > 0 ? (
                 <ResponsiveContainer width="100%" height={200}>
@@ -438,22 +542,28 @@ const Dashboard = () => {
                       data={attendancePieData}
                       cx="50%"
                       cy="50%"
-                      innerRadius={40}
-                      outerRadius={70}
-                      paddingAngle={5}
+                      innerRadius={50}
+                      outerRadius={75}
+                      paddingAngle={3}
                       dataKey="value"
-                      label={({ name, value }) => `${name}: ${value}`}
+                      label={({ name, percent }) => `${(percent * 100).toFixed(0)}%`}
                       labelLine={false}
                     >
                       {attendancePieData.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={entry.color} />
+                        <Cell key={`cell-${index}`} fill={entry.color} strokeWidth={0} />
                       ))}
                     </Pie>
-                    <RechartsTooltip />
+                    <RechartsTooltip 
+                      contentStyle={{ 
+                        borderRadius: 8, 
+                        border: '1px solid #e5e7eb',
+                        fontSize: 12 
+                      }} 
+                    />
                   </PieChart>
                 </ResponsiveContainer>
               ) : (
-                <div style={{ textAlign: 'center', padding: 40, color: '#999' }}>
+                <div style={{ textAlign: 'center', padding: 40, color: '#9ca3af' }}>
                   Chưa có dữ liệu
                 </div>
               )}
@@ -464,8 +574,13 @@ const Dashboard = () => {
           <Col xs={24} md={8}>
             <Card 
               size="small" 
-              title={<span style={{ fontSize: 13 }}><TeamOutlined /> Phân bổ phòng ban</span>}
-              bodyStyle={{ padding: 8, height: 220 }}
+              title={<span style={{ fontSize: 14, fontWeight: 600, color: '#374151' }}><TeamOutlined style={{ marginRight: 6, color: '#6366f1' }} /> Phân bổ phòng ban</span>}
+              bodyStyle={{ padding: 12, height: 200 }}
+              style={{ 
+                borderRadius: 12,
+                border: '1px solid #e5e7eb',
+                boxShadow: '0 1px 3px rgba(0,0,0,0.05)'
+              }}
             >
               {departmentData.length > 0 ? (
                 <ResponsiveContainer width="100%" height={200}>
@@ -474,53 +589,66 @@ const Dashboard = () => {
                       data={departmentData}
                       cx="50%"
                       cy="50%"
-                      innerRadius={40}
-                      outerRadius={70}
-                      paddingAngle={5}
+                      innerRadius={50}
+                      outerRadius={75}
+                      paddingAngle={3}
                       dataKey="value"
-                      label={({ name, value }) => `${name}: ${value}`}
+                      label={({ name, percent }) => `${(percent * 100).toFixed(0)}%`}
                       labelLine={false}
                     >
                       {departmentData.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={entry.color} />
+                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} strokeWidth={0} />
                       ))}
                     </Pie>
-                    <RechartsTooltip />
+                    <RechartsTooltip 
+                      contentStyle={{ 
+                        borderRadius: 8, 
+                        border: '1px solid #e5e7eb',
+                        fontSize: 12 
+                      }} 
+                    />
                   </PieChart>
                 </ResponsiveContainer>
               ) : (
-                <div style={{ textAlign: 'center', padding: 40, color: '#999' }}>
+                <div style={{ textAlign: 'center', padding: 40, color: '#9ca3af' }}>
                   Chưa có dữ liệu
                 </div>
               )}
             </Card>
           </Col>
 
-          {/* Attendance Rate Progress */}
+          {/* Attendance Rate Progress - MODERNIZED */}
           <Col xs={24} md={8}>
             <Card 
               size="small" 
-              title={<span style={{ fontSize: 13 }}><RiseOutlined /> Tỷ lệ chấm công</span>}
-              bodyStyle={{ padding: 16, height: 220 }}
+              title={<span style={{ fontSize: 14, fontWeight: 600, color: '#374151' }}><RiseOutlined style={{ marginRight: 6, color: '#8b5cf6' }} /> Tỷ lệ chấm công</span>}
+              bodyStyle={{ padding: 12, height: 200 }}
+              style={{ 
+                borderRadius: 12,
+                border: '1px solid #e5e7eb',
+                boxShadow: '0 1px 3px rgba(0,0,0,0.05)'
+              }}
             >
               <div style={{ textAlign: 'center', marginBottom: 16 }}>
                 <Progress
                   type="dashboard"
                   percent={reportData.averageAttendance || 0}
                   strokeColor={{
-                    '0%': '#108ee9',
-                    '100%': '#87d068',
+                    '0%': '#6366f1',
+                    '100%': '#22c55e',
                   }}
+                  trailColor="#f3f4f6"
                   format={(percent) => (
-                    <span style={{ fontSize: 18, fontWeight: 'bold' }}>
+                    <span style={{ fontSize: 22, fontWeight: 700, color: '#374151' }}>
                       {percent}%
                     </span>
                   )}
-                  width={120}
+                  width={130}
+                  strokeWidth={10}
                 />
               </div>
               <div style={{ textAlign: 'center' }}>
-                <Text type="secondary">
+                <Text style={{ color: '#9ca3af', fontSize: 13 }}>
                   {reportData.totalWorkingDays || 0} ngày làm việc
                 </Text>
               </div>
@@ -528,29 +656,89 @@ const Dashboard = () => {
           </Col>
         </Row>
 
-        {/* Weekly Chart */}
-        <Row gutter={[12, 12]} style={{ marginBottom: 12 }}>
+        {/* Weekly Chart - MODERNIZED */}
+        <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
           <Col xs={24}>
             <Card 
               size="small" 
-              title={<span style={{ fontSize: 13 }}><CalendarOutlined /> Thống kê chấm công theo ngày</span>}
-              bodyStyle={{ padding: 8 }}
+              title={<span style={{ fontSize: 14, fontWeight: 600, color: '#374151' }}><CalendarOutlined style={{ marginRight: 6, color: '#6366f1' }} /> Thống kê chấm công theo ngày</span>}
+              bodyStyle={{ padding: 12 }}
+              style={{ 
+                borderRadius: 12,
+                border: '1px solid #e5e7eb',
+                boxShadow: '0 1px 3px rgba(0,0,0,0.05)'
+              }}
             >
               {weeklyData.length > 0 ? (
-                <ResponsiveContainer width="100%" height={200}>
-                  <AreaChart data={weeklyData}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="date" tick={{ fontSize: 11 }} />
-                    <YAxis tick={{ fontSize: 11 }} />
-                    <RechartsTooltip />
-                    <Legend wrapperStyle={{ fontSize: 11 }} />
-                    <Area type="monotone" dataKey="present" name="Có mặt" stackId="1" stroke="#52c41a" fill="#52c41a" fillOpacity={0.6} />
-                    <Area type="monotone" dataKey="late" name="Muộn" stackId="2" stroke="#faad14" fill="#faad14" fillOpacity={0.6} />
-                    <Area type="monotone" dataKey="overtime" name="OT" stackId="3" stroke="#722ed1" fill="#722ed1" fillOpacity={0.6} />
+                <ResponsiveContainer width="100%" height={220}>
+                  <AreaChart data={weeklyData} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
+                    {/* MODERNIZED: Removed grid lines for cleaner look */}
+                    <defs>
+                      <linearGradient id="colorPresent" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#22c55e" stopOpacity={0.3}/>
+                        <stop offset="95%" stopColor="#22c55e" stopOpacity={0}/>
+                      </linearGradient>
+                      <linearGradient id="colorLate" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#f59e0b" stopOpacity={0.3}/>
+                        <stop offset="95%" stopColor="#f59e0b" stopOpacity={0}/>
+                      </linearGradient>
+                      <linearGradient id="colorOT" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#8b5cf6" stopOpacity={0.3}/>
+                        <stop offset="95%" stopColor="#8b5cf6" stopOpacity={0}/>
+                      </linearGradient>
+                    </defs>
+                    <XAxis 
+                      dataKey="date" 
+                      tick={{ fontSize: 11, fill: '#9ca3af' }} 
+                      axisLine={{ stroke: '#e5e7eb' }}
+                      tickLine={false}
+                    />
+                    <YAxis 
+                      tick={{ fontSize: 11, fill: '#9ca3af' }} 
+                      axisLine={false}
+                      tickLine={false}
+                    />
+                    <RechartsTooltip 
+                      contentStyle={{ 
+                        borderRadius: 8, 
+                        border: '1px solid #e5e7eb',
+                        boxShadow: '0 4px 6px rgba(0,0,0,0.1)',
+                        fontSize: 12
+                      }} 
+                    />
+                    <Legend 
+                      wrapperStyle={{ fontSize: 11, paddingTop: 10 }} 
+                      iconType="circle"
+                      iconSize={8}
+                    />
+                    <Area 
+                      type="monotone" 
+                      dataKey="present" 
+                      name="Có mặt" 
+                      stroke="#22c55e" 
+                      strokeWidth={2}
+                      fill="url(#colorPresent)" 
+                    />
+                    <Area 
+                      type="monotone" 
+                      dataKey="late" 
+                      name="Muộn" 
+                      stroke="#f59e0b" 
+                      strokeWidth={2}
+                      fill="url(#colorLate)" 
+                    />
+                    <Area 
+                      type="monotone" 
+                      dataKey="overtime" 
+                      name="OT" 
+                      stroke="#8b5cf6" 
+                      strokeWidth={2}
+                      fill="url(#colorOT)" 
+                    />
                   </AreaChart>
                 </ResponsiveContainer>
               ) : (
-                <div style={{ textAlign: 'center', padding: 40, color: '#999' }}>
+                <div style={{ textAlign: 'center', padding: 40, color: '#9ca3af' }}>
                   Chưa có dữ liệu trong khoảng thời gian này
                 </div>
               )}
@@ -558,14 +746,18 @@ const Dashboard = () => {
           </Col>
         </Row>
 
-        {/* Two Column Layout - Top Employees & Recent Activities */}
-        <Row gutter={[12, 12]}>
-          {/* Left Column - Top Employees */}
-          <Col xs={24} lg={12}>
+        {/* Top Employees - Full Width (Recent Activities REMOVED) */}
+        <Row gutter={[16, 16]}>
+          <Col xs={24}>
             <Card 
               size="small" 
-              title={<span style={{ fontSize: 13 }}><TrophyOutlined style={{ color: '#faad14' }} /> Top nhân viên chăm chỉ</span>}
-              bodyStyle={{ padding: 8 }}
+              title={<span style={{ fontSize: 14, fontWeight: 600, color: '#374151' }}><TrophyOutlined style={{ color: '#f59e0b', marginRight: 6 }} /> Top nhân viên chăm chỉ</span>}
+              bodyStyle={{ padding: 16 }}
+              style={{ 
+                borderRadius: 12,
+                border: '1px solid #e5e7eb',
+                boxShadow: '0 1px 3px rgba(0,0,0,0.05)'
+              }}
             >
               {reportData.topEmployees && reportData.topEmployees.length > 0 ? (
                 <Table
@@ -574,55 +766,11 @@ const Dashboard = () => {
                   pagination={false}
                   size="small"
                   rowKey="employeeName"
-                  scroll={{ x: 400 }}
+                  scroll={{ x: 500 }}
                 />
               ) : (
-                <div style={{ textAlign: 'center', padding: 20, color: '#999' }}>
+                <div style={{ textAlign: 'center', padding: 20, color: '#9ca3af' }}>
                   Chưa có dữ liệu
-                </div>
-              )}
-            </Card>
-          </Col>
-
-          {/* Right Column - Recent Activities */}
-          <Col xs={24} lg={12}>
-            <Card 
-              size="small" 
-              title={<span style={{ fontSize: 13 }}><ClockCircleOutlined /> Hoạt động gần đây</span>}
-              bodyStyle={{ padding: 8, maxHeight: 300, overflow: 'auto' }}
-            >
-              {stats?.recentActivities && stats.recentActivities.length > 0 ? (
-                <div>
-                  {stats.recentActivities.slice(0, 8).map((activity, index) => (
-                    <div 
-                      key={index} 
-                      style={{ 
-                        display: 'flex', 
-                        justifyContent: 'space-between', 
-                        alignItems: 'center',
-                        padding: '8px 0',
-                        borderBottom: index < 7 ? '1px solid #f0f0f0' : 'none'
-                      }}
-                    >
-                      <div>
-                        <Text strong style={{ fontSize: 13 }}>{activity.employee?.name || 'N/A'}</Text>
-                        <br />
-                        <Text type="secondary" style={{ fontSize: 11 }}>
-                          {activity.time ? moment(activity.time).format('HH:mm') : 'N/A'}
-                        </Text>
-                      </div>
-                      <div>
-                        <Tag color={activity.type === 'checkIn' ? 'green' : 'blue'}>
-                          {activity.type === 'checkIn' ? 'Vào' : 'Ra'}
-                        </Tag>
-                        {activity.status === 'late' && <Tag color="orange">Muộn</Tag>}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div style={{ textAlign: 'center', padding: 20, color: '#999' }}>
-                  Chưa có hoạt động
                 </div>
               )}
             </Card>

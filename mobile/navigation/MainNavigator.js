@@ -3,12 +3,13 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import HomeScreen from '../screens/HomeScreen';
-import AttendanceScreen from '../screens/AttendanceScreen';
+import AttendanceCalendarScreen from '../screens/AttendanceCalendarScreen';
 import PayrollScreen from '../screens/PayrollScreen';
 import LeaveScreen from '../screens/LeaveScreen';
 import ProfileScreen from '../screens/ProfileScreen';
 import LeaveDetailScreen from '../screens/LeaveDetailScreen';
 import ApplyLeaveScreen from '../screens/ApplyLeaveScreen';
+import ChatBotScreen from '../screens/ChatBotScreen';
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
@@ -44,12 +45,14 @@ export default function MainNavigator() {
 
           if (route.name === 'Home') {
             iconName = focused ? 'home' : 'home-outline';
-          } else if (route.name === 'Attendance') {
-            iconName = focused ? 'time' : 'time-outline';
+          } else           if (route.name === 'Attendance') {
+            iconName = focused ? 'calendar' : 'calendar-outline';
+          } else if (route.name === 'Leave') {
+            iconName = focused ? 'document-text' : 'document-text-outline';
           } else if (route.name === 'Payroll') {
             iconName = focused ? 'cash' : 'cash-outline';
-          } else if (route.name === 'Leave') {
-            iconName = focused ? 'calendar' : 'calendar-outline';
+          } else if (route.name === 'ChatBot') {
+            iconName = focused ? 'chatbubble-ellipses' : 'chatbubble-ellipses-outline';
           } else if (route.name === 'Profile') {
             iconName = focused ? 'person' : 'person-outline';
           }
@@ -68,8 +71,13 @@ export default function MainNavigator() {
       />
       <Tab.Screen 
         name="Attendance" 
-        component={AttendanceScreen}
+        component={AttendanceCalendarScreen}
         options={{ title: 'Chấm công' }}
+      />
+      <Tab.Screen 
+        name="Leave" 
+        component={LeaveStack}
+        options={{ title: 'Đơn nghỉ phép' }}
       />
       <Tab.Screen 
         name="Payroll" 
@@ -77,9 +85,9 @@ export default function MainNavigator() {
         options={{ title: 'Bảng lương' }}
       />
       <Tab.Screen 
-        name="Leave" 
-        component={LeaveStack}
-        options={{ title: 'Nghỉ phép' }}
+        name="ChatBot" 
+        component={ChatBotScreen}
+        options={{ title: 'Hỗ trợ' }}
       />
       <Tab.Screen 
         name="Profile" 

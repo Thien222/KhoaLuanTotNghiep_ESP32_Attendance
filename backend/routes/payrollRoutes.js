@@ -31,7 +31,8 @@ const { checkProfileCompleted } = require('../middleware/profileCheckMiddleware'
 
 // FE gọi: GET /api/payroll?month=11&year=2025
 // -> listMonthly trong controller
-router.get('/', protect, checkProfileCompleted, payrollController.listMonthly);
+// NOTE: Bỏ checkProfileCompleted vì xem lương không cần profile hoàn thiện
+router.get('/', protect, payrollController.listMonthly);
 
 // FE gọi: POST /api/payroll/calculate { month, year }
 // -> tính lương (tạm thời chỉ return success) rồi FE tự gọi lại GET ở trên
@@ -49,6 +50,15 @@ router.post(
   protect,
   restrictTo('admin', 'manager'),
   payrollController.adjustPayroll
+);
+
+// FE gọi: DELETE /api/payroll/:id
+// -> xóa bảng lương
+router.delete(
+  '/:id',
+  protect,
+  restrictTo('admin', 'manager'),
+  payrollController.deletePayroll
 );
 
 module.exports = router;

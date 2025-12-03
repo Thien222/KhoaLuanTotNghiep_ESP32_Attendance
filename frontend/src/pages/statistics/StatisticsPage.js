@@ -92,7 +92,7 @@ const StatisticsPage = () => {
 
   const processAttendanceStats = (data) => {
     const totalRecords = data.length;
-    const presentCount = data.filter(a => a.status === 'present').length;
+    const presentCount = data.filter(a => a.status === 'present' || a.status === 'half-day').length;
     const lateCount = data.filter(a => a.lateMinutes > 0).length;
     const absentCount = data.filter(a => a.status === 'absent').length;
     const totalLateMinutes = data.reduce((sum, a) => sum + (a.lateMinutes || 0), 0);
@@ -118,7 +118,15 @@ const StatisticsPage = () => {
         };
       }
       
-      employeeMap[empId].totalDays++;
+      // FIX: Only count workdays based on status
+      // present = 1 day, half-day = 0.5 day, absent = 0 day
+      if (a.status === 'present') {
+        employeeMap[empId].totalDays += 1;
+      } else if (a.status === 'half-day') {
+        employeeMap[empId].totalDays += 0.5;
+      }
+      // absent status = 0 days (no increment)
+      
       if (a.lateMinutes > 0) {
         employeeMap[empId].lateDays++;
         employeeMap[empId].lateMinutes += a.lateMinutes;
@@ -380,6 +388,13 @@ const StatisticsPage = () => {
               size="small"
               pagination={{ pageSize: 10, size: 'small' }}
               scroll={{ x: 800 }}
+              bordered
+              rowClassName={(_, index) => index % 2 === 0 ? 'table-row-light' : 'table-row-dark'}
+              style={{
+                backgroundColor: '#ffffff',
+                borderRadius: 8,
+                overflow: 'hidden'
+              }}
             />
           </div>
         </div>
@@ -466,6 +481,13 @@ const StatisticsPage = () => {
               size="small"
               pagination={{ pageSize: 10, size: 'small' }}
               scroll={{ x: 900 }}
+              bordered
+              rowClassName={(_, index) => index % 2 === 0 ? 'table-row-light' : 'table-row-dark'}
+              style={{
+                backgroundColor: '#ffffff',
+                borderRadius: 8,
+                overflow: 'hidden'
+              }}
             />
           </div>
         </div>

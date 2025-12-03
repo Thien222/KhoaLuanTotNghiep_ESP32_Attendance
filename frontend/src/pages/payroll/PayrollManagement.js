@@ -42,8 +42,11 @@ import {
   CalendarOutlined,
   CloseOutlined,
   ClockCircleOutlined,
-  CloseCircleOutlined
+  CloseCircleOutlined,
+  MoreOutlined,
+  DeleteOutlined
 } from '@ant-design/icons';
+import { TableActionDropdown } from '../../components/ActionDropdown';
 import axios from 'axios';
 import moment from 'moment';
 import { getAPIUrl } from '../../utils/configManager';
@@ -415,6 +418,32 @@ const PayrollManagement = () => {
     }
   };
 
+  const handleDeletePayroll = async (payrollId) => {
+    try {
+      const API_URL = getAPIUrl();
+      const token = localStorage.getItem('token');
+      
+      const response = await axios.delete(
+        `${API_URL}/payroll/${payrollId}`,
+        {
+          headers: {
+            Authorization: `Bearer ${token}`
+          }
+        }
+      );
+      
+      if (response.data.success) {
+        message.success('Xóa bảng lương thành công');
+        fetchPayrolls();
+      } else {
+        message.error(response.data.message || 'Lỗi khi xóa bảng lương');
+      }
+    } catch (error) {
+      console.error('Error deleting payroll:', error);
+      message.error(error.response?.data?.message || 'Lỗi khi xóa bảng lương');
+    }
+  };
+
   const getAdjustmentTypeText = (type) => {
     const types = {
       bonus: 'Thưởng',
@@ -588,23 +617,25 @@ const PayrollManagement = () => {
       render: val => val > 0 ? <Text type="danger">-{currency(val)}</Text> : '-'
     },
     {
-      title: 'Hành động',
+      title: 'Thao tác',
       key: 'action',
       fixed: 'right',
-      width: 120,
+      width: 80,
+      align: 'center',
       render: (_, record) => (
-        <Space size="small">
-          <Tooltip title="Xem chi tiết">
-            <Button 
-              type="text" 
-              icon={<EyeOutlined />} 
-              onClick={() => {
+        <TableActionDropdown 
+          items={[
+            { 
+              key: 'view', 
+              label: 'Xem chi tiết', 
+              icon: <EyeOutlined />,
+              onClick: () => {
                 setSelectedPayroll(record);
                 setDetailModalVisible(true);
-              }}
-            />
-          </Tooltip>
-        </Space>
+              }
+            }
+          ]} 
+        />
       )
     }
   ];
@@ -722,37 +753,66 @@ const PayrollManagement = () => {
       render: val => <Text strong style={{ color: '#1890ff', fontSize: 16 }}>{currency(val)}</Text>
     },
     {
-      title: 'Hành động',
+      title: 'Thao tác',
       key: 'action',
       fixed: 'right',
-      width: isAdmin ? 180 : 120,
-      render: (_, record) => (
-        <Space size="small">
-          <Tooltip title="Xem phiếu lương">
-            <Button 
-              type="text" 
-              icon={<EyeOutlined />} 
-              onClick={() => handleViewDetails(record)}
-            />
-          </Tooltip>
-          <Tooltip title="Chi tiết ngày">
-            <Button 
-              type="text" 
-              icon={<CalendarOutlined />} 
-              onClick={() => handleViewDailyDetails(record)}
-            />
-          </Tooltip>
-          {isAdmin && (
-            <Tooltip title="Điều chỉnh">
-              <Button 
-                type="text" 
-                icon={<EditOutlined />} 
-                onClick={() => handleAdjustSalary(record)}
-              />
-            </Tooltip>
-          )}
-        </Space>
-      )
+      width: 80,
+      align: 'center',
+      render: (_, record) => {
+        const actionItems = [
+          { 
+            key: 'view', 
+            label: 'Xem phiếu lương', 
+            icon: <EyeOutlined />,
+            onClick: () => handleViewDetails(record)
+          },
+          { 
+            key: 'daily', 
+            label: 'Chi tiết ngày', 
+            icon: <CalendarOutlined />,
+            onClick: () => handleViewDailyDetails(record)
+          }
+        ];
+        
+        if (record.lateCount > 0) {
+          actionItems.push({
+            key: 'late',
+            label: `Xem ${record.lateCount} ngày đi trễ`,
+            icon: <ClockCircleOutlined />,
+            onClick: () => handleViewLateDays(record)
+          });
+        }
+        
+        if (isAdmin) {
+          actionItems.push(
+            { type: 'divider' },
+            { 
+              key: 'adjust', 
+              label: 'Điều chỉnh lương', 
+              icon: <EditOutlined />,
+              onClick: () => handleAdjustSalary(record)
+            },
+            { 
+              key: 'delete', 
+              label: 'Xóa bảng lương', 
+              icon: <DeleteOutlined />,
+              danger: true,
+              onClick: () => {
+                Modal.confirm({
+                  title: 'Xác nhận xóa',
+                  content: `Bạn có chắc muốn xóa bảng lương của "${record.employee?.name}" tháng ${record.month}/${record.year}?`,
+                  okText: 'Xóa',
+                  okButtonProps: { danger: true },
+                  cancelText: 'Hủy',
+                  onOk: () => handleDeletePayroll(record._id)
+                });
+              }
+            }
+          );
+        }
+        
+        return <TableActionDropdown items={actionItems} />;
+      }
     }
   ];
 
@@ -825,16 +885,23 @@ const PayrollManagement = () => {
   const totalDeductions = payrolls.reduce((sum, p) => sum + (p.fixedDeduction || 0) + (p.latePenalty || 0), 0);
 
   return (
-    <div>
-      <Card>
-        {/* Header */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
-          <Space align="center">
+    <div style={{ width: '100%', maxWidth: '100%' }}>
+      <Card bodyStyle={{ padding: '12px' }}>
+        {/* Header - ALIGNED */}
+        <div style={{ 
+          display: 'flex', 
+          justifyContent: 'space-between', 
+          alignItems: 'center', 
+          marginBottom: 8,
+          flexWrap: 'wrap',
+          gap: 8
+        }}>
+          <Space align="center" size={12}>
             <Title level={3} style={{ margin: 0 }}>
               <BankOutlined style={{ marginRight: 8, color: '#1890ff' }} /> 
               Quản lý Bảng lương
             </Title>
-            <Tag color="blue" style={{ fontSize: 14, padding: '4px 12px' }}>
+            <Tag color="blue" style={{ fontSize: 14, padding: '4px 12px', borderRadius: 6 }}>
               {viewMode === 'month' 
                 ? `Tháng ${selectedMonth.format('MM/YYYY')}`
                 : `Ngày ${selectedDate.format('DD/MM/YYYY')}`
@@ -842,12 +909,13 @@ const PayrollManagement = () => {
             </Tag>
           </Space>
           
-          <Space>
+          <Space size={8} wrap>
             {isAdmin && (
               <Button 
                 icon={<CalculatorOutlined />} 
                 onClick={handleCalculatePayroll}
                 loading={loading}
+                style={{ borderRadius: 6 }}
               >
                 Tính lương
               </Button>
@@ -855,6 +923,7 @@ const PayrollManagement = () => {
             <Button 
               icon={<ReloadOutlined />}
               onClick={fetchPayrolls}
+              style={{ borderRadius: 6 }}
             >
               Tải lại
             </Button>
@@ -865,7 +934,7 @@ const PayrollManagement = () => {
                 onClick={handleSendPayslips}
                 loading={sending}
                 disabled={payrolls.length === 0}
-                style={{ background: '#52c41a', borderColor: '#52c41a' }}
+                style={{ background: '#22c55e', borderColor: '#22c55e', borderRadius: 6 }}
               >
                 Gửi Phiếu lương & Hoàn tất
               </Button>
@@ -874,7 +943,7 @@ const PayrollManagement = () => {
         </div>
 
         {/* Summary Statistics */}
-        <Card size="small" style={{ marginBottom: 24, background: '#f5f7fa' }}>
+        <Card size="small" style={{ marginBottom: 8, background: '#f5f7fa' }}>
           {viewMode === 'month' ? (
             <Row gutter={[24, 16]}>
               <Col xs={24} sm={12} lg={6}>
@@ -947,41 +1016,60 @@ const PayrollManagement = () => {
           )}
         </Card>
 
-        {/* Toolbar with View Toggle */}
-        <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 16 }}>
-          <Space>
+        {/* Toolbar with View Toggle - ALIGNED */}
+        <div style={{ 
+          marginBottom: 8, 
+          display: 'flex', 
+          justifyContent: 'space-between', 
+          alignItems: 'center', 
+          flexWrap: 'wrap', 
+          gap: 12,
+          padding: '8px 12px',
+          background: '#fafafa',
+          borderRadius: 8,
+          border: '1px solid #f0f0f0'
+        }}>
+          <Space size={12} align="center">
             <Select
               value={viewMode}
               onChange={setViewMode}
-              style={{ width: 120 }}
+              style={{ width: 130, borderRadius: 6 }}
             >
-              <Option value="month">Theo tháng</Option>
-              <Option value="day">Theo ngày</Option>
+              <Option value="month">📅 Theo tháng</Option>
+              <Option value="day">📆 Theo ngày</Option>
             </Select>
-            {viewMode === 'month' ? (
-              <>
-                <Text strong>Chọn tháng:</Text>
+            
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              {viewMode === 'month' ? (
                 <DatePicker
                   picker="month"
                   value={selectedMonth}
                   onChange={setSelectedMonth}
                   format="MM/YYYY"
                   allowClear={false}
+                  style={{ borderRadius: 6 }}
+                  placeholder="Chọn tháng"
                 />
-              </>
-            ) : (
-              <>
-                <Text strong>Chọn ngày:</Text>
+              ) : (
                 <DatePicker
                   value={selectedDate}
                   onChange={setSelectedDate}
                   format="DD/MM/YYYY"
                   allowClear={false}
+                  style={{ borderRadius: 6 }}
+                  placeholder="Chọn ngày"
                 />
-              </>
-            )}
+              )}
+            </div>
           </Space>
-          <Button icon={<ExportOutlined />} onClick={handleExportExcel}>Xuất Excel</Button>
+          
+          <Button 
+            icon={<ExportOutlined />} 
+            onClick={handleExportExcel}
+            style={{ borderRadius: 6 }}
+          >
+            Xuất Excel
+          </Button>
         </div>
 
         {/* Conditional Table Rendering */}
@@ -999,7 +1087,8 @@ const PayrollManagement = () => {
               showTotal: (total) => `Tổng ${total} nhân viên`
             }}
             bordered
-            size="middle"
+            size="small"
+            rowClassName={(_, index) => index % 2 === 0 ? 'table-row-light' : 'table-row-dark'}
           />
         ) : (
           <Table
@@ -1015,7 +1104,8 @@ const PayrollManagement = () => {
               showTotal: (total) => `Tổng ${total} nhân viên`
             }}
             bordered
-            size="middle"
+            size="small"
+            rowClassName={(_, index) => index % 2 === 0 ? 'table-row-light' : 'table-row-dark'}
           />
         )}
       </Card>
@@ -1030,17 +1120,17 @@ const PayrollManagement = () => {
         bodyStyle={{ padding: 0, backgroundColor: '#f0f2f5' }}
       >
         {selectedPayroll && (
-          <div style={{ padding: 24 }}>
-            <div style={{ 
-              background: 'white', 
-              padding: 40, 
-              borderRadius: 8, 
-              boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
-              border: '1px solid #e8e8e8'
-            }}>
+          <div style={{ padding: 12 }}>
+          <div style={{ 
+            background: 'white', 
+            padding: 12, 
+            borderRadius: 8, 
+            boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+            border: '1px solid #e8e8e8'
+          }}>
               {/* Payslip Header */}
-              <div style={{ textAlign: 'center', marginBottom: 32, borderBottom: '2px solid #1890ff', paddingBottom: 20 }}>
-                <SafetyCertificateOutlined style={{ fontSize: 40, color: '#1890ff', marginBottom: 12 }} />
+              <div style={{ textAlign: 'center', marginBottom: 8, borderBottom: '2px solid #1890ff', paddingBottom: 8 }}>
+                <SafetyCertificateOutlined style={{ fontSize: 32, color: '#1890ff', marginBottom: 8 }} />
                 <Title level={2} style={{ margin: 0, textTransform: 'uppercase', letterSpacing: 2 }}>
                   Phiếu Lương
                 </Title>
@@ -1050,7 +1140,7 @@ const PayrollManagement = () => {
               </div>
 
               {/* Company Info Section */}
-              <Row gutter={24} style={{ marginBottom: 24 }}>
+              <Row gutter={12} style={{ marginBottom: 12 }}>
                 <Col span={12}>
                   <div style={{ background: '#f5f7fa', padding: 12, borderRadius: 4 }}>
                     <Text strong style={{ fontSize: 12, color: '#666' }}>CÔNG TY</Text>
@@ -1074,7 +1164,7 @@ const PayrollManagement = () => {
               </Row>
 
               {/* Employee Info */}
-              <Row gutter={24} style={{ marginBottom: 24 }}>
+              <Row gutter={12} style={{ marginBottom: 12 }}>
                 <Col span={12}>
                   <Descriptions column={1} size="small" bordered>
                     <Descriptions.Item label={<Text strong>Họ và tên</Text>}>
@@ -1112,10 +1202,10 @@ const PayrollManagement = () => {
               <Divider dashed />
 
               {/* Salary Breakdown */}
-              <Row gutter={48} style={{ marginBottom: 24 }}>
+              <Row gutter={8} style={{ marginBottom: 8 }}>
                 {/* Income Column */}
                 <Col span={12}>
-                  <Title level={5} style={{ color: '#52c41a', marginBottom: 16 }}>
+                  <Title level={5} style={{ color: '#52c41a', marginBottom: 8 }}>
                     <PlusOutlined /> Thu nhập
                   </Title>
                   <List 
@@ -1135,13 +1225,13 @@ const PayrollManagement = () => {
                     )}
                   />
                   <div style={{ 
-                    marginTop: 16, 
+                    marginTop: 8, 
                     borderTop: '2px solid #52c41a', 
                     paddingTop: 12, 
                     display: 'flex', 
                     justifyContent: 'space-between',
                     background: '#f6ffed',
-                    padding: '12px 16px',
+                    padding: '8px 12px',
                     borderRadius: 4
                   }}>
                     <Text strong style={{ color: '#52c41a' }}>Tổng thu nhập:</Text>
@@ -1153,7 +1243,7 @@ const PayrollManagement = () => {
 
                 {/* Deductions Column */}
                 <Col span={12}>
-                  <Title level={5} style={{ color: '#ff4d4f', marginBottom: 16 }}>
+                  <Title level={5} style={{ color: '#ff4d4f', marginBottom: 8 }}>
                     <MinusOutlined /> Khấu trừ
                   </Title>
                   <List 
@@ -1172,13 +1262,13 @@ const PayrollManagement = () => {
                     )}
                   />
                   <div style={{ 
-                    marginTop: 16, 
+                    marginTop: 8, 
                     borderTop: '2px solid #ff4d4f', 
                     paddingTop: 12, 
                     display: 'flex', 
                     justifyContent: 'space-between',
                     background: '#fff1f0',
-                    padding: '12px 16px',
+                    padding: '8px 12px',
                     borderRadius: 4
                   }}>
                     <Text strong style={{ color: '#ff4d4f' }}>Tổng khấu trừ:</Text>
@@ -1195,12 +1285,12 @@ const PayrollManagement = () => {
               <div style={{ 
                 backgroundColor: '#e6f7ff', 
                 border: '2px solid #1890ff', 
-                padding: 24, 
+                padding: 12, 
                 borderRadius: 8, 
                 display: 'flex', 
                 justifyContent: 'space-between', 
                 alignItems: 'center',
-                marginBottom: 16
+                marginBottom: 8
               }}>
                 <Text strong style={{ fontSize: 18, color: '#1890ff' }}>
                   THỰC LÃNH (NET PAY):
@@ -1210,7 +1300,7 @@ const PayrollManagement = () => {
                 </Title>
               </div>
               
-              <div style={{ textAlign: 'center', marginBottom: 24 }}>
+              <div style={{ textAlign: 'center', marginBottom: 12 }}>
                 <Text type="secondary" italic>
                   Số tiền bằng chữ: <Text strong>{convertNumberToText(selectedPayroll.netSalary)} đồng</Text>
                 </Text>
@@ -1252,7 +1342,7 @@ const PayrollManagement = () => {
               )}
 
               {/* Modal Footer Actions */}
-              <div style={{ marginTop: 32, textAlign: 'right', borderTop: '1px solid #f0f0f0', paddingTop: 16 }}>
+              <div style={{ marginTop: 8, textAlign: 'right', borderTop: '1px solid #f0f0f0', paddingTop: 8 }}>
                 <Space>
                   <Button icon={<PrinterOutlined />} onClick={() => window.print()}>
                     In Phiếu
@@ -1320,7 +1410,7 @@ const PayrollManagement = () => {
         ]}
         width={800}
       >
-        <div style={{ marginBottom: 16 }}>
+        <div style={{ marginBottom: 8 }}>
           <Alert
             message={`Tổng: ${lateDaysData.length} lần đi trễ | Tổng phạt: ${lateDaysData.reduce((sum, d) => sum + (d.actualPenalty || 0), 0).toLocaleString()}đ`}
             type="warning"

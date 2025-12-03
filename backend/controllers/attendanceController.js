@@ -936,21 +936,23 @@ exports.addAttendance = async (req, res) => {
       // Nếu không tìm thấy employee -> Gửi lệnh xóa vân tay cho ESP32
       if (!employee) {
         console.log(`⚠️ GHOST FINGERPRINT DETECTED: ID ${fingerId} - Sending DELETE command to ESP32`);
+        const { removeVietnameseAccents } = require('../utils/attendanceHelper');
         return res.status(200).json({
           success: false,
           command: 'DELETE_FINGER',
           id: parseInt(fingerId),
-          message: 'Van tay khong hop le',
-          sub_message: 'Dang xoa...',
+          message: removeVietnameseAccents('Van tay khong hop le'),
+          sub_message: removeVietnameseAccents('Dang xoa...'),
           what: 'delete-finger'
         });
       }
 
       if (!employee.fingerprintEnrolled) {
+        const { removeVietnameseAccents } = require('../utils/attendanceHelper');
         return res.status(200).json({
           success: false,
-          message: 'Chua enroll',
-          sub_message: 'Vui long dang ky van tay',
+          message: removeVietnameseAccents('Chua enroll'),
+          sub_message: removeVietnameseAccents('Vui long dang ky van tay'),
           what: 'enroll-required'
         });
       }
@@ -986,10 +988,11 @@ exports.addAttendance = async (req, res) => {
       const diffMinutes = moment(now).diff(moment(lastActionTime), 'minutes');
 
       if (diffMinutes < 3) {
+        const { removeVietnameseAccents } = require('../utils/attendanceHelper');
         return res.status(200).json({
           success: true,
-          message: `Xin chao ${employeeName}`,
-          sub_message: 'Da cham cong roi',
+          message: removeVietnameseAccents(`Xin chao ${employeeName}`),
+          sub_message: removeVietnameseAccents('Da cham cong roi'),
           what: 'ignored'
         });
       }
@@ -997,7 +1000,7 @@ exports.addAttendance = async (req, res) => {
 
     // 3. Lấy settings và tính lương
     const baseSalary = employee.baseSalary || employee.salary || 0;
-    const dailyRate = baseSalary > 0 ? (baseSalary / 26) : 0;
+    const dailyRate = baseSalary > 0 ? (baseSalary / 30) : 0;
 
     // Bản ghi hôm nay
     let attendance = await Attendance.findOne({ employee: employee._id, date: today });
@@ -1010,10 +1013,11 @@ exports.addAttendance = async (req, res) => {
       } else if (!attendance.checkOut?.time) {
         actionType = 'checkout';
       } else {
+        const { removeVietnameseAccents } = require('../utils/attendanceHelper');
         return res.status(200).json({
           success: true,
-          message: `Tam biet ${employeeName}`,
-          sub_message: 'Da xong hom nay',
+          message: removeVietnameseAccents(`Tam biet ${employeeName}`),
+          sub_message: removeVietnameseAccents('Da xong hom nay'),
           what: 'done'
         });
       }
@@ -1021,22 +1025,40 @@ exports.addAttendance = async (req, res) => {
 
     // === CHECK-IN ===
     if (actionType === 'checkin') {
-      // Validate thời gian check-in
-      const checkinValidation = attendanceHelper.validateCheckinTime(now);
+      // Lấy settings trước khi validate
+      const allSettings = await attendanceHelper.getAllSettings();
+      
+      // Validate thời gian check-in với settings
+      const checkinValidation = attendanceHelper.validateCheckinTime(now, allSettings);
       
       if (checkinValidation.blocked) {
+        const { removeVietnameseAccents } = require('../utils/attendanceHelper');
         return res.status(200).json({
           success: false,
-          message: checkinValidation.message,
-          sub_message: checkinValidation.subMessage,
+          message: removeVietnameseAccents(checkinValidation.message),
+          sub_message: removeVietnameseAccents(checkinValidation.subMessage),
           what: 'blocked'
         });
       }
 
       const lateMinutes = checkinValidation.lateMinutes || 0;
       // Lấy late policy từ settings
-      const allSettings = await attendanceHelper.getAllSettings();
       const latePolicy = allSettings['late-policy'] || {};
+      
+      // Debug log để kiểm tra Settings và lateMinutes
+      // HARDCODED: Giờ làm việc cố định 08:00-17:00
+      const workStart = '08:00';
+      console.log('🔍 [CHECK-IN] Late calculation:', {
+        checkInTime: moment(now).format('HH:mm'),
+        workStart,
+        lateMinutes,
+        latePolicy: {
+          penaltyRate: latePolicy.penaltyRate,
+          penaltyInterval: latePolicy.penaltyInterval,
+          lateThreshold2Hours: latePolicy.lateThreshold2Hours
+        }
+      });
+      
       const penaltyResult = attendanceHelper.calculateLatePenalty(lateMinutes, latePolicy, dailyRate);
       
       let checkInStatus = lateMinutes > 0 ? 'late' : 'on-time';
@@ -1070,17 +1092,18 @@ exports.addAttendance = async (req, res) => {
 
       await attendance.save();
 
-      // Build ESP32 response
+      // Build ESP32 response (remove Vietnamese accents for OLED display)
+      const { removeVietnameseAccents } = require('../utils/attendanceHelper');
       let subMessage = 'Dung gio';
       if (penaltyResult.lostWorkDay) {
-        subMessage = `Tre ${lateMinutes}p - Mat cong`;
+        subMessage = removeVietnameseAccents(`Tre ${lateMinutes}p - Mat cong`);
       } else if (lateMinutes > 0) {
-        subMessage = `Tre ${lateMinutes}p - Phat ${penaltyResult.penalty / 1000}k`;
+        subMessage = removeVietnameseAccents(`Tre ${lateMinutes}p - Phat ${penaltyResult.penalty / 1000}k`);
       }
 
       return res.status(200).json({
         success: true,
-        message: `Xin chao ${employeeName}`,
+        message: removeVietnameseAccents(`Xin chao ${employeeName}`),
         sub_message: subMessage,
         data: attendance,
         what: 'in',
@@ -1105,17 +1128,17 @@ exports.addAttendance = async (req, res) => {
       
       // Lấy settings (chỉ gọi 1 lần)
       const allSettings = await attendanceHelper.getAllSettings();
-      const otSettings = allSettings['ot-rate'] || allSettings['overtime'] || {};
       const latePolicy = allSettings['late-policy'] || {};
       
-      // Validate thời gian check-out - Truyền OT settings để hiển thị message đúng
-      const checkoutValidation = attendanceHelper.validateCheckoutTime(now, hasOTApproved, otSettings);
+      // Validate thời gian check-out với settings
+      const checkoutValidation = attendanceHelper.validateCheckoutTime(now, hasOTApproved, allSettings);
       
       if (checkoutValidation.blocked) {
+        const { removeVietnameseAccents } = require('../utils/attendanceHelper');
         return res.status(200).json({
           success: false,
-          message: checkoutValidation.message,
-          sub_message: checkoutValidation.subMessage,
+          message: removeVietnameseAccents(checkoutValidation.message),
+          sub_message: removeVietnameseAccents(checkoutValidation.subMessage),
           what: 'blocked'
         });
       }
@@ -1127,8 +1150,8 @@ exports.addAttendance = async (req, res) => {
         actualCheckOutTime = moment(now).subtract(1, 'day').set({ hour: 23, minute: 59, second: 0 }).toDate();
       }
 
-      // Tính về sớm - Lấy late policy từ settings (dùng chung với late penalty)
-      const earlyResult = attendanceHelper.calculateEarlyPenalty(actualCheckOutTime, '16:45', 0, dailyRate, latePolicy);
+      // Tính về sớm với settings
+      const earlyResult = attendanceHelper.calculateEarlyPenalty(actualCheckOutTime, dailyRate, allSettings);
       
       let checkOutStatus = 'on-time';
       let totalPenalty = Number(attendance.actualPenalty) || 0;
@@ -1154,9 +1177,12 @@ exports.addAttendance = async (req, res) => {
         const isHoliday = !!holiday;
         
         // Merge cả ot-rate và overtime configs (ot-rate có base rate, overtime có multipliers)
+        const otRateConfig = allSettings['ot-rate'] || {};
         const overtimeConfig = allSettings['overtime'] || {};
+        const otRatePerHour = otRateConfig.ratePerHour || overtimeConfig.otRate || 100000;
+        
         const mergedOTSettings = {
-          ...otSettings,  // ratePerHour từ ot-rate
+          ratePerHour: otRatePerHour,  // ratePerHour từ ot-rate
           ...overtimeConfig  // weekdayRate, weekendRate, holidayRate từ overtime
         };
         
@@ -1181,19 +1207,20 @@ exports.addAttendance = async (req, res) => {
 
       await attendance.save();
 
-      // Build ESP32 response
+      // Build ESP32 response (remove Vietnamese accents for OLED display)
+      const { removeVietnameseAccents } = require('../utils/attendanceHelper');
       let subMessage = 'Hen gap lai';
       if (earlyResult.lostWorkDay) {
-        subMessage = `Som ${earlyResult.earlyMinutes}p - Mat cong`;
+        subMessage = removeVietnameseAccents(`Som ${earlyResult.earlyMinutes}p - Mat cong`);
       } else if (earlyResult.earlyMinutes > 0) {
-        subMessage = `Som ${earlyResult.earlyMinutes}p - Phat ${earlyResult.penalty / 1000}k`;
+        subMessage = removeVietnameseAccents(`Som ${earlyResult.earlyMinutes}p - Phat ${earlyResult.penalty / 1000}k`);
       } else if (overtimeHours > 0) {
         subMessage = `OT: ${overtimeHours}h - +${estimatedOTSalary / 1000}k`;
       }
 
       return res.status(200).json({
         success: true,
-        message: `Tam biet ${employeeName}`,
+        message: removeVietnameseAccents(`Tam biet ${employeeName}`),
         sub_message: subMessage,
         data: attendance,
         what: 'out',
@@ -1211,10 +1238,11 @@ exports.addAttendance = async (req, res) => {
     });
   } catch (error) {
     console.error('Attendance Error:', error);
+    const { removeVietnameseAccents } = require('../utils/attendanceHelper');
     res.status(500).json({
       success: false,
-      message: 'Loi he thong',
-      sub_message: 'Lien he Admin',
+      message: removeVietnameseAccents('Loi he thong'),
+      sub_message: removeVietnameseAccents('Lien he Admin'),
       error: error.message
     });
   }
@@ -1560,23 +1588,22 @@ const totalHours = totalMinutes / 60;
     const allSettings = await attendanceHelper.getAllSettings();
     const latePolicy = allSettings['late-policy'] || {};
     const otSettings = allSettings['overtime'] || {};
-    const workSettings = allSettings['working-hours'] || {
-      startTime: '08:00',
-      endTime: '17:00',
-    };
+    // HARDCODED: Giờ làm việc cố định 08:00-17:00
 
     const baseSalary = employee.baseSalary || employee.salary || 0;
-    const dailyRate = baseSalary > 0 ? baseSalary / 26 : 0;
+    const dailyRate = baseSalary > 0 ? baseSalary / 30 : 0;
     const hourlyRate = dailyRate / 8;
 
     // 5. Tính đi muộn so với giờ chuẩn (startTime)
-    const workStartTime = workSettings.startTime || '08:00';
-    const workEndTime = workSettings.endTime || '17:00';
+    // HARDCODED: Giờ làm việc cố định 08:00-17:00
+    const workStartTime = '08:00';
+    const workEndTime = '17:00';
 
     const lateMinutes = attendanceHelper.calculateLateMinutes(
       checkInDateTime,
-      workStartTime,
-      latePolicy.graceMinutes || 15
+      null,
+      0,
+      allSettings
     );
     const checkInStatus = lateMinutes > 0 ? 'late' : 'on-time';
 
@@ -1594,13 +1621,8 @@ const totalHours = totalMinutes / 60;
       // Nếu muộn >= 2h, mất 1 ngày công
       if (penaltyResult.lostWorkDay) {
         status = 'absent';
-      } else {
-        // Nếu muộn quá ngưỡng half-day nhưng chưa mất ngày công
-        const halfDayThreshold = latePolicy.halfDayThreshold || 60;
-        if (lateMinutes > halfDayThreshold) {
-          status = 'half-day';
-        }
       }
+      // BỎ LOGIC HALF-DAY: Chỉ có absent hoặc present
     }
 
     // 6. Ngày chấm công + ngày lễ
@@ -1648,13 +1670,11 @@ const totalHours = totalMinutes / 60;
     
     if (checkOutMoment.isBefore(workDayEnd)) {
       checkOutStatus = 'early';
-      // Tính phạt về sớm - Dùng chung latePolicy với late penalty
+      // Tính phạt về sớm với settings
       const earlyPenaltyResult = attendanceHelper.calculateEarlyPenalty(
         checkOutDateTime,
-        workEndTime,
-        4, // Grace 4 phút
         dailyRate,
-        latePolicy // Dùng chung latePolicy với late penalty
+        allSettings
       );
       earlyPenalty = Number(earlyPenaltyResult.penalty || 0);
       earlyMinutes = Number(earlyPenaltyResult.earlyMinutes || 0);
@@ -1973,38 +1993,44 @@ exports.updateAttendance = async (req, res) => {
     const latePolicy = allSettings['late-policy'] || {};
     const otSettings = allSettings['overtime'] || {};
     const otRateSettings = allSettings['ot-rate'] || {};
-    const workSettings = allSettings['working-hours'] || { startTime: '08:00', endTime: '17:00' };
+    // HARDCODED: Giờ làm việc cố định 08:00-17:00
     
     const baseSalary = employee.baseSalary || employee.salary || 0;
-    const dailyRate = baseSalary > 0 ? baseSalary / 26 : 0;
+    const dailyRate = baseSalary > 0 ? baseSalary / 30 : 0;
     
     // Calculate late minutes
-    const workStartTime = workSettings.startTime || '08:00';
-    const workEndTime = workSettings.endTime || '17:00';
+    // HARDCODED: Giờ làm việc cố định 08:00-17:00
+    const workStartTime = '08:00';
+    const workEndTime = '17:00';
     
     // ============================================================
     // NEW: VALIDATION - Kiểm tra OT approval trước khi cho phép sửa
     // ============================================================
-    const OT_BOUNDARY_HOUR = 18; // 18:00 - Sau giờ này cần có OT duyệt
-    const CHECKIN_EARLIEST = 7;  // 07:00 - Giờ sớm nhất cho phép check-in
+    // Lấy giờ từ Settings
+    const checkinGateTimes = attendanceHelper.getCheckinGateTimes(allSettings);
+    const checkoutGateTimes = attendanceHelper.getCheckoutGateTimes(allSettings);
+    const otTimes = attendanceHelper.getOTTimes(allSettings);
     
-    // Check-in không được trước 7h
-    if (ciHour < CHECKIN_EARLIEST) {
+    const [checkinGateOpenHour] = checkinGateTimes.gateOpen.split(':').map(Number);
+    const [otStartHour] = otTimes.otStart.split(':').map(Number);
+    
+    // Check-in không được trước giờ mở cổng check-in
+    if (ciHour < checkinGateOpenHour) {
       return res.status(400).json({
         success: false,
-        message: `Giờ vào không được trước ${CHECKIN_EARLIEST}:00. Vui lòng chọn giờ từ ${CHECKIN_EARLIEST}:00 trở đi.`
+        message: `Giờ vào không được trước ${checkinGateTimes.gateOpen}. Vui lòng chọn giờ từ ${checkinGateTimes.gateOpen} trở đi.`
       });
     }
     
-    // Check-out sau 18h yêu cầu có OT duyệt
-    if (coHour >= OT_BOUNDARY_HOUR) {
+    // Check-out sau giờ bắt đầu OT yêu cầu có OT duyệt
+    if (coHour >= otStartHour) {
       const hasApprovedOT = await attendanceHelper.hasOvertimeShiftForDate(employee._id, attendance.date);
       
       if (!hasApprovedOT) {
         return res.status(400).json({
           success: false,
-          message: `Nhân viên ${employee.name} chưa được duyệt OT cho ngày ${moment(attendance.date).format('DD/MM/YYYY')}. Giờ ra không được sau 18:00 nếu không có đơn OT được duyệt.`,
-          hint: 'Vui lòng duyệt đơn OT trước hoặc chọn giờ ra trước 18:00.'
+          message: `Nhân viên ${employee.name} chưa được duyệt OT cho ngày ${moment(attendance.date).format('DD/MM/YYYY')}. Giờ ra không được sau ${otTimes.otStart} nếu không có đơn OT được duyệt.`,
+          hint: `Vui lòng duyệt đơn OT trước hoặc chọn giờ ra trước ${otTimes.otStart}.`
         });
       }
     }
@@ -2012,8 +2038,9 @@ exports.updateAttendance = async (req, res) => {
     
     const lateMinutes = attendanceHelper.calculateLateMinutes(
       checkInDateTime,
-      workStartTime,
-      latePolicy.graceMinutes || 15
+      null,
+      0,
+      allSettings
     );
     const checkInStatus = lateMinutes > 0 ? 'late' : 'on-time';
     
@@ -2027,12 +2054,8 @@ exports.updateAttendance = async (req, res) => {
       
       if (penaltyResult.lostWorkDay) {
         status = 'absent';
-      } else {
-        const halfDayThreshold = latePolicy.halfDayThreshold || 60;
-        if (lateMinutes > halfDayThreshold) {
-          status = 'half-day';
-        }
       }
+      // BỎ LOGIC HALF-DAY: Chỉ có absent hoặc present
     }
     
     // Calculate early penalty
@@ -2044,10 +2067,8 @@ exports.updateAttendance = async (req, res) => {
       checkOutStatus = 'early';
       const earlyPenaltyResult = attendanceHelper.calculateEarlyPenalty(
         checkOutDateTime,
-        workEndTime,
-        4,
         dailyRate,
-        latePolicy // Dùng chung latePolicy với late penalty
+        allSettings
       );
       actualPenalty += Number(earlyPenaltyResult.penalty) || 0;
       if (earlyPenaltyResult.lostWorkDay) {

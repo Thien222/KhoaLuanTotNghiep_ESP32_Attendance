@@ -55,11 +55,71 @@ function pickEmployeeCode(s, raw='') {
 }
 function pickEmployeeName(raw='') {
   raw = String(raw).replace(/\*\*/g, ' ');
-  let m = raw.match(/(?:nhan?\s*vien|nhanvien|nv)\s+([a-zA-ZÀ-ỹ0-9 _.'\-]{1,50})/i);
+  let m;
+  
+  // Pattern 1: "lương tháng X của nhân viên [TÊN]" - thứ tự ngược lại, linh hoạt hơn
+  m = raw.match(/lương\s+tháng\s+\d+\s+của\s+nhân\s*viên\s+([a-zA-ZÀ-ỹ][a-zA-ZÀ-ỹ0-9 _.'\-]{2,50})/i);
+  if (m) {
+    let name = m[1].trim();
+    // Loại bỏ phần "của" nếu có ở cuối
+    name = name.replace(/\s+của.*$/i, '').trim();
+    if (name.length > 1) return name;
+  }
+  
+  // Pattern 2: "lương của nhân viên [TÊN] của tháng X này" - pattern cụ thể nhất
+  m = raw.match(/lương\s+của\s+nhân\s*viên\s+([a-zA-ZÀ-ỹ][a-zA-ZÀ-ỹ0-9 _.'\-]+?)\s+của\s+tháng/i);
   if (m) return m[1].trim();
-  m = raw.match(/lương(?:\s+tháng\s+\d{1,2})?\s*của\s+([a-zA-ZÀ-ỹ0-9 _.'\-]{1,50})/i);
+  
+  // Pattern 3: "lương của nhân viên [TÊN] tháng X" hoặc "lương của nhân viên [TÊN] tháng này"
+  m = raw.match(/lương\s+của\s+nhân\s*viên\s+([a-zA-ZÀ-ỹ][a-zA-ZÀ-ỹ0-9 _.'\-]+?)\s+tháng/i);
+  if (m) {
+    let name = m[1].trim();
+    // Loại bỏ phần "của" nếu có ở cuối tên
+    name = name.replace(/\s+của\s*$/i, '').trim();
+    // Trả về tên nếu có độ dài hợp lý (tên không nên chứa "tháng" vì đã dừng ở đó)
+    if (name.length > 0 && !/^\s*$/i.test(name) && !/tháng/i.test(name)) return name;
+  }
+  // Pattern 4: "lương của nhân viên [TÊN]" (không có tháng)
+  m = raw.match(/lương\s+của\s+nhân\s*viên\s+([a-zA-ZÀ-ỹ][a-zA-ZÀ-ỹ0-9 _.'\-]{1,50})(?:\s+tháng|$)/i);
+  if (m) {
+    const name = m[1].trim();
+    if (!/tháng/i.test(name)) return name;
+  }
+  // Pattern 3: "lương nhân viên [TÊN] tháng X" hoặc "lương nhân viên [TÊN] tháng này"
+  m = raw.match(/lương\s+nhân\s*viên\s+([a-zA-ZÀ-ỹ][a-zA-ZÀ-ỹ0-9 _.'\-]+?)\s+tháng/i);
+  if (m) {
+    const name = m[1].trim();
+    // Đảm bảo tên không chứa từ khóa "tháng"
+    if (!/tháng/i.test(name) && name.length > 0) return name;
+  }
+  
+  // Pattern 4: "lương tháng X của nhân viên [TÊN]" - đã được xử lý ở Pattern 1, nhưng để đảm bảo
+  m = raw.match(/lương\s+tháng\s+\d+\s+của\s+nhân\s*viên\s+([a-zA-ZÀ-ỹ][a-zA-ZÀ-ỹ0-9 _.'\-]+?)(?:\s+của|$)/i);
   if (m) return m[1].trim();
-  m = raw.match(/["“”]([a-zA-ZÀ-ỹ0-9 _.'\-]{1,50})["“”]/i);
+  
+  // Pattern 5: Tổng quát - có từ "lương", "nhân viên", và tên (không quan trọng thứ tự)
+  if (/lương/i.test(raw) && /nhân\s*viên/i.test(raw) && !/(toi|tui|minh|cua toi|của tôi|m[iì]nh|t[ôo]i|em)\b/i.test(raw)) {
+    // Tìm tên sau "nhân viên"
+    m = raw.match(/nhân\s*viên\s+([a-zA-ZÀ-ỹ][a-zA-ZÀ-ỹ0-9 _.'\-]{2,50})/i);
+    if (m) {
+      let name = m[1].trim();
+      // Loại bỏ các từ khóa không phải tên
+      name = name.replace(/\s+(của|tháng|này|nay).*$/i, '').trim();
+      // Chỉ lấy tên nếu không chứa từ khóa
+      if (name.length > 1 && !/tháng|của|EMP|NV\d|này|nay/i.test(name)) {
+        return name;
+      }
+    }
+  }
+  
+  // Pattern 6: "nhân viên [TÊN]" - pattern chung (đặt cuối để tránh conflict)
+  m = raw.match(/(?:nhan?\s*vien|nhanvien|nv)\s+([a-zA-ZÀ-ỹ][a-zA-ZÀ-ỹ0-9 _.'\-]{1,50})/i);
+  if (m && !/lương/i.test(raw)) {
+    const name = m[1].trim();
+    if (!/tháng|EMP|NV\d/i.test(name)) return name;
+  }
+  
+  m = raw.match(/["""]([a-zA-ZÀ-ỹ0-9 _.'\-]{1,50})["""]/i);
   if (m) return m[1].trim();
   if (/lương|bang luong|bảng lương/i.test(raw)) {
     m = raw.match(/(?:lương|bảng lương)[^a-zA-ZÀ-ỹ]*([a-zA-ZÀ-ỹ][a-zA-ZÀ-ỹ _.'\-]{1,50})$/i);
@@ -88,6 +148,17 @@ function detectIntentAndEntities(text) {
   if (/(chinh sach|chính sách|policy|nghi phep|nghỉ phép|ot|tang ca|tăng ca|di tre|đi trễ|nhan su|nhân sự)/.test(s))
     return { intent: 'HR_POLICY_SUMMARY', entities: {} };
 
+  // Detection cho EMPLOYEE_ATTENDANCE_BY_CODE: hỏi checkin của nhân viên theo mã
+  if ((/\b(hom nay|bua nay|nay|hôm nay)\b/.test(s) || dateISO) && 
+      /(da|đã|chưa|chua)\s*(checkin|check\s*in|diem danh|điểm danh|cham cong|chấm công)/.test(s) &&
+      (employeeCode || /\b(EMP|NV)\s*0?\d{2,6}\b/i.test(raw)) &&
+      !/(toi|tui|minh|cua toi|của tôi|m[iì]nh|t[ôo]i|em)\b/.test(s)) {
+    const extractedCode = employeeCode || pickEmployeeCode(s, raw);
+    if (extractedCode) {
+      return { intent: 'EMPLOYEE_ATTENDANCE_BY_CODE', entities: { dateISO: dateISO || null, employeeCode: extractedCode } };
+    }
+  }
+
   if ((/\b(hom nay|bua nay|nay)\b/.test(s) && /(da|đã)?\s*(diem danh|check\s*in|checkin|cham cong|chấm công)/.test(s)) &&
       /(toi|tui|m[iì]nh|t[ôo]i|em)\b/.test(s))
     return { intent: 'MY_ATTENDANCE_TODAY', entities: { dateISO: dateISO || null } };
@@ -96,7 +167,8 @@ function detectIntentAndEntities(text) {
     return { intent: 'TODAY_DATE', entities: {} };
 
   if ((/\b(hom nay|bua nay|nay)\b/.test(s) && /(da|roi|r?oi).*(diem danh|check\s*in|checkin|cham cong)/.test(s)) ||
-      /\b(ai|danh sach|list|nhung ai).*(da).*(diem danh|check\s*in|checkin|cham cong)/.test(s))
+      /\b(ai|danh sach|list|nhung ai).*(da).*(diem danh|check\s*in|checkin|cham cong)/.test(s) ||
+      /\b(danh sach|danh sách).*(checkin|check\s*in|diem danh|điểm danh).*(hom nay|hôm nay|nay)\b/.test(s))
     return { intent: 'CHECKED_IN_ON_DATE', entities: { dateISO: dateISO || null } };
 
   if ((/\b(hom nay|bua nay|nay)\b/.test(s) && /\b(chua|chưa)\b.*(diem danh|check\s*in|checkin|cham cong)/.test(s)) ||
@@ -106,8 +178,33 @@ function detectIntentAndEntities(text) {
   if (/(luong|bang luong|thu nhap).*(toi|tui|cua toi|m[iì]nh)\b/.test(s))
     return { intent: 'MY_SALARY', entities: { month, year } };
 
-  if (/luong|bang luong|bảng lương/i.test(raw) && (employeeName || employeeCode))
-    return { intent: 'EMPLOYEE_SALARY', entities: { month, year, employeeName, employeeCode } };
+  // Detection cho EMPLOYEE_SALARY: có từ "lương" và có mã nhân viên hoặc tên nhân viên
+  if (/luong|bang luong|bảng lương|thu nhap/i.test(raw)) {
+    // Ưu tiên: Nếu có mã nhân viên hoặc tên nhân viên được extract VÀ không phải là "của tôi"
+    // Đây là cách đơn giản và tự nhiên nhất
+    if ((employeeCode || employeeName) && !/(toi|tui|minh|cua toi|của tôi|m[iì]nh|t[ôo]i|em)\b/i.test(s)) {
+      return { intent: 'EMPLOYEE_SALARY', entities: { month, year, employeeName, employeeCode } };
+    }
+    
+    // Thử extract lại một lần nữa với pattern cụ thể hơn nếu chưa có
+    if (!employeeCode && !employeeName) {
+      // Pattern: "lương [CODE] tháng X" hoặc "lương tháng X của [CODE]"
+      if (/\b(EMP|NV)\s*0?\d{2,6}\b/i.test(raw) && !/(toi|tui|minh|cua toi|của tôi)\b/i.test(s)) {
+        const extractedCode = pickEmployeeCode(s, raw);
+        if (extractedCode) {
+          return { intent: 'EMPLOYEE_SALARY', entities: { month, year, employeeCode: extractedCode } };
+        }
+      }
+      
+      // Pattern: có từ "nhân viên" + tên trong câu hỏi về lương
+      if (/nhân\s*viên/i.test(raw) && !/(toi|tui|minh|cua toi|của tôi|m[iì]nh|t[ôo]i|em)\b/i.test(s)) {
+        const extractedName = pickEmployeeName(raw);
+        if (extractedName && extractedName.length > 1) {
+          return { intent: 'EMPLOYEE_SALARY', entities: { month, year, employeeName: extractedName } };
+        }
+      }
+    }
+  }
 
   if ((/nhan\s*vien|nv|thong tin|ai\b/.test(s)) && employeeCode)
     return { intent: 'EMPLOYEE_INFO', entities: { employeeCode } };
@@ -137,4 +234,4 @@ function detectIntentAndEntities(text) {
   return { intent: 'UNKNOWN', entities: { month, year, dateISO, days, employeeName, employeeCode } };
 }
 
-module.exports = { detectIntentAndEntities, toASCII };
+module.exports = { detectIntentAndEntities, toASCII, pickEmployeeName, pickEmployeeCode };

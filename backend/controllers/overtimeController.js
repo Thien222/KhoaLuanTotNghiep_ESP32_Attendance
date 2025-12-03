@@ -1,28 +1,142 @@
 const OvertimeRequest = require('../models/OvertimeRequest');
 const Employee = require('../models/Employee');
+const Shift = require('../models/Shift');
+const EmployeeShift = require('../models/EmployeeShift');
+const Settings = require('../models/Settings');
 const moment = require('moment-timezone');
 
 moment.tz.setDefault('Asia/Ho_Chi_Minh');
 
 /**
+ * Get OT timeframe from employee's shift and system settings
+ * Returns { startTime, endTime, estimatedHours, shift }
+ */
+const getOTTimeframeFromShift = async (employeeId, date) => {
+  try {
+    console.log(`[getOTTimeframeFromShift] Starting for employeeId: ${employeeId}, date: ${date}`);
+    
+    // Verify employee exists
+    const employee = await Employee.findById(employeeId);
+    if (!employee) {
+      console.error(`[getOTTimeframeFromShift] Employee not found: ${employeeId}`);
+      throw new Error('Không tìm thấy nhân viên');
+    }
+    
+    console.log(`[getOTTimeframeFromShift] Employee found: ${employee.name}`);
+    
+    // Get employee's active shift assignment from EmployeeShift
+    const queryDate = moment(date).toDate();
+    const employeeShift = await EmployeeShift.findOne({
+      employee: employeeId,
+      startDate: { $lte: queryDate },
+      $or: [
+        { endDate: null },
+        { endDate: { $gte: queryDate } }
+      ],
+      isActive: true
+    }).populate('shift');
+    
+    console.log(`[getOTTimeframeFromShift] EmployeeShift found:`, employeeShift);
+    
+    // Get system OT settings
+    const otSettings = await Settings.findOne({ type: 'ot-rate' });
+    const overtimeSettings = await Settings.findOne({ type: 'overtime' });
+    const workingHoursSettings = await Settings.findOne({ type: 'working-hours' });
+    
+    console.log(`[getOTTimeframeFromShift] OT Settings:`, otSettings?.config);
+    console.log(`[getOTTimeframeFromShift] Overtime Settings:`, overtimeSettings?.config);
+    console.log(`[getOTTimeframeFromShift] Working Hours Settings:`, workingHoursSettings?.config);
+    
+    // OT start time from ot-rate settings (user configured)
+    const systemOTStart = otSettings?.config?.startTime || '18:00';
+    // OT end time from overtime.maxTime or default to 24:00
+    const systemOTEnd = overtimeSettings?.config?.maxTime || otSettings?.config?.endTime || '24:00';
+    
+    let otStartTime, otEndTime, shift, shiftName;
+    
+    // Check if employee has an active shift assignment
+    if (employeeShift && employeeShift.shift && typeof employeeShift.shift === 'object') {
+      // Use employee's assigned shift
+      shift = employeeShift.shift;
+      shiftName = shift.name || 'Ca mặc định';
+      // OT start time always from OT settings, not from shift end time
+      otStartTime = systemOTStart;
+      otEndTime = systemOTEnd;
+      console.log(`[getOTTimeframeFromShift] Using employee shift: ${shiftName}, OT: ${otStartTime} - ${otEndTime}`);
+    } else {
+      // Use system OT settings
+      shiftName = 'Ca mặc định';
+      otStartTime = systemOTStart;
+      otEndTime = systemOTEnd;
+      console.log(`[getOTTimeframeFromShift] Using OT settings: ${otStartTime} - ${otEndTime}`);
+    }
+    
+    // Validate time format
+    if (!otStartTime || !otEndTime) {
+      console.error(`[getOTTimeframeFromShift] Invalid times: startTime=${otStartTime}, endTime=${otEndTime}`);
+      throw new Error('Không thể xác định khung giờ OT. Vui lòng kiểm tra cài đặt hệ thống.');
+    }
+    
+    // Validate time format (HH:mm)
+    const timeRegex = /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/;
+    if (!timeRegex.test(otStartTime) || !timeRegex.test(otEndTime)) {
+      console.error(`[getOTTimeframeFromShift] Invalid time format: startTime=${otStartTime}, endTime=${otEndTime}`);
+      throw new Error(`Định dạng thời gian không hợp lệ: ${otStartTime} hoặc ${otEndTime}`);
+    }
+    
+    // Calculate estimated OT hours
+    const [startHour, startMin] = otStartTime.split(':').map(Number);
+    const [endHour, endMin] = otEndTime.split(':').map(Number);
+    
+    if (isNaN(startHour) || isNaN(startMin) || isNaN(endHour) || isNaN(endMin)) {
+      console.error(`[getOTTimeframeFromShift] NaN in time calculation: startHour=${startHour}, startMin=${startMin}, endHour=${endHour}, endMin=${endMin}`);
+      throw new Error('Định dạng thời gian không hợp lệ');
+    }
+    
+    let estimatedHours = (endHour + endMin / 60) - (startHour + startMin / 60);
+    if (estimatedHours < 0) {
+      estimatedHours += 24; // Handle overnight OT
+    }
+    
+    const result = {
+      startTime: otStartTime,
+      endTime: otEndTime,
+      estimatedHours: Math.round(estimatedHours * 10) / 10,
+      shift: shift?._id || null,
+      shiftName: shiftName || 'Ca mặc định'
+    };
+    
+    console.log(`[getOTTimeframeFromShift] Result:`, result);
+    return result;
+  } catch (error) {
+    console.error('[getOTTimeframeFromShift] Error:', error);
+    console.error('[getOTTimeframeFromShift] Stack:', error.stack);
+    throw error;
+  }
+};
+
+/**
  * Create OT Request (Employee)
  * POST /api/overtime/request
+ * NEW LOGIC: User only selects date, system determines OT timeframe from shift
  */
 exports.createOTRequest = async (req, res) => {
   try {
-    const { date, startTime, endTime, reason } = req.body;
+    console.log('[createOTRequest] Request received:', req.body);
+    const { date, reason } = req.body;
     
-    // Validate required fields
-    if (!date || !startTime || !endTime || !reason) {
+    // Validate required fields (startTime/endTime no longer required)
+    if (!date || !reason) {
       return res.status(400).json({
         success: false,
-        message: 'Vui lòng điền đầy đủ thông tin: ngày, giờ bắt đầu, giờ kết thúc, lý do'
+        message: 'Vui lòng điền đầy đủ thông tin: ngày và lý do'
       });
     }
     
     // Get employee from user
     const employee = req.user.employee;
     if (!employee) {
+      console.error('[createOTRequest] No employee found in req.user');
       return res.status(400).json({
         success: false,
         message: 'Không tìm thấy thông tin nhân viên'
@@ -30,15 +144,7 @@ exports.createOTRequest = async (req, res) => {
     }
     
     const employeeId = employee._id || employee;
-    
-    // Parse times and calculate estimated hours
-    const [startHour, startMin] = startTime.split(':').map(Number);
-    const [endHour, endMin] = endTime.split(':').map(Number);
-    
-    let estimatedHours = (endHour + endMin / 60) - (startHour + startMin / 60);
-    if (estimatedHours < 0) {
-      estimatedHours += 24; // Handle overnight OT
-    }
+    console.log('[createOTRequest] Employee ID:', employeeId);
     
     // Check if already has pending/approved request for this date
     const requestDate = moment(date).startOf('day').toDate();
@@ -55,14 +161,34 @@ exports.createOTRequest = async (req, res) => {
       });
     }
     
-    // Create new OT request
+    // AUTO: Get OT timeframe from employee's shift
+    let otTimeframe;
+    try {
+      otTimeframe = await getOTTimeframeFromShift(employeeId, date);
+    } catch (error) {
+      return res.status(400).json({
+        success: false,
+        message: error.message || 'Không thể xác định khung giờ OT. Vui lòng kiểm tra cài đặt hệ thống.'
+      });
+    }
+    
+    if (!otTimeframe || !otTimeframe.startTime || !otTimeframe.endTime) {
+      return res.status(400).json({
+        success: false,
+        message: 'Không thể xác định khung giờ OT. Vui lòng kiểm tra cài đặt hệ thống.'
+      });
+    }
+    
+    // Create new OT request with auto-calculated times
     const otRequest = new OvertimeRequest({
       employee: employeeId,
       date: requestDate,
-      startTime,
-      endTime,
+      startTime: otTimeframe.startTime,
+      endTime: otTimeframe.endTime,
       reason,
-      estimatedHours: Math.round(estimatedHours * 10) / 10,
+      estimatedHours: otTimeframe.estimatedHours || 0,
+      shift: otTimeframe.shift || null,
+      shiftName: otTimeframe.shiftName || 'Ca mặc định',
       status: 'pending'
     });
     
@@ -71,11 +197,13 @@ exports.createOTRequest = async (req, res) => {
     // Populate employee info for response
     await otRequest.populate('employee', 'name employeeId department');
     
-    console.log(`📋 [OT Request] ${otRequest.employee.name} submitted OT request for ${moment(date).format('YYYY-MM-DD')}`);
+    const employeeName = otRequest.employee?.name || 'N/A';
+    console.log(`📋 [OT Request] ${employeeName} submitted OT for ${moment(date).format('YYYY-MM-DD')}`);
+    console.log(`   Shift: ${otTimeframe.shiftName}, OT: ${otTimeframe.startTime} - ${otTimeframe.endTime} (~${otTimeframe.estimatedHours}h)`);
     
     res.status(201).json({
       success: true,
-      message: 'Đã gửi đơn đăng ký OT thành công',
+      message: `Đã gửi đơn đăng ký OT (${otTimeframe.shiftName}: ${otTimeframe.startTime} - ${otTimeframe.endTime})`,
       data: otRequest
     });
   } catch (error) {
@@ -83,6 +211,78 @@ exports.createOTRequest = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Lỗi khi gửi đơn OT',
+      error: error.message
+    });
+  }
+};
+
+/**
+ * Preview OT timeframe for a date (without creating request)
+ * GET /api/overtime/preview/:date
+ */
+exports.previewOTTimeframe = async (req, res) => {
+  try {
+    console.log('[previewOTTimeframe] Request received:', req.params);
+    const { date } = req.params;
+    const employee = req.user.employee;
+    
+    if (!employee) {
+      console.error('[previewOTTimeframe] No employee found in req.user');
+      return res.status(400).json({
+        success: false,
+        message: 'Không tìm thấy thông tin nhân viên'
+      });
+    }
+    
+    if (!date) {
+      return res.status(400).json({
+        success: false,
+        message: 'Vui lòng chọn ngày'
+      });
+    }
+    
+    const employeeId = employee._id || employee;
+    console.log('[previewOTTimeframe] Employee ID:', employeeId);
+    
+    let otTimeframe;
+    
+    try {
+      otTimeframe = await getOTTimeframeFromShift(employeeId, date);
+    } catch (error) {
+      console.error('[previewOTTimeframe] Error in getOTTimeframeFromShift:', error);
+      return res.status(400).json({
+        success: false,
+        message: error.message || 'Không thể xác định khung giờ OT. Vui lòng kiểm tra cài đặt hệ thống.'
+      });
+    }
+    
+    if (!otTimeframe || !otTimeframe.startTime || !otTimeframe.endTime) {
+      console.error('[previewOTTimeframe] Invalid otTimeframe:', otTimeframe);
+      return res.status(400).json({
+        success: false,
+        message: 'Không thể xác định khung giờ OT. Vui lòng kiểm tra cài đặt hệ thống.'
+      });
+    }
+    
+    const response = {
+      success: true,
+      data: {
+        date: moment(date).format('YYYY-MM-DD'),
+        shiftName: otTimeframe.shiftName || 'Ca mặc định',
+        startTime: otTimeframe.startTime,
+        endTime: otTimeframe.endTime,
+        estimatedHours: otTimeframe.estimatedHours || 0
+      }
+    };
+    
+    console.log('[previewOTTimeframe] Success:', response);
+    res.status(200).json(response);
+  } catch (error) {
+    console.error('[previewOTTimeframe] Unexpected error:', error);
+    console.error('[previewOTTimeframe] Stack:', error.stack);
+    res.status(500).json({
+      success: false,
+      message: 'Lỗi khi xem trước khung giờ OT',
       error: error.message
     });
   }

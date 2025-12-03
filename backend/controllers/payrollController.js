@@ -455,5 +455,48 @@ exports.markAsPaid = async (req, res) => {
   }
 };
 
+/**
+ * DELETE /api/payroll/:id
+ * Xóa bảng lương
+ */
+exports.deletePayroll = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const user = req.user;
+
+    // Kiểm tra quyền
+    if (!['manager', 'accountant', 'admin'].includes(user?.role)) {
+      return res.status(403).json({
+        success: false,
+        message: 'Bạn không có quyền xóa bảng lương'
+      });
+    }
+
+    const payroll = await Payroll.findById(id);
+    if (!payroll) {
+      return res.status(404).json({
+        success: false,
+        message: 'Không tìm thấy bảng lương'
+      });
+    }
+
+    await Payroll.findByIdAndDelete(id);
+
+    console.log(`[payrollController.deletePayroll] Deleted payroll ${id} by ${user.name || user.email}`);
+
+    return res.json({
+      success: true,
+      message: 'Xóa bảng lương thành công'
+    });
+  } catch (err) {
+    console.error('[payrollController.deletePayroll]', err);
+    res.status(500).json({
+      success: false,
+      message: 'Lỗi khi xóa bảng lương',
+      detail: err.message
+    });
+  }
+};
+
 
 

@@ -28,8 +28,12 @@ import {
   UserOutlined,
   CheckCircleOutlined,
   CloseCircleOutlined,
-  SearchOutlined
+  SearchOutlined,
+  EyeOutlined,
+  MoreOutlined,
+  UserDeleteOutlined
 } from '@ant-design/icons';
+import { TableActionDropdown } from '../../components/ActionDropdown';
 import axios from 'axios';
 import { getAPIUrl, getConfig } from '../../utils/configManager';
 
@@ -84,6 +88,49 @@ const EmployeeManagement = () => {
     setEditingEmployee(employee);
     form.setFieldsValue(employee);
     setModalVisible(true);
+  };
+
+  const [terminateModalVisible, setTerminateModalVisible] = useState(false);
+  const [terminatingEmployee, setTerminatingEmployee] = useState(null);
+  const [terminateForm] = Form.useForm();
+
+  const handleTerminateEmployee = (employee) => {
+    setTerminatingEmployee(employee);
+    terminateForm.resetFields();
+    setTerminateModalVisible(true);
+  };
+
+  const handleTerminateSubmit = async (values) => {
+    if (!terminatingEmployee) return;
+    
+    try {
+      const API_URL = getAPIUrl();
+      const token = localStorage.getItem('token');
+      
+      const response = await axios.post(
+        `${API_URL}/terminated-employees/terminate/${terminatingEmployee._id}`,
+        {
+          reason: values.reason,
+          note: values.note
+        },
+        {
+          headers: { Authorization: `Bearer ${token}` }
+        }
+      );
+      
+      if (response.data.success) {
+        message.success('Đã chuyển nhân viên sang danh sách nghỉ việc');
+        setTerminateModalVisible(false);
+        setTerminatingEmployee(null);
+        terminateForm.resetFields();
+        fetchEmployees();
+      } else {
+        message.error(response.data.message || 'Lỗi khi xử lý nghỉ việc');
+      }
+    } catch (error) {
+      console.error('❌ Error terminating employee:', error);
+      message.error(error.response?.data?.message || 'Lỗi khi xử lý nghỉ việc');
+    }
   };
 
   const handleDelete = async (id) => {
@@ -338,6 +385,17 @@ const EmployeeManagement = () => {
       },
     },
     {
+      title: 'Vai trò',
+      dataIndex: 'userRole',
+      key: 'userRole',
+      width: 100,
+      render: (role) => {
+        const colors = { employee: 'blue', accountant: 'purple', manager: 'red' };
+        const labels = { employee: 'Nhân viên', accountant: 'Kế toán', manager: 'Quản lý' };
+        return role ? <Tag color={colors[role] || 'default'}>{labels[role] || role}</Tag> : <Tag>Nhân viên</Tag>;
+      },
+    },
+    {
       title: 'Lương',
       dataIndex: 'salary',
       key: 'salary',
@@ -390,81 +448,62 @@ const EmployeeManagement = () => {
       ),
     },
     {
-      title: 'Trạng thái',
-      dataIndex: 'status',
-      key: 'status',
-      width: 110,
-      render: (status) => (
-        <Tag color={status === 'active' ? 'green' : 'red'}>
-          {status === 'active' ? 'Hoạt động' : 'Không hoạt động'}
-        </Tag>
-      ),
-    },
-    {
-      title: 'Hành động',
+      title: 'Thao tác',
       key: 'action',
-      width: 280,
+      width: 80,
       fixed: 'right',
-      render: (_, record) => (
-        <Space size="small" style={{ whiteSpace: 'nowrap' }}>
-          <Button 
-            type="primary" 
-            size="small" 
-            icon={<EditOutlined />}
-            onClick={() => handleEdit(record)}
-          >
-            Sửa
-          </Button>
-          {record.fingerprintEnrolled ? (
-            <Button 
-              type="default" 
-              size="small" 
-              icon={<CheckCircleOutlined />}
-              disabled
-            >
-              Đã đăng ký
-            </Button>
-          ) : (
-            <>
-              <Button 
-                type="default" 
-                size="small" 
-                icon={<SafetyCertificateOutlined />}
-                onClick={() => handleEnrollFingerprint(record, false)}
-                loading={enrolling}
-                title="Đăng ký vân tay qua ESP32 (cần thiết bị thật)"
-              >
-                ESP32
-              </Button>
-              <Button 
-                type="dashed" 
-                size="small" 
-                icon={<CheckCircleOutlined />}
-                onClick={() => handleEnrollFingerprint(record, true)}
-                loading={enrolling}
-                title="Đánh dấu đã enroll (không cần ESP32 - dùng để test)"
-              >
-                Đánh dấu
-              </Button>
-            </>
-          )}
-          <Popconfirm
-            title="Bạn có chắc muốn xóa nhân viên này?"
-            onConfirm={() => handleDelete(record._id)}
-            okText="Có"
-            cancelText="Không"
-          >
-            <Button 
-              type="primary" 
-              danger 
-              size="small" 
-              icon={<DeleteOutlined />}
-            >
-              Xóa
-            </Button>
-          </Popconfirm>
-        </Space>
-      ),
+      align: 'center',
+      render: (_, record) => {
+        const actionItems = [
+          { 
+            key: 'edit', 
+            label: 'Chỉnh sửa', 
+            icon: <EditOutlined />,
+            onClick: () => handleEdit(record)
+          },
+          { type: 'divider' }
+        ];
+        
+        // Fingerprint enrollment actions
+        if (!record.fingerprintEnrolled) {
+          actionItems.push(
+            { 
+              key: 'esp32', 
+              label: 'Đăng ký vân tay (ESP32)', 
+              icon: <SafetyCertificateOutlined />,
+              onClick: () => handleEnrollFingerprint(record, false),
+              disabled: enrolling
+            },
+            { 
+              key: 'mark', 
+              label: 'Đánh dấu đã đăng ký', 
+              icon: <CheckCircleOutlined />,
+              onClick: () => handleEnrollFingerprint(record, true),
+              disabled: enrolling
+            }
+          );
+        } else {
+          actionItems.push({
+            key: 'enrolled',
+            label: 'Đã đăng ký vân tay',
+            icon: <CheckCircleOutlined />,
+            disabled: true
+          });
+        }
+        
+        actionItems.push(
+          { type: 'divider' },
+          { 
+            key: 'terminate', 
+            label: 'Cho nghỉ việc', 
+            icon: <UserDeleteOutlined />,
+            danger: true,
+            onClick: () => handleTerminateEmployee(record)
+          }
+        );
+        
+        return <TableActionDropdown items={actionItems} />;
+      },
     },
   ];
 
@@ -487,8 +526,8 @@ const EmployeeManagement = () => {
 
   return (
     <div style={{ width: '100%', overflow: 'hidden' }}>
-      <Card style={{ width: '100%', overflow: 'hidden' }}>
-        <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+      <Card style={{ width: '100%', overflow: 'hidden' }} bodyStyle={{ padding: '12px' }}>
+        <div style={{ marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
           <Title level={3} style={{ margin: 0 }}>Quản lý nhân sự & Vân tay</Title>
           <Space size="middle" wrap>
             <Input
@@ -517,7 +556,7 @@ const EmployeeManagement = () => {
         </div>
 
         {/* Statistics */}
-        <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
+        <Row gutter={[8, 8]} style={{ marginBottom: 8 }}>
           <Col xs={24} sm={12} lg={6}>
             <Card size="small">
               <Statistic
@@ -734,6 +773,90 @@ const EmployeeManagement = () => {
             </Space>
           </Form.Item>
         </Form>
+      </Modal>
+
+      {/* Terminate Employee Modal */}
+      <Modal
+        title={
+          <Space>
+            <UserDeleteOutlined style={{ color: '#ff4d4f' }} />
+            <span>Xử lý nghỉ việc</span>
+          </Space>
+        }
+        open={terminateModalVisible}
+        onCancel={() => {
+          setTerminateModalVisible(false);
+          setTerminatingEmployee(null);
+          terminateForm.resetFields();
+        }}
+        footer={null}
+        width={500}
+      >
+        {terminatingEmployee && (
+          <div>
+            <div style={{ 
+              background: '#fff7e6', 
+              padding: 12, 
+              borderRadius: 8, 
+              marginBottom: 16,
+              border: '1px solid #ffd591'
+            }}>
+              <p style={{ margin: 0 }}>
+                Bạn đang xử lý nghỉ việc cho nhân viên: <strong>{terminatingEmployee.name}</strong> ({terminatingEmployee.employeeId})
+              </p>
+              <p style={{ margin: '8px 0 0 0', fontSize: 12, color: '#8c8c8c' }}>
+                • Thông tin nhân viên sẽ được lưu vào danh sách nghỉ việc<br/>
+                • Vân tay sẽ bị vô hiệu hóa<br/>
+                • Tài khoản đăng nhập sẽ bị xóa
+              </p>
+            </div>
+            
+            <Form
+              form={terminateForm}
+              layout="vertical"
+              onFinish={handleTerminateSubmit}
+            >
+              <Form.Item
+                name="reason"
+                label="Lý do nghỉ việc"
+                rules={[{ required: true, message: 'Vui lòng chọn lý do' }]}
+              >
+                <Select placeholder="Chọn lý do">
+                  <Option value="resigned">Tự nghỉ việc</Option>
+                  <Option value="terminated">Sa thải</Option>
+                  <Option value="contract_ended">Hết hợp đồng</Option>
+                  <Option value="retirement">Nghỉ hưu</Option>
+                  <Option value="other">Lý do khác</Option>
+                </Select>
+              </Form.Item>
+
+              <Form.Item
+                name="note"
+                label="Ghi chú thêm"
+              >
+                <Input.TextArea 
+                  rows={3} 
+                  placeholder="Nhập ghi chú thêm về trường hợp nghỉ việc này..."
+                />
+              </Form.Item>
+
+              <Form.Item style={{ marginBottom: 0, textAlign: 'right' }}>
+                <Space>
+                  <Button onClick={() => {
+                    setTerminateModalVisible(false);
+                    setTerminatingEmployee(null);
+                    terminateForm.resetFields();
+                  }}>
+                    Hủy
+                  </Button>
+                  <Button type="primary" danger htmlType="submit">
+                    Xác nhận nghỉ việc
+                  </Button>
+                </Space>
+              </Form.Item>
+            </Form>
+          </div>
+        )}
       </Modal>
     </div>
   );

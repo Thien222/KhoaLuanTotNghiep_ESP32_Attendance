@@ -100,6 +100,24 @@ const attendanceSchema = new mongoose.Schema({
     default: false
   },
   
+  // Auto-completion flags (NEW - for 17:00 auto-checkout logic)
+  autoCompleted: {
+    type: Boolean,
+    default: false
+  },
+  autoCompletionType: {
+    type: String,
+    required: false,
+    // Only set when auto-completed, values: 'regular' or 'overtime'
+    // Validation done in code, not in schema to allow null/undefined
+  },
+  
+  // Early checkout tracking
+  earlyMinutes: {
+    type: Number,
+    default: 0
+  },
+  
   notes: String
 }, {
   timestamps: true

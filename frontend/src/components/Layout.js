@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Layout as AntLayout, Menu, Button, Avatar, Dropdown, Space, Typography, Badge, Switch, Tooltip } from 'antd';
+import { Layout as AntLayout, Menu, Button, Avatar, Dropdown, Space, Typography, Badge, Tooltip, Tag } from 'antd';
 import { 
   MenuFoldOutlined, 
   MenuUnfoldOutlined, 
@@ -13,18 +13,28 @@ import {
   DollarOutlined,
   RobotOutlined,
   SettingOutlined,
-  SwapOutlined,
-  BarChartOutlined
+  BarChartOutlined,
+  UserDeleteOutlined,
+  CalendarOutlined,
+  CrownOutlined
 } from '@ant-design/icons';
 import { useNavigate, useLocation } from 'react-router-dom';
 import TimeControl from './TimeControl';
+import { useViewMode } from '../contexts/ViewModeContext';
 
 const { Header, Sider, Content } = AntLayout;
 const { Text } = Typography;
 
 const MainLayout = ({ children }) => {
   const [collapsed, setCollapsed] = useState(false);
-  const [viewMode, setViewMode] = useState('admin'); // 'admin' or 'personal'
+  const { 
+    canSwitchMode, 
+    isPersonalMode,
+    isAdminMode,
+    isAccountantMode,
+    getCurrentModeInfo,
+    toggleMode
+  } = useViewMode();
   const navigate = useNavigate();
   const location = useLocation();
   
@@ -57,6 +67,7 @@ const MainLayout = ({ children }) => {
   const isAdmin = user?.role === 'manager';
   const isAccountant = user?.role === 'accountant';
   
+  // Menu cho mode Admin (quản lý toàn bộ hệ thống)
   const adminMenuItems = [
     {
       key: '/dashboard',
@@ -66,12 +77,17 @@ const MainLayout = ({ children }) => {
     {
       key: '/attendance',
       icon: <ClockCircleOutlined />,
-      label: 'Chấm công'
+      label: 'Quản lý chấm công'
     },
     {
       key: '/employees',
       icon: <TeamOutlined />,
       label: 'Quản lý nhân sự'
+    },
+    {
+      key: '/resignations',
+      icon: <UserDeleteOutlined />,
+      label: 'Quản lý nghỉ việc'
     },
     {
       key: '/requests',
@@ -81,7 +97,7 @@ const MainLayout = ({ children }) => {
     {
       key: '/payroll',
       icon: <DollarOutlined />,
-      label: 'Bảng lương'
+      label: 'Bảng lương (Toàn bộ)'
     },
     {
       key: '/statistics',
@@ -105,16 +121,22 @@ const MainLayout = ({ children }) => {
     }
   ];
 
+  // Menu cho mode Cá nhân (nhân viên, admin khi ở mode cá nhân)
   const personalMenuItems = [
+    {
+      key: '/my-attendance',
+      icon: <CalendarOutlined />,
+      label: 'Lịch chấm công'
+    },
+    {
+      key: '/my-payroll',
+      icon: <DollarOutlined />,
+      label: 'Bảng lương của tôi'
+    },
     {
       key: '/requests',
       icon: <FileTextOutlined />,
-      label: 'Gửi yêu cầu'
-    },
-    {
-      key: '/payroll',
-      icon: <DollarOutlined />,
-      label: 'Bảng lương'
+      label: 'Gửi đơn'
     },
     {
       key: '/chatbot',
@@ -123,24 +145,28 @@ const MainLayout = ({ children }) => {
     }
   ];
 
-  const accountantMenuItems = [
+  // Menu cho mode Kế toán (xem/sửa bảng lương toàn bộ)
+  const accountantModeMenuItems = [
     {
       key: '/payroll',
       icon: <DollarOutlined />,
-      label: 'Bảng lương'
+      label: 'Bảng lương (Toàn bộ)'
     }
   ];
 
   // Get menu items based on role and view mode
   const getMenuItems = () => {
     if (isAccountant) {
-      return accountantMenuItems;
+      // Kế toán: mode accountant = xem toàn bộ lương, mode personal = menu cá nhân
+      return isAccountantMode ? accountantModeMenuItems : personalMenuItems;
     }
     
     if (isAdmin) {
-      return viewMode === 'admin' ? adminMenuItems : personalMenuItems;
+      // Admin: mode admin = quản lý, mode personal = cá nhân
+      return isAdminMode ? adminMenuItems : personalMenuItems;
     }
     
+    // Nhân viên: chỉ menu cá nhân
     return personalMenuItems;
   };
 
@@ -154,56 +180,106 @@ const MainLayout = ({ children }) => {
     window.location.href = '/';
   };
 
-  const toggleViewMode = () => {
-    setViewMode(prev => prev === 'admin' ? 'personal' : 'admin');
+  // Use toggleMode from context
+  const handleToggleMode = () => {
+    toggleMode();
   };
 
+  const getModeButtonStyle = () => {
+    const modeInfo = getCurrentModeInfo();
+    return {
+      borderRadius: 8,
+      fontWeight: 500,
+      border: 'none',
+      background: modeInfo.color,
+      color: '#fff'
+    };
+  };
+
+  const siderWidth = collapsed ? 80 : 200;
+
   return (
-    <AntLayout style={{ height: '100vh', overflow: 'hidden' }}>
+    <AntLayout style={{ minHeight: '100vh' }}>
+      {/* Fixed Sidebar */}
       <Sider 
         trigger={null} 
         collapsible 
         collapsed={collapsed}
+        width={200}
+        collapsedWidth={80}
         style={{
-          background: 'linear-gradient(180deg, #001529 0%, #002140 100%)',
-          boxShadow: '2px 0 8px rgba(0,0,0,0.15)',
-          height: '100vh',
-          overflow: 'auto'
+          background: '#ffffff',
+          boxShadow: '2px 0 8px rgba(0,0,0,0.06)',
+          position: 'fixed',
+          left: 0,
+          top: 0,
+          bottom: 0,
+          zIndex: 100,
+          overflow: 'auto',
+          borderRight: '1px solid #f0f0f0'
         }}
+        className="fixed-sidebar"
       >
         <div style={{ 
-          height: '64px', 
+          height: '56px', 
           display: 'flex', 
           alignItems: 'center', 
           justifyContent: 'center',
-          borderBottom: '1px solid rgba(255,255,255,0.1)'
+          borderBottom: '1px solid #f0f0f0',
+          background: '#fafafa',
+          padding: '0 8px'
         }}>
-          <Text strong style={{ fontSize: collapsed ? '14px' : '16px', color: '#fff' }}>
-            {collapsed ? '⏰' : '⏰ ESP32 Attendance'}
+          <Text strong style={{ 
+            fontSize: collapsed ? '20px' : '14px', 
+            color: '#1890ff',
+            fontWeight: 600,
+            letterSpacing: '-0.5px'
+          }}>
+            {collapsed ? 'HR' : 'HR Management System'}
           </Text>
         </div>
         
         <Menu
           mode="inline"
-          theme="dark"
+          theme="light"
           selectedKeys={[location.pathname]}
           items={getMenuItems()}
           onClick={handleMenuClick}
-          style={{ borderRight: 0, background: 'transparent' }}
+          style={{ 
+            borderRight: 0, 
+            background: 'transparent',
+            padding: '4px 0'
+          }}
         />
       </Sider>
       
-      <AntLayout style={{ height: '100vh', overflow: 'hidden' }}>
+      {/* Main content area with margin for fixed sidebar */}
+      <AntLayout style={{ 
+        marginLeft: siderWidth,
+        minHeight: '100vh',
+        transition: 'margin-left 0.2s ease',
+        width: `calc(100% - ${siderWidth}px)`
+      }}>
+        {/* Fixed Header */}
         <Header style={{ 
-          padding: '0 16px', 
-          background: '#fff',
+          padding: '0 12px', 
+          background: '#ffffff',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
-          boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+          boxShadow: '0 2px 8px rgba(0,0,0,0.06)',
           height: 56,
-          lineHeight: '56px'
-        }}>
+          lineHeight: '56px',
+          borderBottom: '1px solid #f0f0f0',
+          position: 'fixed',
+          top: 0,
+          left: siderWidth,
+          right: 0,
+          zIndex: 99,
+          transition: 'left 0.2s ease'
+        }}
+        className="fixed-header"
+        >
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <Button
               type="text"
@@ -212,22 +288,36 @@ const MainLayout = ({ children }) => {
               style={{ fontSize: '16px' }}
             />
             
-            {/* View Mode Toggle for Admin */}
-            {isAdmin && (
-              <Tooltip title={viewMode === 'admin' ? 'Chuyển sang chế độ cá nhân' : 'Chuyển sang chế độ quản trị'}>
+            {/* View Mode Toggle - Admin/Accountant can switch modes */}
+            {canSwitchMode && (
+              <Tooltip title={`Chuyển chế độ xem (hiện tại: ${getCurrentModeInfo().label})`}>
                 <Button 
-                  type={viewMode === 'admin' ? 'primary' : 'default'}
-                  icon={<SwapOutlined />}
-                  onClick={toggleViewMode}
+                  icon={
+                    isPersonalMode ? <UserOutlined /> : 
+                    isAccountantMode ? <DollarOutlined /> : 
+                    <CrownOutlined />
+                  }
+                  onClick={handleToggleMode}
                   size="small"
+                  style={getModeButtonStyle()}
                 >
-                  {viewMode === 'admin' ? 'Admin' : 'Cá nhân'}
+                  {getCurrentModeInfo().label}
                 </Button>
               </Tooltip>
+            )}
+            
+            {/* Show current mode badge */}
+            {!canSwitchMode && (
+              <Tag color="blue" icon={<UserOutlined />}>
+                Cá nhân
+              </Tag>
             )}
           </div>
           
           <Space size="middle">
+            {/* Time Machine - for Admin only */}
+            {isAdmin && <TimeControl />}
+            
             <Badge count={0} size="small">
               <Button type="text" icon={<BellOutlined />} />
             </Badge>
@@ -252,10 +342,15 @@ const MainLayout = ({ children }) => {
                 }
               ]
             }} trigger={['click']}>
-              <Button type="text" style={{ height: 'auto', padding: '4px 8px' }}>
-                <Space>
+              <Button type="text" style={{ 
+                height: 'auto', 
+                padding: '4px 12px',
+                borderRadius: 8,
+                border: '1px solid #f0f0f0'
+              }}>
+                <Space size={8}>
                   <Avatar size="small" icon={<UserOutlined />} style={{ backgroundColor: '#1890ff' }} />
-                  <Text>{user?.name || user?.employee?.name || user?.email || 'User'}</Text>
+                  <Text style={{ fontWeight: 500 }}>{user?.name || user?.employee?.name || user?.email || 'User'}</Text>
                   <Text type="secondary" style={{ fontSize: 12 }}>
                     ({user?.role === 'manager' ? 'Admin' : user?.role === 'accountant' ? 'Kế toán' : 'NV'})
                   </Text>
@@ -265,31 +360,19 @@ const MainLayout = ({ children }) => {
           </Space>
         </Header>
         
+        {/* Content area with margin-top for fixed header - Modern scrolling approach */}
         <Content style={{ 
-          margin: 0,
-          padding: 12,
-          background: '#f0f2f5',
-          height: 'calc(100vh - 56px)',
-          overflow: 'hidden',
-          display: 'flex',
-          flexDirection: 'column'
-        }}>
-          <div style={{ 
-            flex: 1, 
-            background: '#fff', 
-            borderRadius: 6, 
-            padding: 12,
-            overflow: 'auto',
-            display: 'flex',
-            flexDirection: 'column',
-            position: 'relative',
-            minHeight: 0
-          }}>
-            {children}
-          </div>
-          
-          {/* Time Control Component - for Admin only */}
-          {isAdmin && <TimeControl />}
+          marginTop: 56,
+          padding: '16px 12px 16px 8px',
+          background: '#f5f7fa',
+          minHeight: 'calc(100vh - 56px)',
+          width: '100%'
+          /* Removed overflow:auto - let browser handle scrolling naturally */
+        }}
+        className="main-content-area"
+        >
+          {/* Removed white wrapper div - content now uses full width */}
+          {children}
         </Content>
       </AntLayout>
     </AntLayout>

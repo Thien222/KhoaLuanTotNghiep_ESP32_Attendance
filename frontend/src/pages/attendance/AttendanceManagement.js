@@ -452,6 +452,22 @@ const AttendanceManagement = () => {
           onFinish={handleSubmit}
           onValuesChange={(_, allValues) => calculatePreview(allValues)}
         >
+          <Alert
+            message="Quy định chấm công"
+            description={
+              <ul style={{ marginBottom: 0, paddingLeft: 20 }}>
+                <li>Check-in hợp lệ: Trước giờ bắt đầu (đúng giờ)</li>
+                <li>Đi muộn: Trễ ngay từ phút đầu, phạt 20k/15 phút. Muộn ≥ 2h = Mất ngày công</li>
+                <li>Về sớm (trước 16:45): Phạt 20k/15 phút. Về sớm ≥ 2h = Mất ngày công</li>
+                <li>OT chỉ được tính nếu có đơn OT được duyệt</li>
+                <li>Nhân viên không có OT sẽ tự động check-out lúc 17:00</li>
+              </ul>
+            }
+            type="info"
+            showIcon
+            closable
+            style={{ marginBottom: 16 }}
+          />
           <Form.Item
             name="employeeId"
             label="Nhân viên"

@@ -45,8 +45,8 @@ const SystemSettings = () => {
       const API_URL = getAPIUrl();
       const token = localStorage.getItem('token');
 
-      // Fetch all settings types
-      const types = ['working-hours', 'overtime', 'late-policy', 'leave-policy', 'auto-checkout', 'ot-rate', 'tax-config', 'salary-structure'];
+      // Fetch all settings types (working-hours removed - hardcoded to 08:00-17:00)
+      const types = ['overtime', 'late-policy', 'leave-policy', 'auto-checkout', 'ot-rate', 'tax-config', 'salary-structure'];
       const promises = types.map(type =>
         axios.get(`${API_URL}/settings?type=${type}`, {
           headers: { Authorization: `Bearer ${token}` }
@@ -66,7 +66,6 @@ const SystemSettings = () => {
         } else {
           // Use defaults if fetch failed
           const defaults = {
-            'working-hours': { startTime: '08:00', endTime: '17:00' },
             'overtime': { weekdayRate: 1.5, weekendRate: 2.0, holidayRate: 3.0, minDuration: 1 },
             'late-policy': { graceMinutes: 15, penaltyAfterGrace: 50000, halfDayThreshold: 60 },
             'leave-policy': { annualDays: 12, carryOverDays: 3, resetMonth: 1 },
@@ -85,9 +84,7 @@ const SystemSettings = () => {
 
       // Set form values
       form.setFieldsValue({
-        // Working hours
-        startTime: settingsData['working-hours']?.startTime ? moment(settingsData['working-hours'].startTime, 'HH:mm') : moment('08:00', 'HH:mm'),
-        endTime: settingsData['working-hours']?.endTime ? moment(settingsData['working-hours'].endTime, 'HH:mm') : moment('17:00', 'HH:mm'),
+        // Working hours: HARDCODED to 08:00-17:00 (removed from settings)
 
         // Overtime
         overtimeWeekdayRate: settingsData['overtime']?.weekdayRate || 1.5,
@@ -96,9 +93,9 @@ const SystemSettings = () => {
         overtimeMinDuration: settingsData['overtime']?.minDuration || 1,
 
         // Late policy
-        lateGraceMinutes: settingsData['late-policy']?.graceMinutes || 15,
-        latePenaltyAfterGrace: settingsData['late-policy']?.penaltyAfterGrace || 50000,
-        lateHalfDayThreshold: settingsData['late-policy']?.halfDayThreshold || 60,
+        latePenaltyRate: settingsData['late-policy']?.penaltyRate || 20000,
+        latePenaltyInterval: settingsData['late-policy']?.penaltyInterval || 15,
+        lateThreshold2Hours: settingsData['late-policy']?.lateThreshold2Hours || 120,
 
         // Leave policy
         leaveAnnualDays: settingsData['leave-policy']?.annualDays || 12,
@@ -136,14 +133,8 @@ const SystemSettings = () => {
       const token = localStorage.getItem('token');
 
       // Prepare settings updates with default values for optional fields
+      // Working hours: HARDCODED to 08:00-17:00 (removed from settings)
       const updates = [
-        {
-          type: 'working-hours',
-          value: {
-            startTime: values.startTime?.format('HH:mm') || '08:00',
-            endTime: values.endTime?.format('HH:mm') || '17:00'
-          }
-        },
         {
           type: 'overtime',
           value: {
@@ -158,9 +149,9 @@ const SystemSettings = () => {
         {
           type: 'late-policy',
           value: {
-            graceMinutes: values.lateGraceMinutes || 15,
-            penaltyAfterGrace: values.latePenaltyAfterGrace || 50000,
-            halfDayThreshold: values.lateHalfDayThreshold || 60,
+            penaltyRate: values.latePenaltyRate || 20000,
+            penaltyInterval: values.latePenaltyInterval || 15,
+            lateThreshold2Hours: values.lateThreshold2Hours || 120,
             penaltyPerMinute: 0
           }
         },
@@ -245,13 +236,13 @@ const SystemSettings = () => {
 
   return (
     <div>
-      <div style={{ marginBottom: 16 }}>
-        <Title level={5} style={{ margin: '0 0 8px 0' }}>
-          <SettingOutlined style={{ marginRight: 8 }} />
+      <div style={{ marginBottom: 8 }}>
+        <Title level={5} style={{ margin: '0 0 4px 0' }}>
+          <SettingOutlined style={{ marginRight: 6 }} />
           Cấu hình hệ thống
         </Title>
-        <Text type="secondary" style={{ fontSize: 13 }}>
-          Cấu hình các chính sách về giờ làm việc, OT, đi muộn, nghỉ phép
+        <Text type="secondary" style={{ fontSize: 12 }}>
+          Cấu hình các chính sách về OT, đi muộn, nghỉ phép (Giờ làm việc: 08:00-17:00 cố định)
         </Text>
       </div>
 
@@ -261,46 +252,11 @@ const SystemSettings = () => {
         onFinish={handleSave}
       >
         <Collapse 
-          defaultActiveKey={['1', '2', '2b', '2c', '3', '4', '5']} 
+          defaultActiveKey={['2', '2b', '2c', '3', '4', '5']} 
           accordion={false}
-          style={{ marginBottom: 16 }}
+          style={{ marginBottom: 8 }}
         >
-          {/* Working Hours */}
-          <Panel
-            header={
-              <Space>
-                <ClockCircleOutlined />
-                <Text strong>Giờ làm việc</Text>
-              </Space>
-            }
-            key="1"
-          >
-            <Alert
-              message="Cấu hình giờ vào/ra chuẩn cho tất cả nhân viên"
-              type="info"
-              showIcon
-              style={{ marginBottom: 12 }}
-              size="small"
-            />
-            <Row gutter={16}>
-              <Col span={12}>
-                <Form.Item
-                  name="startTime"
-                  label="Giờ vào"
-                >
-                  <TimePicker format="HH:mm" style={{ width: '100%' }} placeholder="08:00" />
-                </Form.Item>
-              </Col>
-              <Col span={12}>
-                <Form.Item
-                  name="endTime"
-                  label="Giờ ra"
-                >
-                  <TimePicker format="HH:mm" style={{ width: '100%' }} placeholder="17:00" />
-                </Form.Item>
-              </Col>
-            </Row>
-          </Panel>
+          {/* Working Hours: HARDCODED to 08:00-17:00 (removed from UI) */}
 
           {/* Overtime Policy */}
           <Panel
@@ -316,10 +272,10 @@ const SystemSettings = () => {
               message="Hệ số lương khi làm OT: Ngày thường x1.5, Cuối tuần x2.0, Ngày lễ x3.0"
               type="info"
               showIcon
-              style={{ marginBottom: 12 }}
+              style={{ marginBottom: 6 }}
               size="small"
             />
-            <Row gutter={16}>
+            <Row gutter={8}>
               <Col span={8}>
                 <Form.Item
                   name="overtimeWeekdayRate"
@@ -394,10 +350,10 @@ const SystemSettings = () => {
               message="Cấu hình mức lương OT cố định: 100k VND/1h (mặc định). OT bắt đầu từ 19h00."
               type="success"
               showIcon
-              style={{ marginBottom: 12 }}
+              style={{ marginBottom: 6 }}
               size="small"
             />
-            <Row gutter={16}>
+            <Row gutter={8}>
               <Col span={12}>
                 <Form.Item
                   name="otRatePerHour"
@@ -442,10 +398,10 @@ const SystemSettings = () => {
               message="Thuế 10% bao gồm: Thuế TNCN + Bảo hiểm xã hội. Tính trên (Gross - Phạt)."
               type="warning"
               showIcon
-              style={{ marginBottom: 12 }}
+              style={{ marginBottom: 6 }}
               size="small"
             />
-            <Row gutter={16}>
+            <Row gutter={8}>
               <Col span={12}>
                 <Form.Item
                   name="taxEnabled"
@@ -488,10 +444,10 @@ const SystemSettings = () => {
               message="Phụ cấp được tính theo % của lương cơ bản. Áp dụng cho tất cả nhân viên."
               type="info"
               showIcon
-              style={{ marginBottom: 12 }}
+              style={{ marginBottom: 6 }}
               size="small"
             />
-            <Row gutter={16}>
+            <Row gutter={8}>
               <Col span={12}>
                 <Form.Item
                   name="generalAllowanceRate"
@@ -525,48 +481,55 @@ const SystemSettings = () => {
               message="Quy định phạt khi nhân viên đi muộn"
               type="warning"
               showIcon
-              style={{ marginBottom: 12 }}
+              style={{ marginBottom: 6 }}
               size="small"
             />
+            <Row gutter={16}>
+              <Col span={12}>
+                <Form.Item
+                  name="latePenaltyRate"
+                  label="Tiền phạt mỗi block (VND)"
+                  help="Phạt cho mỗi khoảng thời gian (ví dụ: 20,000đ/15 phút)"
+                >
+                  <InputNumber
+                    min={0}
+                    max={1000000}
+                    step={5000}
+                    style={{ width: '100%' }}
+                    formatter={value => `${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
+                    parser={value => value.replace(/\$\s?|(,*)/g, '')}
+                    addonAfter="VND"
+                    placeholder="20,000"
+                  />
+                </Form.Item>
+              </Col>
+              <Col span={12}>
+                <Form.Item
+                  name="latePenaltyInterval"
+                  label="Khoảng thời gian tính phạt (phút)"
+                  help="Mỗi khoảng này = 1 block phạt (ví dụ: 15 phút)"
+                >
+                  <InputNumber
+                    min={1}
+                    max={60}
+                    style={{ width: '100%' }}
+                    addonAfter="phút"
+                    placeholder="15"
+                  />
+                </Form.Item>
+              </Col>
+            </Row>
             <Form.Item
-              name="lateGraceMinutes"
-              label="Thời gian cho phép muộn (phút)"
-              help="Ví dụ: 15 phút = Được phép muộn tối đa 15 phút mà không bị phạt"
+              name="lateThreshold2Hours"
+              label="Ngưỡng mất ngày công (phút)"
+              help="Ví dụ: 120 phút = Muộn ≥ 2 giờ sẽ mất cả ngày công"
             >
               <InputNumber
-                min={0}
-                max={60}
+                min={60}
+                max={480}
                 style={{ width: '100%' }}
                 addonAfter="phút"
-                placeholder="15"
-              />
-            </Form.Item>
-            <Form.Item
-              name="latePenaltyAfterGrace"
-              label="Tiền phạt sau khi hết thời gian cho phép (VND)"
-            >
-              <InputNumber
-                min={0}
-                max={1000000}
-                step={10000}
-                style={{ width: '100%' }}
-                formatter={value => `${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
-                parser={value => value.replace(/\$\s?|(,*)/g, '')}
-                addonAfter="VND"
-                placeholder="50,000"
-              />
-            </Form.Item>
-            <Form.Item
-              name="lateHalfDayThreshold"
-              label="Ngưỡng trừ 1/2 ngày công (phút)"
-              help="Ví dụ: 60 phút = Muộn trên 1 tiếng sẽ bị trừ 1/2 ngày công"
-            >
-              <InputNumber
-                min={0}
-                max={240}
-                style={{ width: '100%' }}
-                addonAfter="phút"
-                placeholder="60"
+                placeholder="120"
               />
             </Form.Item>
           </Panel>
@@ -585,7 +548,7 @@ const SystemSettings = () => {
               message="Quy định về số ngày nghỉ phép năm của nhân viên"
               type="info"
               showIcon
-              style={{ marginBottom: 12 }}
+              style={{ marginBottom: 6 }}
               size="small"
             />
             <Form.Item
@@ -641,7 +604,7 @@ const SystemSettings = () => {
               message="Tự động checkout cho nhân viên quên chấm công ra"
               type="info"
               showIcon
-              style={{ marginBottom: 12 }}
+              style={{ marginBottom: 6 }}
               size="small"
             />
             <Form.Item

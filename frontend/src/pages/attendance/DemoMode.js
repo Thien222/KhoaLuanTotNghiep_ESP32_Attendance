@@ -62,11 +62,15 @@ const DemoMode = () => {
   const [loading, setLoading] = useState(false);
   const [timeMachineActive, setTimeMachineActive] = useState(false);
   const [errorMessage, setErrorMessage] = useState(null);
+  
+  // Settings state
+  const [settings, setSettings] = useState(null);
 
   useEffect(() => {
     fetchEmployees();
     checkESP32Connection();
     checkTimeMachineStatus();
+    fetchSettings();
     
     // Auto-check ESP32 every 10 seconds
     const interval = setInterval(() => {
@@ -122,8 +126,209 @@ const DemoMode = () => {
     }
   };
 
-  const timelineScenarios = [
-    // Check-in scenarios
+  const fetchSettings = async () => {
+    try {
+      const API_URL = getAPIUrl();
+      const token = localStorage.getItem('token');
+      
+      // Fetch required settings types
+      const types = ['working-hours', 'late-policy', 'ot-rate', 'early-checkin'];
+      const promises = types.map(type =>
+        axios.get(`${API_URL}/settings?type=${type}`, {
+          headers: { Authorization: `Bearer ${token}` }
+        }).catch(error => {
+          console.error(`Error fetching setting ${type}:`, error);
+          return { data: { success: false, data: null } };
+        })
+      );
+
+      const responses = await Promise.all(promises);
+      const settingsData = {};
+
+      responses.forEach((response, index) => {
+        if (response.data && response.data.success && response.data.data) {
+          // Backend returns: { success: true, data: { type, value: config, ... } }
+          const config = response.data.data.value || response.data.data.config || response.data.data;
+          settingsData[types[index]] = config;
+          
+          // Debug log
+          if (types[index] === 'working-hours') {
+            console.log('📊 [DemoMode] Fetched working-hours:', config);
+          }
+        } else {
+          console.warn(`⚠️ [DemoMode] Setting ${types[index]} not found or failed`);
+        }
+      });
+
+      // Fill missing settings with defaults
+      if (!settingsData['working-hours']) {
+        settingsData['working-hours'] = { startTime: '08:00', endTime: '17:00' };
+      }
+      if (!settingsData['late-policy']) {
+        settingsData['late-policy'] = { penaltyRate: 20000, penaltyInterval: 15, lateThreshold2Hours: 120 };
+      }
+      if (!settingsData['ot-rate']) {
+        settingsData['ot-rate'] = { startTime: '19:00', ratePerHour: 100000 };
+      }
+      if (!settingsData['early-checkin']) {
+        settingsData['early-checkin'] = { bufferMinutes: 60 };
+      }
+
+      console.log('✅ [DemoMode] Settings loaded:', {
+        startTime: settingsData['working-hours'].startTime,
+        endTime: settingsData['working-hours'].endTime
+      });
+
+      setSettings(settingsData);
+    } catch (error) {
+      console.error('❌ [DemoMode] Error fetching settings:', error);
+      // Use defaults on error
+      setSettings({
+        'working-hours': { startTime: '08:00', endTime: '17:00' },
+        'late-policy': { penaltyRate: 20000, penaltyInterval: 15, lateThreshold2Hours: 120 },
+        'ot-rate': { startTime: '19:00', ratePerHour: 100000 },
+        'early-checkin': { bufferMinutes: 60 }
+      });
+    }
+  };
+
+  // Helper function to calculate gate close time (startTime + 15 minutes grace)
+  const calculateGateClose = (startTime) => {
+    const [hour, min] = startTime.split(':').map(Number);
+    const gateClose = moment().hour(hour).minute(min).add(15, 'minutes');
+    return gateClose.format('HH:mm');
+  };
+
+  // Helper function to add minutes to time string
+  const addMinutesToTime = (timeStr, minutes) => {
+    const [hour, min] = timeStr.split(':').map(Number);
+    const newTime = moment().hour(hour).minute(min).add(minutes, 'minutes');
+    return newTime.format('HH:mm');
+  };
+
+  // Calculate timeline scenarios dynamically based on settings
+  const getTimelineScenarios = () => {
+    // Default values if settings not loaded yet
+    const workHours = settings?.['working-hours'] || { startTime: '08:00', endTime: '17:00' };
+    const latePolicy = settings?.['late-policy'] || { penaltyRate: 20000, penaltyInterval: 15, lateThreshold2Hours: 120 };
+    const otRate = settings?.['ot-rate'] || { startTime: '19:00', ratePerHour: 100000 };
+    const earlyCheckin = settings?.['early-checkin'] || { bufferMinutes: 60 };
+
+    const startTime = workHours.startTime || '08:00';
+    const endTime = workHours.endTime || '17:00';
+    const gateClose = calculateGateClose(startTime); // e.g., 08:15 if startTime is 08:00
+    const otStart = otRate.startTime || '19:00';
+    const bufferMinutes = earlyCheckin.bufferMinutes || 60;
+    
+    // Calculate gate open (startTime - bufferMinutes)
+    const gateOpen = addMinutesToTime(startTime, -bufferMinutes); // e.g., 07:00 if startTime is 08:00 and buffer is 60
+
+    // Calculate checkout gate open (endTime - 15 minutes)
+    const checkoutGateOpen = addMinutesToTime(endTime, -15); // e.g., 16:45 if endTime is 17:00
+
+    // Calculate a time in the middle of valid check-in window (gateOpen to gateClose)
+    const onTimeCheckin = addMinutesToTime(gateOpen, Math.floor((bufferMinutes + 15) / 2)); // Middle of valid window
+
+    return [
+      // Check-in scenarios
+      {
+        id: 'checkin-ontime',
+        category: 'checkin',
+        label: '✅ Check-in Đúng Giờ',
+        time: onTimeCheckin,
+        description: `Đến đúng giờ (${onTimeCheckin})`,
+        color: 'success',
+        scenario: 'on-time'
+      },
+      {
+        id: 'checkin-grace',
+        category: 'checkin',
+        label: '⏰ Check-in Grace Period',
+        time: addMinutesToTime(gateClose, -2), // 2 minutes before gate close
+        description: `Trong grace period (${addMinutesToTime(gateClose, -2)})`,
+        color: 'processing',
+        scenario: 'grace-period'
+      },
+      {
+        id: 'checkin-late-15',
+        category: 'checkin',
+        label: '⚠️ Check-in Trễ 15 Phút',
+        time: addMinutesToTime(gateClose, 15), // 15 minutes after gate close
+        description: `Muộn 15 phút (${addMinutesToTime(gateClose, 15)})`,
+        color: 'warning',
+        scenario: 'late-15min'
+      },
+      {
+        id: 'checkin-late-1h',
+        category: 'checkin',
+        label: '⚠️ Check-in Trễ 1h',
+        time: addMinutesToTime(gateClose, 60), // 1 hour after gate close
+        description: `Muộn 1 giờ (${addMinutesToTime(gateClose, 60)})`,
+        color: 'warning',
+        scenario: 'late-1h'
+      },
+      {
+        id: 'checkin-late-2h',
+        category: 'checkin',
+        label: '❌ Check-in Trễ >= 2h',
+        time: addMinutesToTime(gateClose, latePolicy.lateThreshold2Hours || 120), // 2 hours after gate close
+        description: `Muộn 2 giờ, mất ngày công (${addMinutesToTime(gateClose, latePolicy.lateThreshold2Hours || 120)})`,
+        color: 'error',
+        scenario: 'late-2h'
+      },
+      
+      // Checkout scenarios
+      {
+        id: 'checkout-ontime',
+        category: 'checkout',
+        label: '✅ Check-out Đúng Giờ',
+        time: endTime,
+        description: `Về đúng giờ (${endTime})`,
+        color: 'success',
+        scenario: 'checkout-ontime'
+      },
+      {
+        id: 'checkout-early',
+        category: 'checkout',
+        label: '⚠️ Check-out Sớm',
+        time: addMinutesToTime(checkoutGateOpen, -15), // 15 minutes before checkout gate open
+        description: `Về sớm (${addMinutesToTime(checkoutGateOpen, -15)})`,
+        color: 'warning',
+        scenario: 'checkout-early'
+      },
+      {
+        id: 'checkout-no-ot',
+        category: 'checkout',
+        label: '⏰ Check-out Trước OT',
+        time: addMinutesToTime(otStart, -30), // 30 minutes before OT start
+        description: `Về muộn nhưng chưa tính OT (${addMinutesToTime(otStart, -30)})`,
+        color: 'processing',
+        scenario: 'checkout-no-ot'
+      },
+      {
+        id: 'checkout-ot-1h',
+        category: 'checkout',
+        label: '💰 Check-out OT 1h',
+        time: addMinutesToTime(otStart, 60), // 1 hour after OT start
+        description: `Tăng ca 1 giờ (${addMinutesToTime(otStart, 60)})`,
+        color: 'cyan',
+        scenario: 'checkout-ot-1h'
+      },
+      {
+        id: 'checkout-ot-3h',
+        category: 'checkout',
+        label: '💰 Check-out OT 3h',
+        time: addMinutesToTime(otStart, 180), // 3 hours after OT start
+        description: `Tăng ca 3 giờ (${addMinutesToTime(otStart, 180)})`,
+        color: 'purple',
+        scenario: 'checkout-ot-3h'
+      }
+    ];
+  };
+
+  // Use dynamic scenarios if settings loaded, otherwise use defaults
+  const timelineScenarios = settings ? getTimelineScenarios() : [
+    // Fallback defaults (same as before but will be replaced when settings load)
     {
       id: 'checkin-ontime',
       category: 'checkin',
@@ -132,15 +337,6 @@ const DemoMode = () => {
       description: 'Đến đúng giờ (7h50)',
       color: 'success',
       scenario: 'on-time'
-    },
-    {
-      id: 'checkin-grace',
-      category: 'checkin',
-      label: '⏰ Check-in Grace Period',
-      time: '08:02',
-      description: 'Trong grace period (8h02)',
-      color: 'processing',
-      scenario: 'grace-period'
     },
     {
       id: 'checkin-late-15',
@@ -152,15 +348,6 @@ const DemoMode = () => {
       scenario: 'late-15min'
     },
     {
-      id: 'checkin-late-1h',
-      category: 'checkin',
-      label: '⚠️ Check-in Trễ 1h',
-      time: '09:00',
-      description: 'Muộn 1 giờ (9h00)',
-      color: 'warning',
-      scenario: 'late-1h'
-    },
-    {
       id: 'checkin-late-2h',
       category: 'checkin',
       label: '❌ Check-in Trễ >= 2h',
@@ -169,8 +356,6 @@ const DemoMode = () => {
       color: 'error',
       scenario: 'late-2h'
     },
-    
-    // Checkout scenarios
     {
       id: 'checkout-ontime',
       category: 'checkout',
@@ -179,24 +364,6 @@ const DemoMode = () => {
       description: 'Về đúng giờ (17h00)',
       color: 'success',
       scenario: 'checkout-ontime'
-    },
-    {
-      id: 'checkout-early',
-      category: 'checkout',
-      label: '⚠️ Check-out Sớm',
-      time: '16:00',
-      description: 'Về sớm (16h00)',
-      color: 'warning',
-      scenario: 'checkout-early'
-    },
-    {
-      id: 'checkout-no-ot',
-      category: 'checkout',
-      label: '⏰ Check-out 18h30',
-      time: '18:30',
-      description: 'Về muộn nhưng chưa tính OT (18h30)',
-      color: 'processing',
-      scenario: 'checkout-no-ot'
     },
     {
       id: 'checkout-ot-1h',
@@ -332,6 +499,7 @@ const DemoMode = () => {
     fetchLastAttendance();
     checkESP32Connection();
     checkTimeMachineStatus();
+    fetchSettings(); // Re-fetch settings when refreshing
   };
 
   const selectedEmp = selectedEmployee;
@@ -495,9 +663,32 @@ const DemoMode = () => {
             }
           >
             <div style={{ marginBottom: 16 }}>
-              <Text type="secondary">
-                Ngày đã chọn: <Text strong>{selectedDate.format('DD/MM/YYYY')}</Text>
-              </Text>
+              <Row justify="space-between" align="middle">
+                <Col>
+                  <Text type="secondary">
+                    Ngày đã chọn: <Text strong>{selectedDate.format('DD/MM/YYYY')}</Text>
+                  </Text>
+                  {settings && (
+                    <div style={{ marginTop: 8 }}>
+                      <Text type="secondary" style={{ fontSize: 12 }}>
+                        ⚙️ Giờ test được tính từ Settings: 
+                        Bắt đầu: <Text strong>{settings['working-hours']?.startTime || '08:00'}</Text>, 
+                        Kết thúc: <Text strong>{settings['working-hours']?.endTime || '17:00'}</Text>
+                      </Text>
+                    </div>
+                  )}
+                </Col>
+                <Col>
+                  <Button 
+                    size="small" 
+                    icon={<ReloadOutlined />} 
+                    onClick={fetchSettings}
+                    title="Làm mới Settings"
+                  >
+                    Refresh Settings
+                  </Button>
+                </Col>
+              </Row>
             </div>
 
             {/* Check-in Scenarios */}

@@ -21,6 +21,7 @@ const timeMachineRoutes = require('./routes/timeMachineRoutes'); // NEW
 const salaryRoutes = require('./routes/salaryRoutes');
 const settingsRoutes = require('./routes/settingsRoutes'); // Settings
 const overtimeRoutes = require('./routes/overtimeRoutes'); // Overtime requests
+const terminatedEmployeeRoutes = require('./routes/terminatedEmployeeRoutes'); // Terminated employees
 const errorHandler = require('./middleware/errorHandler');
 
 const app = express();
@@ -71,6 +72,32 @@ mongoose.connect(mongoURI, {
     }
   } catch (error) {
     console.error('Error loading ESP32 config from database:', error);
+  }
+  
+  // Initialize Auto-Completion Service (Cron Job at 17:00 daily)
+  try {
+    const cron = require('node-cron');
+    const autoCompletionService = require('./services/autoCompletionService');
+    const Settings = require('./models/Settings');
+    
+    // Get work end time from settings (default: 17:00)
+    const workSettings = await Settings.findOne({ type: 'working-hours' });
+    const endTime = workSettings?.config?.endTime || '17:00';
+    const [endHour, endMin] = endTime.split(':').map(Number);
+    
+    // Schedule cron job at work end time (e.g., 17:00)
+    // Format: "minute hour * * *" (minute hour day month weekday)
+    const cronSchedule = `${endMin} ${endHour} * * *`;
+    
+    cron.schedule(cronSchedule, async () => {
+      console.log(`\n🕐 Auto-completion cron triggered at ${new Date().toLocaleString()}`);
+      await autoCompletionService.runAutoCompletion();
+    });
+    
+    console.log(`✅ Auto-completion cron job scheduled at ${endTime} daily (${cronSchedule})`);
+  } catch (error) {
+    console.error('❌ Error initializing auto-completion service:', error);
+    console.error('Note: Run "npm install node-cron" if module not found');
   }
 })
 .catch(err => console.error('MongoDB connection error:', err));
@@ -349,6 +376,7 @@ app.use('/api/timemachine', timeMachineRoutes); // NEW: Time Machine API (Admin 
 app.use('/api/salary', salaryRoutes); // Salary calculation routes
 app.use('/api/settings', settingsRoutes); // Settings routes
 app.use('/api/overtime', overtimeRoutes); // Overtime request routes
+app.use('/api/terminated-employees', terminatedEmployeeRoutes); // Terminated employees routes
 // Chat routes with mock user for testing
 app.use((req, res, next) => {
   if (req.path.startsWith('/api/chat')) {
@@ -910,17 +938,30 @@ app.post('/api/debug/fix-salary/:employeeId', async (req, res) => {
 app.get('/api/debug/employees', async (req, res) => {
   try {
     const Employee = require('./models/Employee');
+    const User = require('./models/User');
+    
     // Include baseSalary in the select to ensure it's returned
-    const employees = await Employee.find({}, 'name employeeId fingerprintId fingerprintEnrolled position department email phone status contractType salary baseSalary profileCompleted');
-    console.log('All employees:', employees.map(emp => ({ 
+    const employees = await Employee.find({}, 'name employeeId fingerprintId fingerprintEnrolled position department email phone status contractType salary baseSalary profileCompleted').lean();
+    
+    // Lookup user roles for each employee
+    const employeesWithRole = await Promise.all(employees.map(async (emp) => {
+      const user = await User.findOne({ employee: emp._id }, 'role').lean();
+      return {
+        ...emp,
+        userRole: user?.role || 'employee'
+      };
+    }));
+    
+    console.log('All employees:', employeesWithRole.map(emp => ({ 
       name: emp.name, 
       employeeId: emp.employeeId, 
       salary: emp.salary, 
-      baseSalary: emp.baseSalary 
+      baseSalary: emp.baseSalary,
+      userRole: emp.userRole
     })));
     res.json({
       success: true,
-      data: employees
+      data: employeesWithRole
     });
   } catch (error) {
     console.error('Error fetching employees:', error);

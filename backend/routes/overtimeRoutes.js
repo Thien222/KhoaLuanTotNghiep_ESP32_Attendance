@@ -7,6 +7,7 @@ const { protect, restrictTo } = require('../middleware/authMiddleware');
 router.post('/request', protect, overtimeController.createOTRequest);
 router.get('/my-requests', protect, overtimeController.getMyOTRequests);
 router.delete('/request/:id', protect, overtimeController.cancelOTRequest);
+router.get('/preview/:date', protect, overtimeController.previewOTTimeframe); // NEW: Preview OT timeframe from shift
 
 // Admin routes
 router.get('/pending', protect, restrictTo('manager'), overtimeController.getPendingOTRequests);

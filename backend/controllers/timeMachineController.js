@@ -5,6 +5,7 @@
  */
 
 const { getSystemTime, setVirtualTime, resetTime, isTimeMachineActive } = require('../utils/timeMachine');
+const attendanceHelper = require('../utils/attendanceHelper');
 const moment = require('moment-timezone');
 
 moment.tz.setDefault('Asia/Ho_Chi_Minh');
@@ -225,18 +226,96 @@ exports.jumpToScenario = async (req, res) => {
       });
     }
 
+    // Lấy settings để tính toán các scenario động
+    const allSettings = await attendanceHelper.getAllSettings();
+    const workingHours = attendanceHelper.getWorkingHours(allSettings);
+    const checkinGateTimes = attendanceHelper.getCheckinGateTimes(allSettings);
+    const checkoutGateTimes = attendanceHelper.getCheckoutGateTimes(allSettings);
+    const otTimes = attendanceHelper.getOTTimes(allSettings);
+    
+    // Parse các giờ từ settings
+    const [workStartHour, workStartMin] = workingHours.startTime.split(':').map(Number);
+    const [workEndHour, workEndMin] = workingHours.endTime.split(':').map(Number);
+    const [checkinOpenHour, checkinOpenMin] = checkinGateTimes.gateOpen.split(':').map(Number);
+    const [checkinCloseHour, checkinCloseMin] = checkinGateTimes.gateClose.split(':').map(Number);
+    const [checkoutOpenHour, checkoutOpenMin] = checkoutGateTimes.gateOpen.split(':').map(Number);
+    const [otStartHour, otStartMin] = otTimes.otStart.split(':').map(Number);
+    const [otMinThresholdHour, otMinThresholdMin] = otTimes.otMinThreshold.split(':').map(Number);
+    
+    // Tính toán các scenario dựa trên settings
+    // on-time: 10 phút trước giờ mở cổng check-in
+    const onTimeMoment = moment().hour(checkinOpenHour).minute(checkinOpenMin).subtract(10, 'minutes');
+    // grace-period: 2 phút sau giờ đóng cổng check-in
+    const gracePeriodMoment = moment().hour(checkinCloseHour).minute(checkinCloseMin).add(2, 'minutes');
+    // late-15min: 15 phút sau giờ đóng cổng check-in
+    const late15MinMoment = moment().hour(checkinCloseHour).minute(checkinCloseMin).add(15, 'minutes');
+    // late-1h: 1 giờ sau giờ đóng cổng check-in
+    const late1hMoment = moment().hour(checkinCloseHour).minute(checkinCloseMin).add(1, 'hour');
+    // late-2h: 2 giờ sau giờ đóng cổng check-in
+    const late2hMoment = moment().hour(checkinCloseHour).minute(checkinCloseMin).add(2, 'hours');
+    // checkout-ontime: giờ kết thúc làm việc
+    const checkoutOnTimeMoment = moment().hour(workEndHour).minute(workEndMin);
+    // checkout-early: 1 giờ trước giờ mở cổng check-out
+    const checkoutEarlyMoment = moment().hour(checkoutOpenHour).minute(checkoutOpenMin).subtract(1, 'hour');
+    // checkout-no-ot: 30 phút sau giờ bắt đầu OT (nhưng trước threshold)
+    const checkoutNoOTMoment = moment().hour(otStartHour).minute(otStartMin).add(30, 'minutes');
+    // checkout-ot-1h: 1 giờ sau threshold OT
+    const checkoutOT1hMoment = moment().hour(otMinThresholdHour).minute(otMinThresholdMin).add(1, 'hour');
+    // checkout-ot-3h: 3 giờ sau threshold OT
+    const checkoutOT3hMoment = moment().hour(otMinThresholdHour).minute(otMinThresholdMin).add(3, 'hours');
+
     const { scenario } = req.body;
     const scenarios = {
-      'on-time': { hour: 7, minute: 50, description: 'Đúng giờ (7h50)' },
-      'grace-period': { hour: 8, minute: 2, description: 'Trong grace period (8h02)' },
-      'late-15min': { hour: 8, minute: 20, description: 'Muộn 15 phút (8h20)' },
-      'late-1h': { hour: 9, minute: 0, description: 'Muộn 1 giờ (9h00)' },
-      'late-2h': { hour: 10, minute: 5, description: 'Muộn >= 2h (10h05)' },
-      'checkout-ontime': { hour: 17, minute: 0, description: 'Checkout đúng giờ (17h00)' },
-      'checkout-early': { hour: 16, minute: 0, description: 'Về sớm (16h00)' },
-      'checkout-no-ot': { hour: 18, minute: 30, description: 'Checkout 18h30 (không OT)' },
-      'checkout-ot-1h': { hour: 20, minute: 0, description: 'Checkout 20h (OT 1h)' },
-      'checkout-ot-3h': { hour: 22, minute: 0, description: 'Checkout 22h (OT 3h)' }
+      'on-time': { 
+        hour: onTimeMoment.hour(), 
+        minute: onTimeMoment.minute(), 
+        description: `Đúng giờ (${onTimeMoment.format('HH:mm')})` 
+      },
+      'grace-period': { 
+        hour: gracePeriodMoment.hour(), 
+        minute: gracePeriodMoment.minute(), 
+        description: `Trong grace period (${gracePeriodMoment.format('HH:mm')})` 
+      },
+      'late-15min': { 
+        hour: late15MinMoment.hour(), 
+        minute: late15MinMoment.minute(), 
+        description: `Muộn 15 phút (${late15MinMoment.format('HH:mm')})` 
+      },
+      'late-1h': { 
+        hour: late1hMoment.hour(), 
+        minute: late1hMoment.minute(), 
+        description: `Muộn 1 giờ (${late1hMoment.format('HH:mm')})` 
+      },
+      'late-2h': { 
+        hour: late2hMoment.hour(), 
+        minute: late2hMoment.minute(), 
+        description: `Muộn >= 2h (${late2hMoment.format('HH:mm')})` 
+      },
+      'checkout-ontime': { 
+        hour: checkoutOnTimeMoment.hour(), 
+        minute: checkoutOnTimeMoment.minute(), 
+        description: `Checkout đúng giờ (${checkoutOnTimeMoment.format('HH:mm')})` 
+      },
+      'checkout-early': { 
+        hour: checkoutEarlyMoment.hour(), 
+        minute: checkoutEarlyMoment.minute(), 
+        description: `Về sớm (${checkoutEarlyMoment.format('HH:mm')})` 
+      },
+      'checkout-no-ot': { 
+        hour: checkoutNoOTMoment.hour(), 
+        minute: checkoutNoOTMoment.minute(), 
+        description: `Checkout ${checkoutNoOTMoment.format('HH:mm')} (không OT)` 
+      },
+      'checkout-ot-1h': { 
+        hour: checkoutOT1hMoment.hour(), 
+        minute: checkoutOT1hMoment.minute(), 
+        description: `Checkout ${checkoutOT1hMoment.format('HH:mm')} (OT 1h)` 
+      },
+      'checkout-ot-3h': { 
+        hour: checkoutOT3hMoment.hour(), 
+        minute: checkoutOT3hMoment.minute(), 
+        description: `Checkout ${checkoutOT3hMoment.format('HH:mm')} (OT 3h)` 
+      }
     };
 
     if (!scenarios[scenario]) {

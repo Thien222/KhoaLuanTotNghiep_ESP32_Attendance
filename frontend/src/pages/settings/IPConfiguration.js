@@ -398,26 +398,6 @@ const IPConfiguration = () => {
           </Row>
         </Card>
 
-        {/* Instructions */}
-        <Card size="small" title="📖 Hướng dẫn" style={{ marginTop: 24 }}>
-          <ol>
-            <li>
-              <strong>Khi ở nhà:</strong> Sử dụng preset "Nhà" hoặc nhập IP: 172.20.10.7 (Server) và 172.20.10.8 (ESP32)
-            </li>
-            <li>
-              <strong>Khi ở quán cà phê:</strong>
-              <ul>
-                <li>Kiểm tra IP của laptop: <code>ipconfig</code> (Windows) hoặc <code>ifconfig</code> (Mac/Linux)</li>
-                <li>Nhập IP server mới (thường cùng subnet với IP laptop)</li>
-                <li>Nhập IP ESP32 mới (nếu ESP32 đang kết nối cùng mạng)</li>
-                <li>Click "Lưu cấu hình" và refresh trang</li>
-              </ul>
-            </li>
-            <li>
-              <strong>Lưu ý:</strong> ESP32 phải kết nối cùng mạng WiFi với laptop để có thể giao tiếp
-            </li>
-          </ol>
-        </Card>
       </Card>
     </div>
   );

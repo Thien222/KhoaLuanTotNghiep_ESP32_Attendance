@@ -1,7 +1,8 @@
 /**
  * ATTENDANCE HELPER - Strict Timeline Logic
- * Khung giờ làm việc: 08:00 - 17:00
- * Check-in: 07:00 - 08:15 hợp lệ, > 08:15 phạt 20k/15 phút
+ * Khung giờ làm việc: 08:00 - 17:00 (configurable)
+ * Check-in: Trước startTime hợp lệ, >= startTime trễ ngay (KHÔNG CÓ GRACE PERIOD)
+ * Phạt: Mỗi 15 phút trễ = 20k (configurable)
  * Check-out: < 16:45 về sớm (20k/15 phút), 16:45 - 18:00 hợp lệ
  * OT: 18:00 - 24:00, cần đơn duyệt, >= 19:00 tính 100k/h
  */
@@ -15,23 +16,131 @@ const moment = require('moment-timezone');
 moment.tz.setDefault('Asia/Ho_Chi_Minh');
 
 // =====================
-// CONSTANTS (DEFAULTS - Sẽ được override bởi Settings)
+// DEFAULT CONSTANTS (Fallback khi không có Settings)
 // =====================
-const WORK_START = '08:00';
-const WORK_END = '17:00';
-const CHECKIN_GATE_OPEN = '07:00';
-const CHECKIN_GATE_CLOSE = '08:15';  // Sau 08:15 bắt đầu tính trễ
-const CHECKOUT_GATE_OPEN = '16:45';  // Trước 16:45 = về sớm
-const CHECKOUT_GATE_CLOSE = '18:00'; // Hết giờ checkout thường
-const OT_START = '18:00';
-const OT_END = '24:00';
-const OT_MIN_THRESHOLD = '19:00';    // Phải checkout >= 19:00 mới tính OT
+const DEFAULT_WORK_START = '08:00';
+const DEFAULT_WORK_END = '17:00';
+const DEFAULT_CHECKIN_GATE_OPEN = '07:00';
+// REMOVED: DEFAULT_CHECKIN_GATE_CLOSE - Không có grace period, gateClose = startTime
+const DEFAULT_CHECKOUT_GATE_OPEN = '16:45';  // Trước 16:45 = về sớm
+const DEFAULT_CHECKOUT_GATE_CLOSE = '18:00'; // Hết giờ checkout thường
+const DEFAULT_OT_START = '18:00';
+const DEFAULT_OT_END = '24:00';
+const DEFAULT_OT_MIN_THRESHOLD = '19:00';    // Phải checkout >= 19:00 mới tính OT
 
 // DEFAULT VALUES (sẽ được override bởi Settings từ database)
 const DEFAULT_PENALTY_PER_15MIN = 20000;     // 20k mỗi 15 phút
 const DEFAULT_PENALTY_INTERVAL = 15;         // Mỗi 15 phút
 const DEFAULT_LOST_WORKDAY_THRESHOLD = 120;  // 2 tiếng = mất ngày công
+const LOST_WORKDAY_THRESHOLD = DEFAULT_LOST_WORKDAY_THRESHOLD; // Alias for backward compatibility
 const DEFAULT_OT_RATE_PER_HOUR = 100000;     // 100k/1 giờ OT
+
+// =====================
+// SETTINGS HELPER FUNCTIONS (Lấy giá trị từ Settings với fallback)
+// =====================
+
+/**
+ * Get working hours (HARDCODED to 08:00-17:00)
+ * @param {Object} settings - All settings object (ignored - hardcoded)
+ * @returns {Object} { startTime, endTime }
+ */
+const getWorkingHours = (settings = {}) => {
+  // HARDCODED: Giờ làm việc cố định 08:00-17:00
+  return {
+    startTime: DEFAULT_WORK_START, // 08:00
+    endTime: DEFAULT_WORK_END       // 17:00
+  };
+};
+
+/**
+ * Get check-in gate times from settings
+ * @param {Object} settings - All settings object
+ * @returns {Object} { gateOpen, gateClose }
+ */
+const getCheckinGateTimes = (settings = {}) => {
+  // HARDCODED: Giờ làm việc cố định 08:00-17:00
+  // HARDCODED: Cổng mở từ 07:00 (1 giờ trước 08:00), không phụ thuộc vào bufferMinutes
+  const workStart = DEFAULT_WORK_START; // Hardcoded 08:00
+  const [startHour, startMin] = workStart.split(':').map(Number);
+  const startMoment = moment().hour(startHour).minute(startMin);
+  
+  // HARDCODED: gateOpen luôn là 07:00 (1 giờ trước 08:00)
+  const gateOpenMoment = moment().hour(7).minute(0);
+  
+  // BỎ GRACE PERIOD: gateClose = startTime (không cộng thêm)
+  const gateCloseMoment = startMoment; // Không có grace period, trễ ngay từ phút đầu
+  
+  return {
+    gateOpen: gateOpenMoment.format('HH:mm'), // Luôn là 07:00
+    gateClose: gateCloseMoment.format('HH:mm') // = startTime (08:00)
+  };
+};
+
+/**
+ * Get check-out gate times from settings
+ * @param {Object} settings - All settings object
+ * @returns {Object} { gateOpen, gateClose }
+ */
+const getCheckoutGateTimes = (settings = {}) => {
+  // HARDCODED: Giờ làm việc cố định 08:00-17:00
+  const workEnd = DEFAULT_WORK_END; // Hardcoded 17:00
+  
+  const [endHour, endMin] = workEnd.split(':').map(Number);
+  const endMoment = moment().hour(endHour).minute(endMin);
+  const gateOpenMoment = endMoment.clone().subtract(15, 'minutes'); // Default 15 min before
+  const gateCloseMoment = endMoment.clone().add(60, 'minutes'); // Default 1 hour after
+  
+  return {
+    gateOpen: gateOpenMoment.format('HH:mm'),
+    gateClose: gateCloseMoment.format('HH:mm')
+  };
+};
+
+/**
+ * Get OT times from settings
+ * @param {Object} settings - All settings object
+ * @returns {Object} { otStart, otEnd, otMinThreshold }
+ */
+const getOTTimes = (settings = {}) => {
+  const workingHours = settings['working-hours'] || {};
+  const otRate = settings['ot-rate'] || {};
+  const overtime = settings['overtime'] || {};
+  
+  const workEnd = workingHours.endTime || DEFAULT_WORK_END;
+  const [endHour, endMin] = workEnd.split(':').map(Number);
+  const endMoment = moment().hour(endHour).minute(endMin);
+  
+  return {
+    otStart: endMoment.format('HH:mm'), // OT bắt đầu từ giờ kết thúc làm việc
+    otEnd: overtime.maxTime || DEFAULT_OT_END,
+    otMinThreshold: otRate.startTime || DEFAULT_OT_MIN_THRESHOLD
+  };
+};
+
+/**
+ * Get late policy from settings
+ * @param {Object} settings - All settings object
+ * @returns {Object} { penaltyRate, penaltyInterval, lostWorkDayThreshold }
+ */
+const getLatePolicy = (settings = {}) => {
+  const latePolicy = settings['late-policy'] || {};
+  return {
+    penaltyRate: latePolicy.penaltyRate || DEFAULT_PENALTY_PER_15MIN,
+    penaltyInterval: latePolicy.penaltyInterval || DEFAULT_PENALTY_INTERVAL,
+    lostWorkDayThreshold: latePolicy.lateThreshold2Hours || DEFAULT_LOST_WORKDAY_THRESHOLD
+  };
+};
+
+/**
+ * Get OT rate from settings
+ * @param {Object} settings - All settings object
+ * @returns {Number} OT rate per hour
+ */
+const getOTRate = (settings = {}) => {
+  const otRate = settings['ot-rate'] || {};
+  const overtime = settings['overtime'] || {};
+  return otRate.ratePerHour || overtime.otRate || DEFAULT_OT_RATE_PER_HOUR;
+};
 
 /**
  * Parse time string to minutes from midnight
@@ -51,28 +160,35 @@ const dateToMinutes = (date) => {
 
 /**
  * Validate Check-in time
+ * @param {Date} checkInTime - Check-in time
+ * @param {Object} settings - All settings object (optional)
  * @returns {Object} { valid: Boolean, message: String, blocked: Boolean }
  */
-const validateCheckinTime = (checkInTime) => {
+const validateCheckinTime = (checkInTime, settings = {}) => {
   const m = moment(checkInTime);
   const hour = m.hours();
   const mins = dateToMinutes(checkInTime);
   
-  const gateOpen = timeToMinutes(CHECKIN_GATE_OPEN);   // 07:00 = 420
-  const gateClose = timeToMinutes(CHECKIN_GATE_CLOSE); // 08:15 = 495
+  const gateTimes = getCheckinGateTimes(settings);
+  const gateOpen = timeToMinutes(gateTimes.gateOpen);
+  const gateClose = timeToMinutes(gateTimes.gateClose);
   
-  // Block: < 07:00 hoặc >= 24:00 (0:00-6:59)
-  if (hour < 7) {
+  // Block: Before gate open time (configurable, default 07:00)
+  if (mins < gateOpen) {
     return { 
       valid: false, 
       blocked: true, 
       message: 'Chưa đến giờ chấm công',
-      subMessage: 'Cổng mở từ 07:00'
+      subMessage: `Cổng mở từ ${gateTimes.gateOpen}`
     };
   }
   
-  // Hợp lệ: 07:00 - 08:15
-  if (mins >= gateOpen && mins <= gateClose) {
+  // Hợp lệ: gateOpen đến startTime (KHÔNG CÓ GRACE PERIOD)
+  // HARDCODED: Giờ làm việc cố định 08:00
+  const workStart = DEFAULT_WORK_START; // Hardcoded 08:00
+  const startTimeMins = timeToMinutes(workStart);
+  
+  if (mins >= gateOpen && mins <= startTimeMins) {
     return { 
       valid: true, 
       blocked: false, 
@@ -82,9 +198,21 @@ const validateCheckinTime = (checkInTime) => {
     };
   }
   
-  // Trễ: > 08:15
-  if (mins > gateClose) {
-    const lateMinutes = mins - gateClose;
+  // Trễ: > startTime (KHÔNG CÓ GRACE PERIOD - TRỄ NGAY TỪ PHÚT ĐẦU)
+  if (mins > startTimeMins) {
+    const lateMinutes = mins - startTimeMins; // Tính từ startTime, không phải gateClose
+    
+    // Debug log
+    console.log('🔍 [VALIDATE CHECK-IN] Late calculation:', {
+      checkInTime: m.format('HH:mm'),
+      startTime: workStart,
+      startTimeMins,
+      checkInMins: mins,
+      lateMinutes,
+      gateClose: gateTimes.gateClose,
+      gateCloseMins: gateClose
+    });
+    
     return { 
       valid: true, 
       blocked: false, 
@@ -101,18 +229,22 @@ const validateCheckinTime = (checkInTime) => {
  * Validate Check-out time
  * @param {Date} checkOutTime - Check-out time
  * @param {Boolean} hasApprovedOT - Whether employee has approved OT
- * @param {Object} otSettings - OT settings config (optional, for message display)
+ * @param {Object} settings - All settings object (optional)
  * @returns {Object} { valid: Boolean, message: String, earlyMinutes: Number, isOTTime: Boolean }
  */
-const validateCheckoutTime = (checkOutTime, hasApprovedOT = false, otSettings = {}) => {
+const validateCheckoutTime = (checkOutTime, hasApprovedOT = false, settings = {}) => {
   const m = moment(checkOutTime);
   const hour = m.hours();
   const mins = dateToMinutes(checkOutTime);
   
-  const checkoutOpen = timeToMinutes(CHECKOUT_GATE_OPEN);  // 16:45 = 1005
-  const checkoutClose = timeToMinutes(CHECKOUT_GATE_CLOSE); // 18:00 = 1080
-  const otStart = timeToMinutes(OT_START);                 // 18:00 = 1080
-  const otMinThreshold = timeToMinutes(OT_MIN_THRESHOLD);  // 19:00 = 1140
+  const checkoutTimes = getCheckoutGateTimes(settings);
+  const otTimes = getOTTimes(settings);
+  const otSettings = settings['ot-rate'] || settings['overtime'] || {};
+  
+  const checkoutOpen = timeToMinutes(checkoutTimes.gateOpen);
+  const checkoutClose = timeToMinutes(checkoutTimes.gateClose);
+  const otStart = timeToMinutes(otTimes.otStart);
+  const otMinThreshold = timeToMinutes(otTimes.otMinThreshold);
   
   // Block: 0:00 - 6:59 sáng
   if (hour >= 0 && hour < 7) {
@@ -180,7 +312,7 @@ const validateCheckoutTime = (checkOutTime, hasApprovedOT = false, otSettings = 
     const otHours = Math.floor(otMinutes / 60); // Bước nhảy 1 giờ
     
     // Lấy OT rate từ settings để hiển thị message
-    const otRatePerHour = otSettings.ratePerHour || otSettings.otRate || DEFAULT_OT_RATE_PER_HOUR;
+    const otRatePerHour = getOTRate(settings);
     const otSalary = otHours * otRatePerHour;
     
     return { 
@@ -199,7 +331,7 @@ const validateCheckoutTime = (checkOutTime, hasApprovedOT = false, otSettings = 
 
 /**
  * Calculate late penalty
- * @param {Number} lateMinutes - Minutes late after 08:15
+ * @param {Number} lateMinutes - Minutes late after startTime (KHÔNG CÓ GRACE PERIOD)
  * @param {Object} latePolicy - Late policy config from Settings (optional)
  * @param {Number} dailyRate - Daily salary for lost workday calculation
  * @returns {Object} { penalty: Number, lostWorkDay: Boolean, message: String }
@@ -213,6 +345,17 @@ const calculateLatePenalty = (lateMinutes, latePolicy = {}, dailyRate = 0) => {
   const penaltyRate = latePolicy.penaltyRate || DEFAULT_PENALTY_PER_15MIN;
   const penaltyInterval = latePolicy.penaltyInterval || DEFAULT_PENALTY_INTERVAL;
   const lostWorkDayThreshold = latePolicy.lateThreshold2Hours || DEFAULT_LOST_WORKDAY_THRESHOLD;
+  
+  // Debug log để kiểm tra Settings
+  if (lateMinutes > 0) {
+    console.log('🔍 [PENALTY CALC]', {
+      lateMinutes,
+      latePolicy,
+      penaltyRate,
+      penaltyInterval,
+      usingDefault: !latePolicy.penaltyRate
+    });
+  }
   
   // Mất ngày công nếu trễ >= threshold (mặc định 2 tiếng)
   if (lateMinutes >= lostWorkDayThreshold) {
@@ -239,16 +382,16 @@ const calculateLatePenalty = (lateMinutes, latePolicy = {}, dailyRate = 0) => {
 /**
  * Calculate early checkout penalty
  * @param {Date} checkOutTime - Check-out time
- * @param {String} workEndTime - Work end time (default: '16:45')
- * @param {Number} graceMinutes - Grace period (default: 0)
  * @param {Number} dailyRate - Daily salary for lost workday calculation
- * @param {Object} latePolicy - Late policy config from Settings (optional, dùng chung với late penalty)
+ * @param {Object} settings - All settings object (optional)
  * @returns {Object} { penalty: Number, lostWorkDay: Boolean, message: String }
  */
-const calculateEarlyPenalty = (checkOutTime, workEndTime = '16:45', graceMinutes = 0, dailyRate = 0, latePolicy = {}) => {
+const calculateEarlyPenalty = (checkOutTime, dailyRate = 0, settings = {}) => {
   const m = moment(checkOutTime);
   const mins = dateToMinutes(checkOutTime);
-  const checkoutOpen = timeToMinutes(CHECKOUT_GATE_OPEN); // 16:45
+  const checkoutTimes = getCheckoutGateTimes(settings);
+  const latePolicy = getLatePolicy(settings);
+  const checkoutOpen = timeToMinutes(checkoutTimes.gateOpen);
   
   // Không về sớm
   if (mins >= checkoutOpen) {
@@ -257,10 +400,10 @@ const calculateEarlyPenalty = (checkOutTime, workEndTime = '16:45', graceMinutes
   
   const earlyMinutes = checkoutOpen - mins;
   
-  // Lấy giá trị từ Settings (nếu có), nếu không dùng default
-  const penaltyRate = latePolicy.penaltyRate || DEFAULT_PENALTY_PER_15MIN;
-  const penaltyInterval = latePolicy.penaltyInterval || DEFAULT_PENALTY_INTERVAL;
-  const lostWorkDayThreshold = latePolicy.lateThreshold2Hours || DEFAULT_LOST_WORKDAY_THRESHOLD;
+  // Lấy giá trị từ Settings (đã được xử lý trong getLatePolicy)
+  const penaltyRate = latePolicy.penaltyRate;
+  const penaltyInterval = latePolicy.penaltyInterval;
+  const lostWorkDayThreshold = latePolicy.lostWorkDayThreshold;
   
   // Mất ngày công nếu về sớm >= threshold (mặc định 2 tiếng)
   if (earlyMinutes >= lostWorkDayThreshold) {
@@ -287,14 +430,34 @@ const calculateEarlyPenalty = (checkOutTime, workEndTime = '16:45', graceMinutes
 
 /**
  * Calculate late minutes (simple version for backwards compatibility)
+ * @param {Date} checkInTime - Check-in time
+ * @param {String} workStartTime - Work start time (optional, deprecated - use settings)
+ * @param {Number} graceMinutes - Grace minutes (optional, deprecated - use settings)
+ * @param {Object} settings - All settings object (optional)
  */
-const calculateLateMinutes = (checkInTime, workStartTime = '08:15', graceMinutes = 0) => {
+const calculateLateMinutes = (checkInTime, workStartTime = null, graceMinutes = 0, settings = {}) => {
   const checkIn = moment(checkInTime);
   const mins = dateToMinutes(checkInTime);
-  const gateClose = timeToMinutes(CHECKIN_GATE_CLOSE); // 08:15
   
-  if (mins > gateClose) {
-    return mins - gateClose;
+  // HARDCODED: Giờ làm việc cố định 08:00 (KHÔNG CÓ GRACE PERIOD)
+  const workStart = workStartTime || DEFAULT_WORK_START; // Hardcoded 08:00 if not provided
+  const startTimeMins = timeToMinutes(workStart);
+  
+  // Tính trễ từ startTime (không có grace period)
+  if (mins > startTimeMins) {
+    const lateMinutes = mins - startTimeMins;
+    
+    // Debug log
+    console.log('🔍 [CALCULATE LATE MINUTES]', {
+      checkInTime: checkIn.format('HH:mm'),
+      workStart,
+      startTimeMins,
+      checkInMins: mins,
+      lateMinutes,
+      graceMinutes: 'IGNORED (no grace period)'
+    });
+    
+    return lateMinutes;
   }
   
   return 0;
@@ -302,14 +465,19 @@ const calculateLateMinutes = (checkInTime, workStartTime = '08:15', graceMinutes
 
 /**
  * Calculate overtime hours
- * Only counts full hours after 19:00 (step of 1 hour)
+ * Only counts full hours after threshold (step of 1 hour)
+ * @param {Date} checkInTime - Check-in time
+ * @param {Date} checkOutTime - Check-out time
+ * @param {Number} standardWorkHours - Standard work hours (optional)
+ * @param {Object} settings - All settings object (optional)
  */
-const calculateOvertimeHours = (checkInTime, checkOutTime, standardWorkHours = 8) => {
+const calculateOvertimeHours = (checkInTime, checkOutTime, standardWorkHours = 8, settings = {}) => {
   if (!checkInTime || !checkOutTime) return 0;
   
   const outMins = dateToMinutes(checkOutTime);
-  const otMinThreshold = timeToMinutes(OT_MIN_THRESHOLD); // 19:00
-  const otStart = timeToMinutes(OT_START); // 18:00
+  const otTimes = getOTTimes(settings);
+  const otMinThreshold = timeToMinutes(otTimes.otMinThreshold);
+  const otStart = timeToMinutes(otTimes.otStart);
   
   // Nếu checkout trước 19:00, không tính OT
   if (outMins < otMinThreshold) return 0;
@@ -509,20 +677,33 @@ const hasOvertimeShiftForDate = async (employeeId, date) => {
 };
 
 /**
+ * Convert Vietnamese text to ASCII (no accent) for ESP32 OLED display
+ * Giữ nguyên chữ hoa/thường, chỉ bỏ dấu
+ */
+const removeVietnameseAccents = (str = '') => {
+  if (!str) return '';
+  return String(str)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '') // Remove diacritics
+    .replace(/đ/g, 'd')
+    .replace(/Đ/g, 'D');
+};
+
+/**
  * Build ESP32 response message
  */
 const buildESP32Response = (employeeName, action, details = {}) => {
   const name = employeeName.split(' ').pop(); // Lấy tên cuối
   
   if (action === 'checkin') {
-    const message = `Xin chao ${name}`;
+    const message = removeVietnameseAccents(`Xin chao ${name}`);
     let subMessage = 'Dung gio';
     
     if (details.lateMinutes > 0) {
       if (details.lostWorkDay) {
-        subMessage = `Tre ${details.lateMinutes}p - Mat cong`;
+        subMessage = removeVietnameseAccents(`Tre ${details.lateMinutes}p - Mat cong`);
       } else {
-        subMessage = `Tre ${details.lateMinutes}p - Phat ${details.penalty / 1000}k`;
+        subMessage = removeVietnameseAccents(`Tre ${details.lateMinutes}p - Phat ${details.penalty / 1000}k`);
       }
     }
     
@@ -530,14 +711,14 @@ const buildESP32Response = (employeeName, action, details = {}) => {
   }
   
   if (action === 'checkout') {
-    const message = `Tam biet ${name}`;
+    const message = removeVietnameseAccents(`Tam biet ${name}`);
     let subMessage = 'Hen gap lai';
     
     if (details.earlyMinutes > 0) {
       if (details.lostWorkDay) {
-        subMessage = `Som ${details.earlyMinutes}p - Mat cong`;
+        subMessage = removeVietnameseAccents(`Som ${details.earlyMinutes}p - Mat cong`);
       } else {
-        subMessage = `Som ${details.earlyMinutes}p - Phat ${details.penalty / 1000}k`;
+        subMessage = removeVietnameseAccents(`Som ${details.earlyMinutes}p - Phat ${details.penalty / 1000}k`);
       }
     } else if (details.otHours > 0) {
       subMessage = `OT: ${details.otHours}h - +${details.otSalary / 1000}k`;
@@ -546,27 +727,35 @@ const buildESP32Response = (employeeName, action, details = {}) => {
     return { message, sub_message: subMessage };
   }
   
-  return { message: `Xin chao ${name}`, sub_message: '' };
+  return { message: removeVietnameseAccents(`Xin chao ${name}`), sub_message: '' };
 };
 
 // Export all functions
 module.exports = {
-  // Constants
-  WORK_START,
-  WORK_END,
-  CHECKIN_GATE_OPEN,
-  CHECKIN_GATE_CLOSE,
-  CHECKOUT_GATE_OPEN,
-  CHECKOUT_GATE_CLOSE,
-  OT_START,
-  OT_END,
-  OT_MIN_THRESHOLD,
-  // DEPRECATED: Use settings from database instead
-  // PENALTY_PER_15MIN,
-  // OT_RATE_PER_HOUR,
+  // Helper for ESP32
+  removeVietnameseAccents,
+  // Constants (DEPRECATED: Use getWorkingHours, getCheckinGateTimes, etc. with settings instead)
+  // Kept for backward compatibility
+  WORK_START: DEFAULT_WORK_START,
+  WORK_END: DEFAULT_WORK_END,
+  CHECKIN_GATE_OPEN: DEFAULT_CHECKIN_GATE_OPEN,
+  // REMOVED: CHECKIN_GATE_CLOSE - Không có grace period
+  CHECKOUT_GATE_OPEN: DEFAULT_CHECKOUT_GATE_OPEN,
+  CHECKOUT_GATE_CLOSE: DEFAULT_CHECKOUT_GATE_CLOSE,
+  OT_START: DEFAULT_OT_START,
+  OT_END: DEFAULT_OT_END,
+  OT_MIN_THRESHOLD: DEFAULT_OT_MIN_THRESHOLD,
   DEFAULT_PENALTY_PER_15MIN,
   DEFAULT_OT_RATE_PER_HOUR,
   LOST_WORKDAY_THRESHOLD,
+  
+  // Settings Helper Functions (NEW - Use these with settings from getAllSettings)
+  getWorkingHours,
+  getCheckinGateTimes,
+  getCheckoutGateTimes,
+  getOTTimes,
+  getLatePolicy,
+  getOTRate,
   
   // Validators
   validateCheckinTime,

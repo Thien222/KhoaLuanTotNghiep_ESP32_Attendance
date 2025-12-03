@@ -82,3 +82,6 @@ module.exports = mongoose.model('SalaryConfig', salaryConfigSchema);
 
 
 
+
+
+

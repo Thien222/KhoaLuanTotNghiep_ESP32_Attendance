@@ -16,7 +16,7 @@ export default function ApplyLeaveScreen({ navigation }) {
   const [startDate, setStartDate] = useState(moment().format('YYYY-MM-DD'));
   const [endDate, setEndDate] = useState(moment().format('YYYY-MM-DD'));
   const [reason, setReason] = useState('');
-  const [type, setType] = useState('sick');
+  const [leaveType, setLeaveType] = useState('annual'); // Đồng nhất với web
   const [loading, setLoading] = useState(false);
 
   const calculateDays = () => {
@@ -53,11 +53,11 @@ export default function ApplyLeaveScreen({ navigation }) {
 
     setLoading(true);
     try {
+      // Đồng nhất payload với web: dùng leaveType, bỏ days (backend tự tính)
       const response = await leaveAPI.applyLeave({
+        leaveType: leaveType, // Đồng nhất với web
         startDate: startDate,
         endDate: endDate,
-        days: calculateDays(),
-        type,
         reason: reason.trim(),
       });
 
@@ -75,10 +75,12 @@ export default function ApplyLeaveScreen({ navigation }) {
     }
   };
 
+  // Đồng nhất loại nghỉ phép với web và backend model
   const leaveTypes = [
+    { value: 'annual', label: 'Nghỉ phép năm' },
     { value: 'sick', label: 'Nghỉ ốm' },
-    { value: 'personal', label: 'Nghỉ phép cá nhân' },
-    { value: 'vacation', label: 'Nghỉ phép năm' },
+    { value: 'unpaid', label: 'Nghỉ không lương' },
+    { value: 'maternity', label: 'Thai sản' },
     { value: 'other', label: 'Khác' },
   ];
 
@@ -93,14 +95,14 @@ export default function ApplyLeaveScreen({ navigation }) {
                 key={item.value}
                 style={[
                   styles.typeButton,
-                  type === item.value && styles.typeButtonActive,
+                  leaveType === item.value && styles.typeButtonActive,
                 ]}
-                onPress={() => setType(item.value)}
+                onPress={() => setLeaveType(item.value)}
               >
                 <Text
                   style={[
                     styles.typeButtonText,
-                    type === item.value && styles.typeButtonTextActive,
+                    leaveType === item.value && styles.typeButtonTextActive,
                   ]}
                 >
                   {item.label}

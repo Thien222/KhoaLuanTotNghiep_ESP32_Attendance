@@ -10,13 +10,14 @@ const overtimeRequestSchema = new mongoose.Schema({
     type: Date,
     required: true
   },
+  // NEW: Auto-calculated from employee's shift (no longer required from frontend)
   startTime: {
     type: String,
-    required: true // Format: "HH:mm"
+    default: '' // Format: "HH:mm" - Auto-set from shift endTime
   },
   endTime: {
     type: String,
-    required: true // Format: "HH:mm"
+    default: '' // Format: "HH:mm" - Auto-set from system OT end time
   },
   reason: {
     type: String,
@@ -26,6 +27,15 @@ const overtimeRequestSchema = new mongoose.Schema({
   estimatedHours: {
     type: Number,
     default: 0
+  },
+  // NEW: Reference to shift for tracking
+  shift: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Shift'
+  },
+  shiftName: {
+    type: String,
+    default: ''
   },
   status: {
     type: String,

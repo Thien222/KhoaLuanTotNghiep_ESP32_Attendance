@@ -336,55 +336,38 @@ const TimeControl = () => {
   );
 
   return (
-    <div style={{
-      position: 'fixed',
-      top: 80,  // Gần icon thông báo, dưới header
-      right: 24,
-      zIndex: 1000
-    }}>
-      <Popover 
-        content={timeControlContent} 
-        title={null}
-        trigger="click"
-        placement="bottomRight"  // Popover mở xuống dưới thay vì lên trên
+    <Popover 
+      content={timeControlContent} 
+      title={null}
+      trigger="click"
+      placement="bottomRight"
+    >
+      <Button 
+        type="text" 
+        icon={isVirtual ? (
+          <ThunderboltOutlined style={{ color: '#fa8c16' }} />
+        ) : (
+          <ClockCircleOutlined />
+        )}
+        style={{
+          color: isVirtual ? '#d46b08' : undefined,
+          border: isVirtual ? '1px solid #fa8c16' : undefined,
+          background: isVirtual ? '#fff7e6' : undefined
+        }}
       >
-        <Card 
-          size="small" 
-          style={{ 
-            cursor: 'pointer',
-            boxShadow: isVirtual 
-              ? '0 4px 20px rgba(250, 140, 22, 0.4)' 
-              : '0 2px 8px rgba(0,0,0,0.15)',
-            border: isVirtual ? '2px solid #fa8c16' : '1px solid #d9d9d9',
-            background: isVirtual ? '#fff7e6' : '#fff'
-          }}
-          hoverable
-        >
-          <Space>
-            {isVirtual ? (
-              <ThunderboltOutlined style={{ color: '#fa8c16', fontSize: 18 }} />
-            ) : (
-              <ClockCircleOutlined style={{ fontSize: 18 }} />
-            )}
-            <div>
-              <Text strong style={{ 
-                fontSize: 16,
-                color: isVirtual ? '#d46b08' : undefined 
-              }}>
-                {displayTime.format('HH:mm:ss')}
-              </Text>
-              <br />
-              <Text type="secondary" style={{ fontSize: 11 }}>
-                {displayTime.format('DD/MM/YYYY')}
-              </Text>
-            </div>
-            {isVirtual && (
-              <Tag color="orange" style={{ marginLeft: 4 }}>ẢO</Tag>
-            )}
-          </Space>
-        </Card>
-      </Popover>
-    </div>
+        <Space size={4}>
+          <Text strong style={{ 
+            fontSize: 14,
+            color: isVirtual ? '#d46b08' : undefined 
+          }}>
+            {displayTime.format('HH:mm')}
+          </Text>
+          {isVirtual && (
+            <Tag color="orange" style={{ margin: 0, fontSize: 10 }}>ẢO</Tag>
+          )}
+        </Space>
+      </Button>
+    </Popover>
   );
 };
 

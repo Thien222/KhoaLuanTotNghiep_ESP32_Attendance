@@ -14,13 +14,13 @@ async function calculateMonthlySalary(employeeId, year, month) {
   const employee = await Employee.findById(employeeId);
   if (!employee) throw new Error('Không tìm thấy nhân viên');
   
-  // 1. CẬP NHẬT THÂM NIÊN
-  employee.updateSeniority();
-  await employee.save();
+  // // 1. CẬP NHẬT THÂM NIÊN
+  // employee.updateSeniority();
+  // await employee.save();
   
-  // 2. LẤY DỮ LIỆU THÁNG
-  const startDate = moment(`${year}-${String(month).padStart(2, '0')}-01`).startOf('day');
-  const endDate = startDate.clone().endOf('month');
+  // // 2. LẤY DỮ LIỆU THÁNG
+  // const startDate = moment(`${year}-${String(month).padStart(2, '0')}-01`).startOf('day');
+  // const endDate = startDate.clone().endOf('month');
   
   // Lấy TẤT CẢ settings từ database
   const [attendanceSettings, overtimeSettings, latePolicy, salaryStructure, taxConfig, otRateConfig] = await Promise.all([
@@ -32,7 +32,7 @@ async function calculateMonthlySalary(employeeId, year, month) {
     Settings.findOne({ type: 'ot-rate' })
   ]);
   
-  console.log('📊 [SALARY CALC] Settings loaded:', {
+  console.log(' [SALARY CALC] Settings loaded:', {
     allowanceRate: salaryStructure?.config?.generalAllowanceRate || 5,
     taxRate: taxConfig?.config?.taxRate || 10,
     otRatePerHour: otRateConfig?.config?.ratePerHour || overtimeSettings?.config?.otRate || 100000,
@@ -171,19 +171,51 @@ async function calculateMonthlySalary(employeeId, year, month) {
     leaveStats.annualLeaveDays
   );
   
-  // 16. TẠO PAYROLL OBJECT (UPDATED)
+  // 16. TẠO PAYROLL OBJECT (UPDATED - Công thức mới)
+  // =====================================================
+  // CÔNG THỨC MỚI: 
+  // Net Salary = (Base Salary × Actual Working Days / 30) + Allowances + OT Salary - Fines - Tax
+  // =====================================================
+  
+  // Tổng phụ cấp
+  const totalAllowances = generalAllowance + seniorityAllowance + positionAllowance;
+  
+  // Tổng lương OT (bao gồm cả làm lễ, cuối tuần)
+  const totalOTSalary = overtimePay + holidayWorkPay + weekendWorkPay;
+  
+  // Tổng phạt (chỉ tính latePenalty, không trừ ngày nghỉ vì đã tính trong baseSalary)
+  const totalFines = latePenalty;
+  
+  // Tính thuế
+  const taxRate = taxConfig?.config?.taxRate || 10;
+  // Thuế tính trên: (Lương cơ bản + Phụ cấp + OT - Phạt)
+  const taxableIncome = baseSalary + totalAllowances + totalOTSalary - totalFines;
+  const taxAmount = Math.round((taxableIncome * taxRate) / 100);
+  
+  // NET SALARY = (Base × Days/30) + Allowances + OT - Fines - Tax
+  const netSalary = baseSalary + totalAllowances + totalOTSalary - totalFines - taxAmount;
+  
+  console.log(`📊 [SALARY] ${employee.name}:`);
+  console.log(`   Base (${workDaysInMonth} days/30): ${baseSalary.toLocaleString()}đ`);
+  console.log(`   + Allowances: ${totalAllowances.toLocaleString()}đ`);
+  console.log(`   + OT Salary: ${totalOTSalary.toLocaleString()}đ`);
+  console.log(`   - Fines: ${totalFines.toLocaleString()}đ`);
+  console.log(`   - Tax (${taxRate}%): ${taxAmount.toLocaleString()}đ`);
+  console.log(`   = NET: ${netSalary.toLocaleString()}đ`);
+  
   const payroll = {
     employee: employeeId,
     month: `${year}-${String(month).padStart(2, '0')}`,
     
-    // NEW: Lương cơ bản THÁNG (do admin set) - Hiển thị trên bảng lương
+    // Lương cơ bản THÁNG (do admin set)
     basicSalaryFull: baseSalaryFull,
     // Lương tính theo ngày công = LCB × (số ngày / 30)
     baseSalary: baseSalary,
-    // Lương 1 ngày công = LCB / 26
-    dailyRate: Math.round(baseSalaryFull / 26),
+    // Lương 1 ngày công
+    dailyRate: Math.round(baseSalaryFull / 30),
     
-    generalAllowance: generalAllowance, // NEW: Phụ cấp 5%
+    // Phụ cấp
+    generalAllowance: generalAllowance,
     seniorityAllowance: seniorityAllowance,
     positionAllowance: positionAllowance,
     
@@ -195,20 +227,31 @@ async function calculateMonthlySalary(employeeId, year, month) {
     performanceBonus: 0,
     otherAllowances: 0,
     
-    // Thành phần giảm
+    // Thành phần giảm (Fines)
     latePenalty: latePenalty,
-    absentDeduction: absentDeduction,
-    unpaidLeaveDeduction: unpaidLeaveDeduction,
-    halfDayDeduction: halfDayDeduction,
+    // Các khấu trừ nghỉ (hiển thị để tham khảo, nhưng đã tính trong baseSalary prorated)
+    absentDeduction: 0, // Đã tính trong baseSalary = LCB × days/30
+    unpaidLeaveDeduction: 0, // Đã tính trong baseSalary
+    halfDayDeduction: 0, // Đã tính trong baseSalary
     otherDeductions: 0,
     
-    // Chế độ đặc biệt
+    // Chế độ đặc biệt (hiển thị riêng)
     maternityPay: maternityPay,
     sickLeavePay: sickLeavePay,
     annualLeavePay: annualLeavePay,
     
-    // Thông tin
+    // Thuế
+    taxRate: taxRate,
+    taxAmount: taxAmount,
+    
+    // Tổng hợp
+    grossSalary: baseSalary + totalAllowances + totalOTSalary + maternityPay + sickLeavePay + annualLeavePay,
+    totalDeductions: totalFines + taxAmount,
+    netSalary: netSalary,
+    
+    // Thông tin chi tiết
     workingDays: stats.workingDays,
+    actualWorkingDays: workDaysInMonth, // NEW: Số ngày thực tế (dùng để tính lương)
     absentDays: stats.absentDays,
     halfDays: stats.halfDays,
     lateCount: stats.lateCount,
@@ -224,43 +267,6 @@ async function calculateMonthlySalary(employeeId, year, month) {
     status: 'calculated',
     calculatedAt: new Date()
   };
-  
-  // Tính Gross Salary
-  payroll.grossSalary = payroll.baseSalary + 
-                       payroll.generalAllowance +
-                       payroll.seniorityAllowance + 
-                       payroll.positionAllowance +
-                       payroll.overtimePay + 
-                       payroll.holidayWorkPay +
-                       payroll.weekendWorkPay +
-                       payroll.bonus + 
-                       payroll.performanceBonus +
-                       payroll.otherAllowances +
-                       payroll.maternityPay +
-                       payroll.sickLeavePay +
-                       payroll.annualLeavePay;
-  
-  // NEW: TÍNH THUẾ (từ Settings - mặc định 10%)
-  // taxConfig đã được load ở trên, không cần query lại
-  const taxRate = taxConfig?.config?.taxRate || 10;
-  const taxableIncome = payroll.grossSalary - latePenalty;
-  const taxAmount = Math.round((taxableIncome * taxRate) / 100);
-  
-  console.log(`📊 [SALARY] ${employee.name}: Gross=${payroll.grossSalary}, Tax=${taxRate}% (${taxAmount}), Net=${payroll.grossSalary - taxAmount - latePenalty}`);
-  
-  payroll.taxAmount = taxAmount; // NEW
-  payroll.taxRate = taxRate; // NEW
-  
-  // Tổng khấu trừ (bao gồm thuế)
-  payroll.totalDeductions = payroll.latePenalty + 
-                            payroll.absentDeduction + 
-                            payroll.unpaidLeaveDeduction +
-                            payroll.halfDayDeduction +
-                            payroll.taxAmount + // NEW
-                            payroll.otherDeductions;
-  
-  // Net Salary = Gross - Tổng khấu trừ
-  payroll.netSalary = payroll.grossSalary - payroll.totalDeductions;
   
   return payroll;
 }

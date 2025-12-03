@@ -33,6 +33,16 @@ api.interceptors.request.use(
 api.interceptors.response.use(
   (response) => response,
   async (error) => {
+    // Log error for debugging
+    if (error.message === 'Network Error') {
+      console.error('Network Error - Check:', {
+        url: error.config?.url,
+        baseURL: error.config?.baseURL,
+        method: error.config?.method,
+        message: 'Backend may not be running or IP/Port incorrect'
+      });
+    }
+    
     if (error.response?.status === 401) {
       // Token expired or invalid
       await AsyncStorage.removeItem('token');
@@ -112,7 +122,8 @@ export const leaveAPI = {
   },
   
   applyLeave: async (leaveData) => {
-    const response = await api.post('/leave/apply', leaveData);
+    // Đồng nhất với web: dùng /leave thay vì /leave/apply
+    const response = await api.post('/leave', leaveData);
     return response.data;
   },
   
@@ -141,6 +152,14 @@ export const employeeAPI = {
   
   completeProfile: async (profileData) => {
     const response = await api.post('/employees/profile/complete', profileData);
+    return response.data;
+  },
+};
+
+// Chat APIs
+export const chatAPI = {
+  sendMessage: async (message) => {
+    const response = await api.post('/chat/message', { message });
     return response.data;
   },
 };

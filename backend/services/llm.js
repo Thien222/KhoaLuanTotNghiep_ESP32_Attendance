@@ -58,10 +58,22 @@ const EX = {
   ],
   EMPLOYEE_SALARY: [
     "lương EMP030 tháng 10",
+    "lương tháng 9 của nhân viên Thien Vip",
+    "lương của nhân viên Giữa Trái của tháng 11 này",
     "lương tháng 9 của nhân viên Nguyễn Văn A",
     "xem lương tháng 8 của bạn Lê Văn C",
     "lương bạn Phương tháng này",
-    "lương của mã NV015 tháng này"
+    "lương của mã NV015 tháng này",
+    "lương nhân viên Thien Vip tháng 10",
+    "lương mã EMP030 tháng này",
+    "bảng lương tháng 9 của nhân viên Thien Vip",
+    "lương tháng 10 của EMP030",
+    "xem lương tháng 11 của nhân viên có mã EMP030",
+    "lương nhân viên có tên Thien Vip tháng 9",
+    "lương NV015 tháng 10",
+    "cho tôi xem lương tháng này của nhân viên Thien Vip",
+    "lương của nhân viên Giữa Trái tháng 11",
+    "lương nhân viên Giữa Trái tháng này"
   ],
   EMPLOYEE_INFO: [
     "nhân viên EMP030 là ai",

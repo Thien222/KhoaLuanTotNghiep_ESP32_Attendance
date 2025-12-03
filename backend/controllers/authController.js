@@ -168,7 +168,8 @@ exports.login = async (req, res) => {
 // Get current user profile
 exports.getProfile = async (req, res) => {
   try {
-    const user = await User.findById(req.user.userId).populate('employee');
+    // req.user đã được populate từ authMiddleware, không cần query lại
+    const user = req.user;
     
     if (!user) {
       return res.status(404).json({
@@ -198,7 +199,31 @@ exports.getProfile = async (req, res) => {
 exports.changePassword = async (req, res) => {
   try {
     const { currentPassword, newPassword } = req.body;
-    const user = await User.findById(req.user.userId);
+    
+    // Validate input
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({
+        success: false,
+        message: 'Vui lòng nhập đầy đủ mật khẩu hiện tại và mật khẩu mới'
+      });
+    }
+
+    if (newPassword.length < 6) {
+      return res.status(400).json({
+        success: false,
+        message: 'Mật khẩu mới phải có ít nhất 6 ký tự'
+      });
+    }
+
+    // req.user đã được populate từ authMiddleware
+    const user = req.user;
+    
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'Người dùng không tồn tại'
+      });
+    }
 
     // Verify current password
     const isCurrentPasswordValid = await user.comparePassword(currentPassword);
@@ -209,7 +234,16 @@ exports.changePassword = async (req, res) => {
       });
     }
 
-    // Update password
+    // Check if new password is same as current password
+    const isSamePassword = await user.comparePassword(newPassword);
+    if (isSamePassword) {
+      return res.status(400).json({
+        success: false,
+        message: 'Mật khẩu mới phải khác mật khẩu hiện tại'
+      });
+    }
+
+    // Update password (pre-save hook sẽ tự động hash)
     user.password = newPassword;
     await user.save();
 

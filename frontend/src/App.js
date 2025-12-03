@@ -4,13 +4,17 @@ import { ConfigProvider, theme, App as AntApp } from 'antd';
 import { ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 
+import { AuthProvider } from './contexts/AuthContext';
+import { ViewModeProvider } from './contexts/ViewModeContext';
 import MainLayout from './components/Layout';
 import ProtectedRoute from './components/ProtectedRoute';
 import Dashboard from './pages/Dashboard';
 import Login from './pages/auth/Login';
 import EmployeeManagement from './pages/employee/EmployeeManagement';
 import AttendanceManagement from './pages/attendance/AttendanceManagement';
+import MyAttendanceCalendar from './pages/attendance/MyAttendanceCalendar';
 import PayrollManagement from './pages/payroll/PayrollManagement';
+import MyPayroll from './pages/payroll/MyPayroll';
 import ChatBot from './pages/chatbot/ChatBot';
 import RequestManagement from './pages/requests/RequestManagement';
 import SettingsManagement from './pages/settings/SettingsManagement';
@@ -19,6 +23,7 @@ import Profile from './pages/profile/Profile';
 import CompleteProfile from './pages/profile/CompleteProfile';
 import ShiftManagement from './pages/shift/ShiftManagement';
 import StatisticsPage from './pages/statistics/StatisticsPage';
+import ResignationManagement from './pages/employee/ResignationManagement';
 
 const App = () => {
   return (
@@ -34,7 +39,9 @@ const App = () => {
     >
       <Router>
         <AntApp>
-          <Routes>
+          <AuthProvider>
+            <ViewModeProvider>
+              <Routes>
             {/* Login page without layout */}
             <Route path="/login" element={<Login />} />
             <Route path="/" element={<Login />} />
@@ -66,6 +73,14 @@ const App = () => {
               </MainLayout>
             } />
             
+            <Route path="/resignations" element={
+              <MainLayout>
+                <ProtectedRoute allowedRoles={['manager']}>
+                  <ResignationManagement />
+                </ProtectedRoute>
+              </MainLayout>
+            } />
+            
             {/* Unified Request Management (Leave + OT) */}
             <Route path="/requests" element={
               <MainLayout>
@@ -79,6 +94,22 @@ const App = () => {
               <MainLayout>
                 <ProtectedRoute allowedRoles={['employee', 'manager', 'accountant']} requireProfileComplete={true}>
                   <PayrollManagement />
+                </ProtectedRoute>
+              </MainLayout>
+            } />
+            
+            <Route path="/my-payroll" element={
+              <MainLayout>
+                <ProtectedRoute allowedRoles={['employee', 'manager', 'accountant']} requireProfileComplete={true}>
+                  <MyPayroll />
+                </ProtectedRoute>
+              </MainLayout>
+            } />
+            
+            <Route path="/my-attendance" element={
+              <MainLayout>
+                <ProtectedRoute allowedRoles={['employee', 'manager', 'accountant']} requireProfileComplete={true}>
+                  <MyAttendanceCalendar />
                 </ProtectedRoute>
               </MainLayout>
             } />
@@ -131,7 +162,9 @@ const App = () => {
             
             {/* Catch all route - redirect to login */}
             <Route path="*" element={<Login />} />
-          </Routes>
+              </Routes>
+            </ViewModeProvider>
+          </AuthProvider>
           <ToastContainer position="bottom-right" />
         </AntApp>
       </Router>

@@ -151,7 +151,16 @@ export default function HomeScreen({ navigation }) {
         {/* Leave Stats */}
         {leaveStats?.data && (
           <View style={styles.section}>
+            <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>Nghỉ phép</Text>
+              <TouchableOpacity
+                style={styles.leaveButton}
+                onPress={() => navigation.navigate('Leave')}
+              >
+                <Ionicons name="add-circle-outline" size={20} color="#1890ff" />
+                <Text style={styles.leaveButtonText}>Gửi đơn</Text>
+              </TouchableOpacity>
+            </View>
             <View style={styles.statsGrid}>
               <StatCard
                 icon="calendar"
@@ -169,23 +178,48 @@ export default function HomeScreen({ navigation }) {
           </View>
         )}
 
-        {/* Quick Actions */}
+        {/* Quick Actions - Tính năng cá nhân */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Thao tác nhanh</Text>
-          <View style={styles.quickActions}>
+          <Text style={styles.sectionTitle}>Tính năng cá nhân</Text>
+          <View style={styles.quickActionsGrid}>
             <TouchableOpacity
               style={styles.actionButton}
               onPress={() => navigation.navigate('Attendance')}
             >
-              <Ionicons name="time" size={24} color="#1890ff" />
-              <Text style={styles.actionText}>Lịch sử chấm công</Text>
+              <Ionicons name="calendar" size={24} color="#1890ff" />
+              <Text style={styles.actionText}>Lịch chấm công</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={styles.actionButton}
-              onPress={() => navigation.navigate('Leave', { screen: 'ApplyLeave' })}
+              onPress={() => navigation.navigate('Payroll')}
             >
-              <Ionicons name="add-circle" size={24} color="#52c41a" />
-              <Text style={styles.actionText}>Tạo đơn nghỉ phép</Text>
+              <Ionicons name="cash" size={24} color="#52c41a" />
+              <Text style={styles.actionText}>Bảng lương</Text>
+            </TouchableOpacity>
+          </View>
+          <View style={styles.quickActionsGrid}>
+            <TouchableOpacity
+              style={styles.actionButton}
+              onPress={() => navigation.navigate('Leave')}
+            >
+              <Ionicons name="document-text" size={24} color="#ff4d4f" />
+              <Text style={styles.actionText}>Đơn nghỉ phép</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.actionButton}
+              onPress={() => navigation.navigate('ChatBot')}
+            >
+              <Ionicons name="chatbubble-ellipses" size={24} color="#722ed1" />
+              <Text style={styles.actionText}>ChatBot hỗ trợ</Text>
+            </TouchableOpacity>
+          </View>
+          <View style={styles.quickActionsGrid}>
+            <TouchableOpacity
+              style={styles.actionButton}
+              onPress={() => navigation.navigate('Profile')}
+            >
+              <Ionicons name="person" size={24} color="#faad14" />
+              <Text style={styles.actionText}>Hồ sơ cá nhân</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -226,6 +260,28 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#333',
     marginBottom: 12,
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  leaveButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    backgroundColor: '#e6f7ff',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#1890ff',
+  },
+  leaveButtonText: {
+    fontSize: 14,
+    color: '#1890ff',
+    fontWeight: '600',
+    marginLeft: 4,
   },
   attendanceCard: {
     backgroundColor: '#fff',
@@ -313,13 +369,18 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
   },
+  quickActionsGrid: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
   actionButton: {
     flex: 1,
     backgroundColor: '#fff',
     borderRadius: 12,
     padding: 16,
     alignItems: 'center',
-    marginRight: 8,
+    marginHorizontal: 4,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,

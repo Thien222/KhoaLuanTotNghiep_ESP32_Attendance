@@ -61,9 +61,22 @@ export default function LeaveScreen({ navigation }) {
         return 'Từ chối';
       case 'pending':
         return 'Chờ duyệt';
+      case 'cancelled':
+        return 'Đã hủy';
       default:
         return status;
     }
+  };
+
+  const getLeaveTypeText = (type) => {
+    const map = {
+      annual: 'Nghỉ phép năm',
+      sick: 'Nghỉ ốm',
+      unpaid: 'Nghỉ không lương',
+      maternity: 'Thai sản',
+      other: 'Khác'
+    };
+    return map[type] || type;
   };
 
   const renderItem = ({ item }) => (
@@ -73,7 +86,7 @@ export default function LeaveScreen({ navigation }) {
     >
       <View style={styles.cardHeader}>
         <View>
-          <Text style={styles.leaveType}>{item.type}</Text>
+          <Text style={styles.leaveType}>{getLeaveTypeText(item.leaveType || item.type)}</Text>
           <Text style={styles.dateRange}>
             {moment(item.startDate).format('DD/MM/YYYY')} - {moment(item.endDate).format('DD/MM/YYYY')}
           </Text>

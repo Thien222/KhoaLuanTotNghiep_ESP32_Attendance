@@ -16,9 +16,10 @@ import {
   Col,
   Statistic,
   Tabs,
-  TimePicker,
   Empty,
-  Popconfirm
+  Popconfirm,
+  Alert,
+  Spin
 } from 'antd';
 import { 
   PlusOutlined, 
@@ -27,7 +28,9 @@ import {
   CalendarOutlined,
   FieldTimeOutlined,
   DeleteOutlined,
-  FileTextOutlined
+  FileTextOutlined,
+  LoadingOutlined,
+  ClockCircleOutlined
 } from '@ant-design/icons';
 import axios from 'axios';
 import moment from 'moment';
@@ -52,6 +55,10 @@ const RequestManagement = () => {
   const [form] = Form.useForm();
   const [userRole, setUserRole] = useState('employee');
   const [activeTab, setActiveTab] = useState('my-requests');
+  const [otPreview, setOtPreview] = useState(null); // NEW: Preview OT timeframe from shift
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [filterDate, setFilterDate] = useState(null); // Filter by month/date
+  const [filterType, setFilterType] = useState('month'); // 'month' or 'date'
 
   useEffect(() => {
     const userData = localStorage.getItem('user');
@@ -106,6 +113,33 @@ const RequestManagement = () => {
     }
   };
 
+  // NEW: Fetch OT preview when date is selected
+  const fetchOTPreview = async (date) => {
+    if (!date) {
+      setOtPreview(null);
+      return;
+    }
+    
+    setPreviewLoading(true);
+    try {
+      const API_URL = getAPIUrl();
+      const token = localStorage.getItem('token');
+      const response = await axios.get(
+        `${API_URL}/overtime/preview/${date.format('YYYY-MM-DD')}`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      
+      if (response.data.success) {
+        setOtPreview(response.data.data);
+      }
+    } catch (error) {
+      console.error('Error fetching OT preview:', error);
+      setOtPreview(null);
+    } finally {
+      setPreviewLoading(false);
+    }
+  };
+
   const handleSubmit = async (values) => {
     try {
       const API_URL = getAPIUrl();
@@ -125,21 +159,22 @@ const RequestManagement = () => {
           message.success('Đã gửi đơn nghỉ phép!');
         }
       } else {
+        // NEW: OT request now only needs date and reason
+        // System auto-determines timeframe from employee's shift
         const payload = {
           date: values.date.format('YYYY-MM-DD'),
-          startTime: values.startTime.format('HH:mm'),
-          endTime: values.endTime.format('HH:mm'),
           reason: values.reason
         };
 
         const response = await axios.post(`${API_URL}/overtime/request`, payload, { headers });
         if (response.data.success) {
-          message.success('Đã gửi đơn đăng ký OT!');
+          message.success(response.data.message || 'Đã gửi đơn đăng ký OT!');
         }
       }
 
       setModalVisible(false);
       form.resetFields();
+      setOtPreview(null);
       fetchAllData();
     } catch (error) {
       console.error('Error submitting request:', error);
@@ -267,7 +302,14 @@ const RequestManagement = () => {
         if (record.requestType === 'leave') {
           return `${moment(record.startDate).format('DD/MM')} - ${moment(record.endDate).format('DD/MM/YYYY')}`;
         }
-        return `${moment(record.date).format('DD/MM/YYYY')} (${record.startTime} - ${record.endTime})`;
+        return (
+          <Space direction="vertical" size={0}>
+            <Text>{moment(record.date).format('DD/MM/YYYY')}</Text>
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              {record.shiftName && `${record.shiftName}: `}{record.startTime} - {record.endTime}
+            </Text>
+          </Space>
+        );
       }
     },
     {
@@ -339,7 +381,14 @@ const RequestManagement = () => {
         if (record.requestType === 'leave') {
           return `${moment(record.startDate).format('DD/MM')} - ${moment(record.endDate).format('DD/MM')}`;
         }
-        return `${moment(record.date).format('DD/MM')} (${record.startTime}-${record.endTime})`;
+        return (
+          <Space direction="vertical" size={0}>
+            <Text>{moment(record.date).format('DD/MM/YYYY')}</Text>
+            <Text type="secondary" style={{ fontSize: 11 }}>
+              {record.shiftName && `${record.shiftName}: `}{record.startTime}-{record.endTime}
+            </Text>
+          </Space>
+        );
       }
     },
     {
@@ -352,14 +401,21 @@ const RequestManagement = () => {
     {
       title: 'Hành động',
       key: 'action',
-      width: 150,
+      width: 180,
+      align: 'center',
       render: (_, record) => (
-        <Space size="small">
+        <Space size={8} style={{ display: 'flex', justifyContent: 'center' }}>
           <Button 
             type="primary" 
             icon={<CheckOutlined />}
             onClick={() => handleApprove(record, record.requestType)}
             size="small"
+            style={{ 
+              borderRadius: 6, 
+              minWidth: 70,
+              background: '#22c55e',
+              borderColor: '#22c55e'
+            }}
           >
             Duyệt
           </Button>
@@ -371,6 +427,7 @@ const RequestManagement = () => {
               setReviewModalVisible(true);
             }}
             size="small"
+            style={{ borderRadius: 6, minWidth: 70 }}
           >
             Từ chối
           </Button>
@@ -383,38 +440,302 @@ const RequestManagement = () => {
   const pendingOTCount = pendingOTs.length;
   const myPendingCount = myRequests.filter(r => r.status === 'pending').length;
 
+  // Separate pending and history requests
+  const myPendingRequests = myRequests.filter(r => r.status === 'pending');
+  let myHistoryRequests = myRequests.filter(r => r.status !== 'pending');
+  
+  // Filter by date/month
+  if (filterDate) {
+    if (filterType === 'month') {
+      // Filter by month
+      const filterMonth = moment(filterDate).format('YYYY-MM');
+      myHistoryRequests = myHistoryRequests.filter(r => {
+        if (r.requestType === 'leave') {
+          const startMonth = moment(r.startDate).format('YYYY-MM');
+          const endMonth = moment(r.endDate).format('YYYY-MM');
+          return startMonth === filterMonth || endMonth === filterMonth;
+        } else {
+          return moment(r.date).format('YYYY-MM') === filterMonth;
+        }
+      });
+    } else {
+      // Filter by date
+      const filterDateStr = moment(filterDate).format('YYYY-MM-DD');
+      myHistoryRequests = myHistoryRequests.filter(r => {
+        if (r.requestType === 'leave') {
+          const startDate = moment(r.startDate).format('YYYY-MM-DD');
+          const endDate = moment(r.endDate).format('YYYY-MM-DD');
+          return moment(filterDateStr).isBetween(startDate, endDate, null, '[]');
+        } else {
+          return moment(r.date).format('YYYY-MM-DD') === filterDateStr;
+        }
+      });
+    }
+  }
+  
+  const approvedCount = myHistoryRequests.filter(r => r.status === 'approved').length;
+  const rejectedCount = myHistoryRequests.filter(r => r.status === 'rejected').length;
+
+  const historyColumns = [
+    {
+      title: 'Tên NV',
+      key: 'employeeName',
+      width: 150,
+      render: (_, record) => (
+        <Text strong>{record.employee?.name || record.user?.name || 'N/A'}</Text>
+      )
+    },
+    {
+      title: 'Mã NV',
+      key: 'employeeId',
+      width: 100,
+      render: (_, record) => (
+        <Text>{record.employee?.employeeId || record.user?.employeeId || 'N/A'}</Text>
+      )
+    },
+    {
+      title: 'Loại đơn',
+      key: 'type',
+      width: 120,
+      render: (_, record) => (
+        record.requestType === 'leave' 
+          ? <Tag color="blue" icon={<CalendarOutlined />}>Nghỉ phép</Tag>
+          : <Tag color="purple" icon={<FieldTimeOutlined />}>OT</Tag>
+      )
+    },
+    {
+      title: 'Thời gian',
+      key: 'time',
+      render: (_, record) => {
+        if (record.requestType === 'leave') {
+          return `${moment(record.startDate).format('DD/MM')} - ${moment(record.endDate).format('DD/MM/YYYY')}`;
+        }
+        return (
+          <Space direction="vertical" size={0}>
+            <Text>{moment(record.date).format('DD/MM/YYYY')}</Text>
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              {record.shiftName && `${record.shiftName}: `}{record.startTime} - {record.endTime}
+            </Text>
+          </Space>
+        );
+      }
+    },
+    {
+      title: 'Chi tiết',
+      key: 'detail',
+      render: (_, record) => {
+        if (record.requestType === 'leave') {
+          return <Text>{getLeaveTypeText(record.leaveType)}</Text>;
+        }
+        return <Text>{record.estimatedHours}h OT</Text>;
+      }
+    },
+    {
+      title: 'Lý do',
+      dataIndex: 'reason',
+      key: 'reason',
+      ellipsis: true,
+      width: 180
+    },
+    {
+      title: 'Trạng thái',
+      dataIndex: 'status',
+      key: 'status',
+      render: getStatusTag
+    },
+    {
+      title: 'Ngày duyệt',
+      key: 'reviewedAt',
+      width: 140,
+      render: (_, record) => record.reviewedAt 
+        ? moment(record.reviewedAt).format('DD/MM/YYYY HH:mm')
+        : '-'
+    },
+    {
+      title: 'Ghi chú',
+      key: 'comment',
+      width: 150,
+      ellipsis: true,
+      render: (_, record) => record.reviewComment || record.comment || '-'
+    }
+  ];
+
   const tabItems = [
     {
       key: 'my-requests',
       label: (
         <span>
-          <FileTextOutlined /> Đơn của tôi {myPendingCount > 0 && <Tag color="orange">{myPendingCount}</Tag>}
+          <FileTextOutlined /> Đơn chờ duyệt {myPendingCount > 0 && <Tag color="orange">{myPendingCount}</Tag>}
         </span>
       ),
       children: (
         <div style={{ height: 'calc(100vh - 280px)', display: 'flex', flexDirection: 'column' }}>
-          <div style={{ marginBottom: 16 }}>
+          <div style={{ marginBottom: 8 }}>
             <Button 
               type="primary" 
               icon={<PlusOutlined />}
               onClick={() => setModalVisible(true)}
+              style={{ borderRadius: 6 }}
             >
               Gửi yêu cầu
             </Button>
           </div>
           
           <div style={{ flex: 1, overflow: 'auto' }}>
-            {myRequests.length > 0 ? (
+            {myPendingRequests.length > 0 ? (
               <Table
                 columns={myRequestColumns}
-                dataSource={myRequests}
+                dataSource={myPendingRequests}
                 rowKey="_id"
                 loading={loading}
                 pagination={{ pageSize: 10, size: 'small' }}
                 size="small"
+                bordered
+                rowClassName={(_, index) => index % 2 === 0 ? 'table-row-light' : 'table-row-dark'}
+                style={{
+                  backgroundColor: '#ffffff',
+                  borderRadius: 8,
+                  overflow: 'hidden'
+                }}
+                components={{
+                  header: {
+                    cell: (props) => (
+                      <th {...props} style={{
+                        ...props.style,
+                        backgroundColor: '#f0f2f5',
+                        fontWeight: 600,
+                        borderBottom: '2px solid #d9d9d9'
+                      }} />
+                    )
+                  }
+                }}
               />
             ) : (
-              <Empty description="Bạn chưa có đơn yêu cầu nào" />
+              <Empty description="Không có đơn chờ duyệt" />
+            )}
+          </div>
+        </div>
+      )
+    },
+    {
+      key: 'my-history',
+      label: (
+        <span>
+          📋 Lịch sử đơn {myHistoryRequests.length > 0 && (
+            <Space size={4}>
+              {approvedCount > 0 && <Tag color="green" style={{ marginLeft: 4 }}>{approvedCount} ✓</Tag>}
+              {rejectedCount > 0 && <Tag color="red">{rejectedCount} ✗</Tag>}
+            </Space>
+          )}
+        </span>
+      ),
+      children: (
+        <div style={{ height: 'calc(100vh - 280px)', display: 'flex', flexDirection: 'column' }}>
+          {/* Filter Section */}
+          <div style={{ marginBottom: 12, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            <Select
+              value={filterType}
+              onChange={setFilterType}
+              style={{ width: 120 }}
+            >
+              <Option value="month">Theo tháng</Option>
+              <Option value="date">Theo ngày</Option>
+            </Select>
+            {filterType === 'month' ? (
+              <DatePicker
+                picker="month"
+                value={filterDate}
+                onChange={setFilterDate}
+                placeholder="Chọn tháng"
+                format="MM/YYYY"
+                allowClear
+                style={{ width: 150 }}
+              />
+            ) : (
+              <DatePicker
+                value={filterDate}
+                onChange={setFilterDate}
+                placeholder="Chọn ngày"
+                format="DD/MM/YYYY"
+                allowClear
+                style={{ width: 150 }}
+              />
+            )}
+            {filterDate && (
+              <Button 
+                size="small" 
+                onClick={() => setFilterDate(null)}
+                style={{ marginLeft: 8 }}
+              >
+                Xóa lọc
+              </Button>
+            )}
+          </div>
+          
+          {/* Summary */}
+          <Row gutter={8} style={{ marginBottom: 8 }}>
+            <Col span={8}>
+              <Card size="small" style={{ borderRadius: 8 }}>
+                <Statistic 
+                  title="Tổng đơn đã xử lý" 
+                  value={myHistoryRequests.length} 
+                  valueStyle={{ color: '#1890ff' }}
+                />
+              </Card>
+            </Col>
+            <Col span={8}>
+              <Card size="small" style={{ borderRadius: 8 }}>
+                <Statistic 
+                  title="Đã duyệt" 
+                  value={approvedCount} 
+                  valueStyle={{ color: '#22c55e' }}
+                  prefix="✓"
+                />
+              </Card>
+            </Col>
+            <Col span={8}>
+              <Card size="small" style={{ borderRadius: 8 }}>
+                <Statistic 
+                  title="Từ chối" 
+                  value={rejectedCount} 
+                  valueStyle={{ color: '#ef4444' }}
+                  prefix="✗"
+                />
+              </Card>
+            </Col>
+          </Row>
+          
+          <div style={{ flex: 1, overflow: 'auto' }}>
+            {myHistoryRequests.length > 0 ? (
+              <Table
+                columns={historyColumns}
+                dataSource={myHistoryRequests}
+                rowKey="_id"
+                loading={loading}
+                pagination={{ pageSize: 10, size: 'small' }}
+                size="small"
+                bordered
+                rowClassName={(_, index) => index % 2 === 0 ? 'table-row-light' : 'table-row-dark'}
+                style={{
+                  backgroundColor: '#ffffff',
+                  borderRadius: 8,
+                  overflow: 'hidden'
+                }}
+                components={{
+                  header: {
+                    cell: (props) => (
+                      <th {...props} style={{
+                        ...props.style,
+                        backgroundColor: '#f0f2f5',
+                        fontWeight: 600,
+                        borderBottom: '2px solid #d9d9d9'
+                      }} />
+                    )
+                  }
+                }}
+              />
+            ) : (
+              <Empty description="Chưa có lịch sử đơn" />
             )}
           </div>
         </div>
@@ -435,7 +756,7 @@ const RequestManagement = () => {
       ),
       children: (
         <div style={{ height: 'calc(100vh - 280px)', display: 'flex', flexDirection: 'column' }}>
-          <Row gutter={16} style={{ marginBottom: 16 }}>
+          <Row gutter={8} style={{ marginBottom: 8 }}>
             <Col span={8}>
               <Card size="small">
                 <Statistic 
@@ -474,6 +795,25 @@ const RequestManagement = () => {
                 loading={loading}
                 pagination={{ pageSize: 10, size: 'small' }}
                 size="small"
+                bordered
+                rowClassName={(_, index) => index % 2 === 0 ? 'table-row-light' : 'table-row-dark'}
+                style={{
+                  backgroundColor: '#ffffff',
+                  borderRadius: 8,
+                  overflow: 'hidden'
+                }}
+                components={{
+                  header: {
+                    cell: (props) => (
+                      <th {...props} style={{
+                        ...props.style,
+                        backgroundColor: '#f0f2f5',
+                        fontWeight: 600,
+                        borderBottom: '2px solid #d9d9d9'
+                      }} />
+                    )
+                  }
+                }}
               />
             ) : (
               <Empty description="Không có đơn nào cần duyệt" />
@@ -507,6 +847,7 @@ const RequestManagement = () => {
         onCancel={() => {
           setModalVisible(false);
           form.resetFields();
+          setOtPreview(null);
         }}
         footer={null}
         width={500}
@@ -568,39 +909,47 @@ const RequestManagement = () => {
                 <DatePicker 
                   style={{ width: '100%' }} 
                   format="DD/MM/YYYY"
-                  // Cho phép chọn bất kỳ ngày nào (để test/demo)
-                  // Trong thực tế có thể thêm: disabledDate={(current) => current && current < moment().startOf('day')}
+                  onChange={(date) => fetchOTPreview(date)}
                 />
               </Form.Item>
 
-              <Row gutter={16}>
-                <Col span={12}>
-                  <Form.Item
-                    name="startTime"
-                    label="Giờ bắt đầu"
-                    rules={[{ required: true, message: 'Chọn giờ' }]}
-                  >
-                    <TimePicker 
-                      style={{ width: '100%' }} 
-                      format="HH:mm"
-                      minuteStep={15}
-                    />
-                  </Form.Item>
-                </Col>
-                <Col span={12}>
-                  <Form.Item
-                    name="endTime"
-                    label="Giờ kết thúc"
-                    rules={[{ required: true, message: 'Chọn giờ' }]}
-                  >
-                    <TimePicker 
-                      style={{ width: '100%' }} 
-                      format="HH:mm"
-                      minuteStep={15}
-                    />
-                  </Form.Item>
-                </Col>
-              </Row>
+              {/* NEW: Auto-calculated OT timeframe preview */}
+              {previewLoading && (
+                <div style={{ textAlign: 'center', padding: '12px' }}>
+                  <Spin indicator={<LoadingOutlined style={{ fontSize: 20 }} spin />} />
+                  <Text type="secondary" style={{ marginLeft: 8 }}>Đang tính khung giờ OT...</Text>
+                </div>
+              )}
+              
+              {otPreview && !previewLoading && (
+                <Alert
+                  type="info"
+                  showIcon
+                  icon={<ClockCircleOutlined />}
+                  style={{ marginBottom: 8 }}
+                  message={
+                    <Space direction="vertical" size={0}>
+                      <Text strong>Khung giờ OT tự động từ ca làm việc</Text>
+                      <Text type="secondary">
+                        Ca: <Tag color="blue">{otPreview.shiftName}</Tag>
+                      </Text>
+                      <Text>
+                        Giờ OT: <Text strong>{otPreview.startTime} - {otPreview.endTime}</Text>
+                        {' '}(~{otPreview.estimatedHours}h)
+                      </Text>
+                    </Space>
+                  }
+                />
+              )}
+              
+              {!otPreview && !previewLoading && (
+                <Alert
+                  type="warning"
+                  message="Chọn ngày để xem khung giờ OT tự động"
+                  showIcon
+                  style={{ marginBottom: 8 }}
+                />
+              )}
             </>
           )}
 

@@ -24,6 +24,27 @@ router.put('/:id', protect, restrictTo('manager'), attendanceController.updateAt
 // Delete a single attendance record
 router.delete('/:id', protect, restrictTo('manager'), attendanceController.deleteAttendance);
 
+// Auto-completion manual trigger (for testing/admin use)
+router.post('/auto-complete', protect, restrictTo('manager'), async (req, res) => {
+  try {
+    const autoCompletionService = require('../services/autoCompletionService');
+    const result = await autoCompletionService.runAutoCompletion();
+    
+    res.status(200).json({
+      success: true,
+      message: 'Auto-completion completed successfully',
+      data: result
+    });
+  } catch (error) {
+    console.error('Error running manual auto-completion:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error running auto-completion',
+      error: error.message
+    });
+  }
+});
+
 // (Nếu muốn test xoá thì bật lại 2 cái dưới, còn không thì để comment)
 //// router.delete('/today', protect, attendanceController.deleteTodayAttendance);
 //// router.delete('/all', protect, attendanceController.deleteAllAttendance);
