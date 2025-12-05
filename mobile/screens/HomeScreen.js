@@ -11,13 +11,14 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../contexts/AuthContext';
-import { attendanceAPI, leaveAPI } from '../services/api';
+import { attendanceAPI, leaveAPI, overtimeAPI } from '../services/api';
 import moment from 'moment';
 
 export default function HomeScreen({ navigation }) {
   const { user } = useAuth();
   const [todayAttendance, setTodayAttendance] = useState(null);
   const [leaveStats, setLeaveStats] = useState(null);
+  const [otSchedule, setOtSchedule] = useState([]);
   const [refreshing, setRefreshing] = useState(false);
   const [loading, setLoading] = useState(true);
 
@@ -28,9 +29,10 @@ export default function HomeScreen({ navigation }) {
   const loadData = async () => {
     try {
       setLoading(true);
-      const [attendanceRes, leaveRes] = await Promise.all([
+      const [attendanceRes, leaveRes, otRes] = await Promise.all([
         attendanceAPI.getTodayAttendance().catch(() => ({ success: false })),
         leaveAPI.getLeaveStats().catch(() => ({ success: false })),
+        overtimeAPI.getMyOTSchedule().catch(() => ({ success: false })),
       ]);
 
       if (attendanceRes.success) {
@@ -39,6 +41,14 @@ export default function HomeScreen({ navigation }) {
 
       if (leaveRes.success) {
         setLeaveStats(leaveRes.data);
+      }
+
+      if (otRes.success) {
+        // Lọc các ngày OT sắp tới (từ hôm nay trở đi)
+        const upcomingOT = (otRes.data || []).filter(ot => 
+          moment(ot.date).isSameOrAfter(moment(), 'day')
+        ).slice(0, 5); // Lấy tối đa 5 ngày OT sắp tới
+        setOtSchedule(upcomingOT);
       }
     } catch (error) {
       console.error('Error loading data:', error);
@@ -148,6 +158,56 @@ export default function HomeScreen({ navigation }) {
           )}
         </View>
 
+        {/* OT Schedule */}
+        {otSchedule.length > 0 && (
+          <View style={styles.section}>
+            <TouchableOpacity
+              onPress={() => navigation.navigate('OTSchedule')}
+              activeOpacity={0.7}
+            >
+              <View style={styles.sectionHeader}>
+                <Text style={styles.sectionTitle}>Lịch OT đã được gán</Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                  <Text style={styles.viewAllText}>Xem tất cả</Text>
+                  <Ionicons name="chevron-forward" size={20} color="#722ed1" />
+                </View>
+              </View>
+            </TouchableOpacity>
+            <View style={styles.otScheduleCard}>
+              {otSchedule.slice(0, 3).map((ot, index) => (
+                <View key={index} style={styles.otItem}>
+                  <View style={styles.otDateBadge}>
+                    <Text style={styles.otDay}>{moment(ot.date).format('DD')}</Text>
+                    <Text style={styles.otMonth}>{moment(ot.date).format('MMM')}</Text>
+                  </View>
+                  <View style={styles.otDetails}>
+                    <Text style={styles.otShiftName}>{ot.shift?.name || 'Ca OT'}</Text>
+                    <View style={styles.otTimeRow}>
+                      <Ionicons name="time-outline" size={14} color="#666" />
+                      <Text style={styles.otTime}>
+                        {ot.shift?.startTime} - {ot.shift?.endTime}
+                      </Text>
+                    </View>
+                  </View>
+                  <View style={styles.otBadge}>
+                    <Text style={styles.otBadgeText}>OT</Text>
+                  </View>
+                </View>
+              ))}
+              {otSchedule.length > 3 && (
+                <TouchableOpacity
+                  onPress={() => navigation.navigate('OTSchedule')}
+                  style={styles.viewMoreButton}
+                >
+                  <Text style={styles.viewMoreText}>
+                    Xem thêm {otSchedule.length - 3} ngày OT khác
+                  </Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          </View>
+        )}
+
         {/* Leave Stats */}
         {leaveStats?.data && (
           <View style={styles.section}>
@@ -214,6 +274,13 @@ export default function HomeScreen({ navigation }) {
             </TouchableOpacity>
           </View>
           <View style={styles.quickActionsGrid}>
+            <TouchableOpacity
+              style={styles.actionButton}
+              onPress={() => navigation.navigate('InternalChat')}
+            >
+              <Ionicons name="chatbubbles" size={24} color="#1890ff" />
+              <Text style={styles.actionText}>Chat nội bộ</Text>
+            </TouchableOpacity>
             <TouchableOpacity
               style={styles.actionButton}
               onPress={() => navigation.navigate('Profile')}
@@ -354,6 +421,95 @@ const styles = StyleSheet.create({
   },
   statContent: {
     marginLeft: 12,
+  },
+  otScheduleCard: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  otItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+  },
+  otDateBadge: {
+    width: 50,
+    height: 50,
+    borderRadius: 8,
+    backgroundColor: '#f0f5ff',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  otDay: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#722ed1',
+  },
+  otMonth: {
+    fontSize: 12,
+    color: '#722ed1',
+    textTransform: 'uppercase',
+  },
+  otDetails: {
+    flex: 1,
+  },
+  otShiftName: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#333',
+    marginBottom: 4,
+  },
+  otTimeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  otTime: {
+    fontSize: 13,
+    color: '#666',
+    marginLeft: 4,
+  },
+  otBadge: {
+    backgroundColor: '#722ed1',
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  otBadgeText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  viewAllText: {
+    fontSize: 14,
+    color: '#722ed1',
+    fontWeight: '600',
+    marginRight: 4,
+  },
+  viewMoreButton: {
+    padding: 12,
+    alignItems: 'center',
+    borderTopWidth: 1,
+    borderTopColor: '#f0f0f0',
+    marginTop: 8,
+  },
+  viewMoreText: {
+    fontSize: 14,
+    color: '#722ed1',
+    fontWeight: '600',
   },
   statValue: {
     fontSize: 24,

@@ -115,17 +115,44 @@ export default function LeaveScreen({ navigation }) {
     </TouchableOpacity>
   );
 
+  const [showMenu, setShowMenu] = useState(false);
+
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>Đơn nghỉ phép</Text>
+        <Text style={styles.headerTitle}>Đơn nghỉ phép & OT</Text>
         <TouchableOpacity
           style={styles.addButton}
-          onPress={() => navigation.navigate('ApplyLeave')}
+          onPress={() => setShowMenu(!showMenu)}
         >
-          <Ionicons name="add" size={24} color="#fff" />
+          <Ionicons name={showMenu ? "close" : "add"} size={24} color="#fff" />
         </TouchableOpacity>
       </View>
+
+      {showMenu && (
+        <View style={styles.menu}>
+          <TouchableOpacity
+            style={styles.menuItem}
+            onPress={() => {
+              setShowMenu(false);
+              navigation.navigate('ApplyLeave');
+            }}
+          >
+            <Ionicons name="calendar-outline" size={20} color="#1890ff" />
+            <Text style={styles.menuText}>Tạo đơn nghỉ phép</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.menuItem}
+            onPress={() => {
+              setShowMenu(false);
+              navigation.navigate('ApplyOvertime');
+            }}
+          >
+            <Ionicons name="flash-outline" size={20} color="#722ed1" />
+            <Text style={styles.menuText}>Tạo đơn xin OT</Text>
+          </TouchableOpacity>
+        </View>
+      )}
 
       <FlatList
         data={leaves}
@@ -238,6 +265,30 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#999',
     marginTop: 16,
+  },
+  menu: {
+    backgroundColor: '#fff',
+    marginHorizontal: 16,
+    marginTop: 8,
+    borderRadius: 12,
+    padding: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  menuItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 12,
+    borderRadius: 8,
+  },
+  menuText: {
+    fontSize: 16,
+    color: '#333',
+    marginLeft: 12,
+    fontWeight: '500',
   },
 });
 

@@ -1,0 +1,95 @@
+/* Custom styles for attendance calendar - FIX: Logic rõ ràng hơn */
+.attendance-calendar {
+  width: 100%;
+}
+
+.attendance-calendar .ant-picker-calendar {
+  width: 100%;
+}
+
+.attendance-calendar .ant-picker-panel {
+  width: 100%;
+}
+
+.attendance-calendar .ant-picker-body {
+  width: 100%;
+}
+
+.attendance-calendar .ant-picker-content {
+  width: 100%;
+}
+
+.attendance-calendar .ant-picker-cell {
+  padding: 2px !important;
+  height: 90px !important;
+  min-height: 90px !important;
+  vertical-align: top !important;
+}
+
+.attendance-calendar .ant-picker-cell-inner {
+  padding: 0 !important;
+  height: 100% !important;
+  min-height: 90px !important;
+  width: 100% !important;
+  display: flex !important;
+  align-items: stretch !important;
+}
+
+.attendance-calendar .ant-picker-calendar-date {
+  padding: 0 !important;
+  height: 100% !important;
+  min-height: 90px !important;
+  width: 100% !important;
+  border: 1px solid #f0f0f0 !important;
+  border-radius: 4px !important;
+  position: relative !important;
+}
+
+.attendance-calendar .ant-picker-calendar-date-content {
+  height: 100% !important;
+  min-height: 90px !important;
+  width: 100% !important;
+  position: relative !important;
+  display: flex !important;
+  align-items: stretch !important;
+}
+
+/* Ẩn số ngày mặc định của Ant Design */
+.attendance-calendar .ant-picker-calendar-date-value {
+  display: none !important;
+}
+
+/* Hover effect */
+.attendance-calendar .ant-picker-cell:hover .ant-picker-calendar-date {
+  z-index: 10 !important;
+}
+
+/* Today highlight */
+.attendance-calendar .ant-picker-cell-today .ant-picker-calendar-date {
+  border: 2px solid #1890ff !important;
+}
+
+/* Selected date */
+.attendance-calendar .ant-picker-cell-selected .ant-picker-calendar-date {
+  background: transparent !important;
+}
+
+/* Weekend styling */
+.attendance-calendar .ant-picker-cell-disabled {
+  background: #fafafa !important;
+}
+
+/* Đảm bảo các cell có cùng kích thước */
+.attendance-calendar .ant-picker-cell::before {
+  display: none !important;
+}
+
+/* Ẩn header controls mặc định của Calendar (dropdown tháng/năm và nút Month/Year) */
+.attendance-calendar .ant-picker-calendar-header {
+  display: none !important;
+}
+
+.attendance-calendar .ant-picker-calendar-header-wrap {
+  display: none !important;
+}
+

@@ -3,6 +3,8 @@ const Attendance = require('../models/Attendance'); // giữ nguyên model Atten
 const Payroll = require('../models/Payroll');       // snapshot bảng lương theo tháng
 const { detectIntentAndEntities, toASCII, pickEmployeeName, pickEmployeeCode } = require('../services/nlu');
 const { classifyIntent } = require('../services/llm');
+const moment = require('moment-timezone');
+moment.tz.setDefault('Asia/Ho_Chi_Minh');
 
 // ===== Commons =====
 function dayRange(dateISO) {
@@ -43,8 +45,9 @@ async function computeSalaryFor(emp, year, month, extraLeaveDays = 0) {
     const taxAmount = Number(snap.taxAmount || 0);
     const totalDeductions = Number(snap.totalDeductions || 0);
     
-    // Tính daily rate từ lương cơ bản đầy đủ / 30
-    const dailyRate = baseSalaryFull / 30;
+    // Tính daily rate từ lương cơ bản đầy đủ / 26 (Cách 1 - Ngày công chuẩn)
+    const STANDARD_WORKING_DAYS = 26;
+    const dailyRate = baseSalaryFull / STANDARD_WORKING_DAYS;
     
     // Nếu có extraLeaveDays (what-if), trừ thêm theo đơn giá ngày để dự báo
     const totalLeave = Number(snap.absentDays || 0) + Number(snap.unpaidLeaveDays || 0) + Number(extraLeaveDays || 0);
@@ -96,13 +99,15 @@ async function computeSalaryFor(emp, year, month, extraLeaveDays = 0) {
   }
 
   /** Employee.salary là Number theo schema gốc (default 0) — dùng làm lương cơ bản fallback. */
-  const baseSalary = Number(emp.salary || 0); // schema Employee.salary (Number) :contentReference[oaicite:2]{index=2}
-  const wd = Number(emp.workingDaysPerMonth || 26);
-  const dailyRate = wd ? baseSalary / wd : 0;
-
-  // tạm thời không trừ vắng vì không có snapshot; nếu muốn có thể tính từ Attendance.status ('absent','half-day')
-  const net = Math.max(0, baseSalary - dailyRate * Number(extraLeaveDays || 0));
-  return { mode: 'daily', base: baseSalary, wd, dailyRate, leaveDays: 0, extraLeaveDays, totalLeave: extraLeaveDays || 0, hours: 0, total: net };
+  const baseSalaryFull = Number(emp.baseSalary || emp.salary || 0);
+  // Công thức mới: Lương 1 ngày = Lương cơ bản / 26
+  const STANDARD_WORKING_DAYS = 26;
+  const dailyRate = baseSalaryFull / STANDARD_WORKING_DAYS;
+  
+  // Tính lương tháng = (Lương cơ bản / 26) × Số ngày công thực tế
+  // Khấu trừ nghỉ = (Lương cơ bản / 26) × Số ngày nghỉ
+  const net = Math.max(0, baseSalaryFull - dailyRate * Number(extraLeaveDays || 0));
+  return { mode: 'daily', base: baseSalaryFull, baseSalaryFull, wd: STANDARD_WORKING_DAYS, dailyRate, leaveDays: 0, extraLeaveDays, totalLeave: extraLeaveDays || 0, hours: 0, total: net };
 }
 
 function isPrivileged(user) {
@@ -288,46 +293,135 @@ async function handleTotalPayroll(user, entities) {
   const now = new Date();
   const year = entities.year || now.getFullYear();
   const month = entities.month || now.getMonth() + 1;
+  const monthStr = `${year}-${String(month).padStart(2, '0')}`;
 
-  const emps = await Employee.find({ status: 'active' }, '_id name salary');
-  let total = 0;
-  for (const e of emps) {
-    const { total: t } = await computeSalaryFor(e, year, month, 0);
-    total += t;
+  // Lấy tổng lương từ database Payroll (netSalary hoặc totalSalary)
+  const payrolls = await Payroll.find({ month: monthStr }).lean();
+  
+  if (!payrolls || payrolls.length === 0) {
+    return `Chưa có dữ liệu lương tháng ${month}/${year}. Vui lòng tính lương trước.`;
   }
+
+  // Tính tổng từ netSalary (thực lãnh) của tất cả nhân viên
+  let total = 0;
+  for (const p of payrolls) {
+    const netSalary = Number(p.netSalary || p.totalSalary || 0);
+    total += netSalary;
+  }
+
   return `Tổng lương ${month}/${year} của toàn bộ nhân viên: ${fmtVND(total)}.`;
 }
 
 async function handleCheckedInOnDate(user, entities) {
   if (!isPrivileged(user)) return 'Bạn không có quyền xem danh sách điểm danh.';
-  const dateISO = entities.dateISO || new Date().toISOString().slice(0,10);
-  const { start, end } = dayRange(dateISO);
-  const attendedIds = await Attendance.distinct('employee', { date: { $gte: start, $lt: end } });
-  const attended = await Employee.find({ _id: { $in: attendedIds } }, 'name').lean();
+  
+  // Tính ngày theo timezone VN
+  const now = moment().tz('Asia/Ho_Chi_Minh');
+  const dateISO = entities.dateISO || now.format('YYYY-MM-DD');
+  const targetDate = moment.tz(dateISO, 'YYYY-MM-DD', 'Asia/Ho_Chi_Minh');
+  const start = targetDate.startOf('day').toDate();
+  const end = targetDate.endOf('day').toDate();
+  
+  // Query attendance với timezone VN
+  const attendedIds = await Attendance.distinct('employee', { 
+    date: { $gte: start, $lte: end },
+    $or: [
+      { 'checkIn.time': { $exists: true, $ne: null } },
+      { status: 'present' }
+    ]
+  });
+  const attended = await Employee.find({ _id: { $in: attendedIds } }, 'name employeeId').lean();
   if (!attended.length) return `Chưa có ai điểm danh ngày ${dateISO}.`;
-  return `Đã điểm danh ${dateISO} (${attended.length}): ${attended.map(x=>x.name).join(', ')}`;
+  
+  // Hiển thị danh sách với mã nhân viên
+  const list = attended.map(x => {
+    const code = x.employeeId || '';
+    return code ? `${x.name} (${code})` : x.name;
+  }).join(', ');
+  
+  return `Hôm nay ai đã điểm danh rồi:\n${list}\n\nTổng: ${attended.length} người.`;
 }
 
 async function handleUnattendedToday(user, entities) {
   if (!isPrivileged(user)) return 'Bạn không có quyền xem danh sách điểm danh.';
-  const dateISO = entities.dateISO || new Date().toISOString().slice(0,10);
-  const { start, end } = dayRange(dateISO);
-  const active = await Employee.find({ status: 'active' }, '_id name').lean();
-  const attendedIds = await Attendance.distinct('employee', { date: { $gte: start, $lt: end } });
+  
+  // Tính ngày theo timezone VN
+  const now = moment().tz('Asia/Ho_Chi_Minh');
+  const dateISO = entities.dateISO || now.format('YYYY-MM-DD');
+  const targetDate = moment.tz(dateISO, 'YYYY-MM-DD', 'Asia/Ho_Chi_Minh');
+  const start = targetDate.startOf('day').toDate();
+  const end = targetDate.endOf('day').toDate();
+  
+  const active = await Employee.find({ status: 'active' }, '_id name employeeId').lean();
+  // Query attendance với timezone VN
+  const attendedIds = await Attendance.distinct('employee', { 
+    date: { $gte: start, $lte: end },
+    $or: [
+      { 'checkIn.time': { $exists: true, $ne: null } },
+      { status: 'present' }
+    ]
+  });
   const missing = active.filter(e => !attendedIds.find(id => String(id) === String(e._id)));
   if (!missing.length) return `Tất cả nhân viên đều đã điểm danh ngày ${dateISO}`;
-  return `Chưa điểm danh ${dateISO} (${missing.length}): ${missing.map(x=>x.name).join(', ')}`;
+  
+  // Hiển thị danh sách với mã nhân viên
+  const list = missing.map(x => {
+    const code = x.employeeId || '';
+    return code ? `${x.name} (${code})` : x.name;
+  }).join(', ');
+  
+  return `Hôm nay ai chưa điểm danh:\n${list}\n\nTổng: ${missing.length} người.`;
 }
 
 async function handleMyAttendanceToday(user, entities) {
   const me = await resolveMe(user);
   if (!me) return 'Không tìm thấy hồ sơ nhân viên của bạn.';
 
-  const dateISO = entities.dateISO || new Date().toISOString().slice(0,10);
-  const { start, end } = dayRange(dateISO);
-  const has = await Attendance.exists({ employee: me._id, date: { $gte: start, $lt: end } });
-  if (has) return `Bạn ĐÃ điểm danh ngày ${dateISO}.`;
+  // Tính ngày hôm nay theo timezone VN
+  const now = moment().tz('Asia/Ho_Chi_Minh');
+  const today = now.clone();
+  const dateISO = entities.dateISO || today.format('YYYY-MM-DD');
+  
+  // Query attendance với timezone VN
+  const targetDate = moment.tz(dateISO, 'YYYY-MM-DD', 'Asia/Ho_Chi_Minh');
+  const start = targetDate.startOf('day').toDate();
+  const end = targetDate.endOf('day').toDate();
+  
+  // Kiểm tra attendance - có thể có checkIn hoặc status = 'present'
+  const attendance = await Attendance.findOne({ 
+    employee: me._id, 
+    date: { $gte: start, $lte: end } 
+  });
+  
+  if (attendance && (attendance.checkIn?.time || attendance.status === 'present')) {
+    return `Bạn ĐÃ điểm danh ngày ${dateISO}.`;
+  }
   return `Bạn CHƯA điểm danh ngày ${dateISO}.`;
+}
+
+async function handleMyAttendanceYesterday(user, entities) {
+  const me = await resolveMe(user);
+  if (!me) return 'Không tìm thấy hồ sơ nhân viên của bạn.';
+
+  // Tính ngày hôm qua theo timezone VN (giống như attendanceController)
+  const now = moment().tz('Asia/Ho_Chi_Minh');
+  const yesterday = now.clone().subtract(1, 'day');
+  const dateISO = yesterday.format('YYYY-MM-DD');
+  
+  // Query attendance với timezone VN (giống như getAllAttendance)
+  const start = yesterday.startOf('day').toDate();
+  const end = yesterday.endOf('day').toDate();
+  
+  // Kiểm tra attendance - có thể có checkIn hoặc status = 'present'
+  const attendance = await Attendance.findOne({ 
+    employee: me._id, 
+    date: { $gte: start, $lte: end } 
+  });
+  
+  if (attendance && (attendance.checkIn?.time || attendance.status === 'present')) {
+    return `Hôm qua (${dateISO}) bạn ĐÃ điểm danh.`;
+  }
+  return `Hôm qua (${dateISO}) bạn CHƯA điểm danh.`;
 }
 
 async function handleEmployeeAttendanceByCode(user, entities, rawText) {
@@ -356,11 +450,22 @@ async function handleEmployeeAttendanceByCode(user, entities, rawText) {
 
   if (!emp) return `Không tìm thấy nhân viên với mã "${code}".`;
 
-  const dateISO = entities.dateISO || new Date().toISOString().slice(0,10);
-  const { start, end } = dayRange(dateISO);
-  const has = await Attendance.exists({ employee: emp._id, date: { $gte: start, $lt: end } });
+  // Tính ngày theo timezone VN
+  const now = moment().tz('Asia/Ho_Chi_Minh');
+  const dateISO = entities.dateISO || now.format('YYYY-MM-DD');
+  const targetDate = moment.tz(dateISO, 'YYYY-MM-DD', 'Asia/Ho_Chi_Minh');
+  const start = targetDate.startOf('day').toDate();
+  const end = targetDate.endOf('day').toDate();
   
-  if (has) return `Nhân viên ${emp.name} (${code}) ĐÃ điểm danh ngày ${dateISO}.`;
+  // Query attendance với timezone VN
+  const attendance = await Attendance.findOne({ 
+    employee: emp._id, 
+    date: { $gte: start, $lte: end } 
+  });
+  
+  if (attendance && (attendance.checkIn?.time || attendance.status === 'present')) {
+    return `Nhân viên ${emp.name} (${code}) ĐÃ điểm danh ngày ${dateISO}.`;
+  }
   return `Nhân viên ${emp.name} (${code}) CHƯA điểm danh ngày ${dateISO}.`;
 }
 
@@ -394,11 +499,48 @@ function handleLeaveApprover() {
     '• Trạng thái nghỉ phép sẽ cập nhật trong hệ thống sau khi duyệt xong.'
   ].join('\n');
 }
-function handleIsLateDeducted() {
-  return 'Mặc định: đi trễ có thể bị khấu trừ theo chính sách công ty (tuỳ cấu hình). Nếu đã có bảng chính sách cụ thể, mình sẽ lấy đúng mức khấu trừ để trả lời.';
+async function handleIsLateDeducted() {
+  const Settings = require('../models/Settings');
+  const latePolicy = await Settings.findOne({ type: 'late-policy' });
+  const config = latePolicy?.config || {};
+  
+  const penaltyRate = config.penaltyRate || 20000; // 20k mặc định
+  const penaltyInterval = config.penaltyInterval || 15; // 15 phút mặc định
+  const lostWorkDayThreshold = config.lateThreshold2Hours || 120; // 2 tiếng mặc định
+  
+  return [
+    'Đi trễ có bị trừ lương theo chính sách công ty:',
+    `• Phạt đi trễ: ${fmtVND(penaltyRate)} mỗi ${penaltyInterval} phút`,
+    `• Trễ >= ${lostWorkDayThreshold} phút (${lostWorkDayThreshold/60} giờ): Mất 1 ngày công`,
+    `• Phạt được tính: (Số phút trễ / ${penaltyInterval}) × ${fmtVND(penaltyRate)}`,
+    '',
+    'Ví dụ: Trễ 30 phút = (30/15) × 20.000 = 40.000₫'
+  ].join('\n');
 }
-function handleLatePenaltyRule() {
-  return 'Quy định phạt đi trễ (mặc định): <15 phút: nhắc nhở; 15–60 phút: phạt cố định; >60 phút: tính 1/2 ngày công. Hãy cập nhật bảng chính sách để mình trả lời đúng con số.';
+
+async function handleLatePenaltyRule() {
+  const Settings = require('../models/Settings');
+  const latePolicy = await Settings.findOne({ type: 'late-policy' });
+  const config = latePolicy?.config || {};
+  
+  const penaltyRate = config.penaltyRate || 20000; // 20k mặc định
+  const penaltyInterval = config.penaltyInterval || 15; // 15 phút mặc định
+  const lostWorkDayThreshold = config.lateThreshold2Hours || 120; // 2 tiếng mặc định
+  
+  return [
+    'Mức phạt đi muộn:',
+    `• Mỗi ${penaltyInterval} phút trễ: ${fmtVND(penaltyRate)}`,
+    `• Trễ >= ${lostWorkDayThreshold} phút (${lostWorkDayThreshold/60} giờ): Mất 1 ngày công (bị trừ lương 1 ngày)`,
+    '',
+    'Công thức tính phạt:',
+    `Phạt = (Số phút trễ / ${penaltyInterval}) × ${fmtVND(penaltyRate)}`,
+    '',
+    'Ví dụ:',
+    `• Trễ 15 phút: (15/${penaltyInterval}) × ${fmtVND(penaltyRate)} = ${fmtVND(penaltyRate)}`,
+    `• Trễ 30 phút: (30/${penaltyInterval}) × ${fmtVND(penaltyRate)} = ${fmtVND(penaltyRate * 2)}`,
+    `• Trễ 45 phút: (45/${penaltyInterval}) × ${fmtVND(penaltyRate)} = ${fmtVND(penaltyRate * 3)}`,
+    `• Trễ ${lostWorkDayThreshold} phút trở lên: Mất 1 ngày công`
+  ].join('\n');
 }
 function handlePolicySummary() {
   return [
@@ -414,12 +556,13 @@ function handlePolicySummary() {
 function helpText() {
   return [
     'Mình hiểu các câu:',
-    '• “Lương của tôi tháng này”, “nếu tôi nghỉ 2 ngày thì lương còn bao nhiêu?”',
-    '• “Lương EMP030 tháng 10”, “thông tin của mã EMP015”',
-    '• “Hôm nay ai đã/ chưa điểm danh?”, “checkin ngày YYYY-MM-DD có những ai”',
-    '• “Tổng lương tháng 9 của tất cả nhân viên?”',
-    '• “Hồ sơ của tôi”, “số ngày phép còn lại của tôi”, “xin nghỉ cần duyệt của ai”',
-    '• “mức phạt đi muộn”, “đi trễ có bị trừ lương không”, “tổng hợp chính sách nhân sự”'
+    '• "Lương của tôi tháng này", "nếu tôi nghỉ 2 ngày thì lương còn bao nhiêu?"',
+    '• "Lương EMP030 tháng 10", "thông tin của mã EMP015"',
+    '• "Hôm nay ai đã/ chưa điểm danh?", "checkin ngày YYYY-MM-DD có những ai"',
+    '• "Hôm qua tui đã check in chưa", "Nhân viên EMP003 đã check in chưa"',
+    '• "Tổng lương tháng 9 của tất cả nhân viên?"',
+    '• "Hồ sơ của tôi", "số ngày phép còn lại của tôi", "xin nghỉ cần duyệt của ai"',
+    '• "mức phạt đi muộn", "đi trễ có bị trừ lương không", "tổng hợp chính sách nhân sự"'
   ].join('\n');
 }
 
@@ -452,12 +595,19 @@ exports.postMessage = async (req, res) => {
       case 'MY_PROFILE':            reply = await handleMyProfile(user); break;
       case 'MY_LEAVE_BALANCE':      reply = await handleMyLeaveBalance(user); break;
       case 'LEAVE_APPROVER':        reply = handleLeaveApprover(); break;
-      case 'IS_LATE_DEDUCTED':      reply = handleIsLateDeducted(); break;
-      case 'LATE_PENALTY_RULE':     reply = handleLatePenaltyRule(); break;
+      case 'IS_LATE_DEDUCTED':      reply = await handleIsLateDeducted(); break;
+      case 'LATE_PENALTY_RULE':     reply = await handleLatePenaltyRule(); break;
+      case 'MY_ATTENDANCE_YESTERDAY': reply = await handleMyAttendanceYesterday(user, entities); break;
       case 'HR_POLICY_SUMMARY':     reply = handlePolicySummary(); break;
       default:
+        // Fallback: Nếu câu có "hôm qua" và "tui/tôi" và "check in/điểm danh" → MY_ATTENDANCE_YESTERDAY
+        if (/(hom qua|hôm qua|yesterday)/i.test(text) && 
+            /(toi|tui|m[iì]nh|t[ôo]i|em)\b/i.test(text) &&
+            /(da|đã|chưa|chua|check|diem danh|điểm danh|cham cong|chấm công)/i.test(text)) {
+          reply = await handleMyAttendanceYesterday(user, entities);
+        }
         // Fallback: Nếu câu có "lương" và "nhân viên" → thử coi như EMPLOYEE_SALARY
-        if (/l[ươ]ng|b[ả]ng l[ươ]ng/i.test(text) && /nhân\s*viên/i.test(text) && !/(toi|tui|minh|cua toi|của tôi|m[iì]nh|t[ôo]i|em)\b/i.test(text)) {
+        else if (/l[ươ]ng|b[ả]ng l[ươ]ng/i.test(text) && /nhân\s*viên/i.test(text) && !/(toi|tui|minh|cua toi|của tôi|m[iì]nh|t[ôo]i|em)\b/i.test(text)) {
           // Thử extract lại một lần nữa
           const extractedName = pickEmployeeName(text);
           const extractedCode = pickEmployeeCode(toASCII(text), text);

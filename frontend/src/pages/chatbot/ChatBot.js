@@ -1,10 +1,12 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Card, Input, Button, Typography, Space, Avatar, Tag } from 'antd';
-import { SendOutlined, RobotOutlined, UserOutlined } from '@ant-design/icons';
+import { Card, Input, Button, Typography, Space, Avatar, Tag, Popconfirm } from 'antd';
+import { SendOutlined, RobotOutlined, UserOutlined, ReloadOutlined } from '@ant-design/icons';
 import { chatApi } from '../../services/api'; // giữ nguyên path theo dự án của bạn
 
 const { Title } = Typography;
 const { TextArea } = Input;
+
+const CHAT_HISTORY_KEY = 'chatbot_history';
 
 const SUGGESTS_EMP = [
   'Cho tui xem lương tháng này của tôi',
@@ -19,17 +21,36 @@ const SUGGESTS_ELEVATED = [
 ];
 
 const ChatBot = () => {
-  const [messages, setMessages] = useState([
-    {
-      id: 1,
-      text:
-        'Xin chào! Tôi là ChatBot hỗ trợ hệ thống quản lý nhân sự. ' +
-        'Tôi có thể giúp bạn về chấm công, nghỉ phép, bảng lương và các vấn đề khác. ' +
-        'Bạn cần hỗ trợ gì?',
-      sender: 'bot',
-      timestamp: new Date()
+  // Lấy lịch sử chat từ localStorage khi component mount
+  const getInitialMessages = () => {
+    try {
+      const saved = localStorage.getItem(CHAT_HISTORY_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        // Parse lại timestamp từ string về Date object
+        return parsed.map(msg => ({
+          ...msg,
+          timestamp: new Date(msg.timestamp)
+        }));
+      }
+    } catch (error) {
+      console.error('Error loading chat history:', error);
     }
-  ]);
+    // Message mặc định nếu không có lịch sử
+    return [
+      {
+        id: 1,
+        text:
+          'Xin chào! Tôi là ChatBot hỗ trợ hệ thống quản lý nhân sự. ' +
+          'Tôi có thể giúp bạn về chấm công, nghỉ phép, bảng lương và các vấn đề khác. ' +
+          'Bạn cần hỗ trợ gì?',
+        sender: 'bot',
+        timestamp: new Date()
+      }
+    ];
+  };
+
+  const [messages, setMessages] = useState(getInitialMessages);
   const [inputMessage, setInputMessage] = useState('');
   const [loading, setLoading] = useState(false);
   const messagesEndRef = useRef(null);
@@ -49,7 +70,33 @@ const ChatBot = () => {
     scrollToBottom();
   }, [messages]);
 
+  // Lưu lịch sử chat vào localStorage mỗi khi messages thay đổi
+  useEffect(() => {
+    try {
+      localStorage.setItem(CHAT_HISTORY_KEY, JSON.stringify(messages));
+    } catch (error) {
+      console.error('Error saving chat history:', error);
+    }
+  }, [messages]);
+
   const pushMessage = (msg) => setMessages((prev) => [...prev, msg]);
+
+  // Xóa sạch lịch sử chat
+  const handleClearHistory = () => {
+    const defaultMessage = [
+      {
+        id: 1,
+        text:
+          'Xin chào! Tôi là ChatBot hỗ trợ hệ thống quản lý nhân sự. ' +
+          'Tôi có thể giúp bạn về chấm công, nghỉ phép, bảng lương và các vấn đề khác. ' +
+          'Bạn cần hỗ trợ gì?',
+        sender: 'bot',
+        timestamp: new Date()
+      }
+    ];
+    setMessages(defaultMessage);
+    localStorage.removeItem(CHAT_HISTORY_KEY);
+  };
 
   const handleSendMessage = async () => {
     const text = inputMessage.trim();
@@ -104,10 +151,26 @@ const ChatBot = () => {
   return (
     <div>
       <Card>
-        <div style={{ marginBottom: 16 }}>
+        <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <Title level={3} style={{ margin: 0 }}>
             <RobotOutlined /> ChatBot Hỗ trợ
           </Title>
+          <Popconfirm
+            title="Xóa lịch sử chat"
+            description="Bạn có chắc muốn xóa toàn bộ lịch sử chat?"
+            onConfirm={handleClearHistory}
+            okText="Xóa"
+            cancelText="Hủy"
+            okButtonProps={{ danger: true }}
+          >
+            <Button 
+              icon={<ReloadOutlined />} 
+              type="default"
+              size="small"
+            >
+              Xóa lịch sử
+            </Button>
+          </Popconfirm>
         </div>
 
         <div

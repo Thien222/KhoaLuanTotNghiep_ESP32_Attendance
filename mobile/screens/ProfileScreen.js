@@ -9,7 +9,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../contexts/AuthContext';
-import { employeeAPI } from '../services/api';
+import { authAPI, employeeAPI } from '../services/api';
 
 export default function ProfileScreen({ navigation }) {
   const { user, logout } = useAuth();
@@ -23,12 +23,27 @@ export default function ProfileScreen({ navigation }) {
   const loadProfile = async () => {
     try {
       setLoading(true);
+      // Dùng employeeAPI để lấy đầy đủ thông tin employee
       const response = await employeeAPI.getMyProfile();
+      
       if (response.success) {
-        setProfile(response.data);
+        // Backend trả về data.employee
+        const profileData = response.data?.employee || response.data;
+        setProfile(profileData);
+        console.log('Loaded profile:', profileData);
       }
     } catch (error) {
       console.error('Error loading profile:', error);
+      // Fallback: thử authAPI
+      try {
+        const response = await authAPI.getProfile();
+        if (response.success) {
+          const profileData = response.data?.employee || response.data?.user;
+          setProfile(profileData);
+        }
+      } catch (e) {
+        console.error('Both API calls failed:', e);
+      }
     } finally {
       setLoading(false);
     }
@@ -59,7 +74,11 @@ export default function ProfileScreen({ navigation }) {
     </View>
   );
 
-  const employee = profile || user?.employee;
+  // FIX: Lấy employee từ profile hoặc user, ưu tiên profile
+  const employee = profile || user?.employee || {};
+  
+  // Debug log
+  console.log('Profile data:', { profile, user: user?.employee, employee });
 
   return (
     <ScrollView style={styles.container}>
@@ -79,27 +98,27 @@ export default function ProfileScreen({ navigation }) {
           <InfoRow
             icon="id-card-outline"
             label="Mã nhân viên"
-            value={employee?.employeeId}
+            value={employee?.employeeId || employee?.code || user?.username || 'N/A'}
           />
           <InfoRow
             icon="mail-outline"
             label="Email"
-            value={employee?.email || user?.email}
+            value={employee?.email || user?.email || 'N/A'}
           />
           <InfoRow
             icon="call-outline"
             label="Số điện thoại"
-            value={employee?.phone}
+            value={employee?.phone || employee?.phoneNumber || 'N/A'}
           />
           <InfoRow
             icon="briefcase-outline"
             label="Chức vụ"
-            value={employee?.position}
+            value={employee?.position || employee?.jobTitle || 'N/A'}
           />
           <InfoRow
             icon="business-outline"
             label="Phòng ban"
-            value={employee?.department}
+            value={employee?.department || employee?.departmentName || 'N/A'}
           />
         </View>
       </View>

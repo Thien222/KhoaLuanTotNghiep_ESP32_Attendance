@@ -9,7 +9,11 @@ import LeaveScreen from '../screens/LeaveScreen';
 import ProfileScreen from '../screens/ProfileScreen';
 import LeaveDetailScreen from '../screens/LeaveDetailScreen';
 import ApplyLeaveScreen from '../screens/ApplyLeaveScreen';
+import ApplyOvertimeScreen from '../screens/ApplyOvertimeScreen';
 import ChatBotScreen from '../screens/ChatBotScreen';
+import ChangePasswordScreen from '../screens/ChangePasswordScreen';
+import OTScheduleScreen from '../screens/OTScheduleScreen';
+import InternalChatScreen from '../screens/InternalChatScreen';
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
@@ -31,6 +35,50 @@ function LeaveStack() {
         name="ApplyLeave" 
         component={ApplyLeaveScreen}
         options={{ title: 'Tạo đơn nghỉ phép' }}
+      />
+      <Stack.Screen 
+        name="ApplyOvertime" 
+        component={ApplyOvertimeScreen}
+        options={{ title: 'Tạo đơn xin OT' }}
+      />
+    </Stack.Navigator>
+  );
+}
+
+function ProfileStack() {
+  return (
+    <Stack.Navigator>
+      <Stack.Screen 
+        name="ProfileHome" 
+        component={ProfileScreen}
+        options={{ headerShown: false }}
+      />
+      <Stack.Screen 
+        name="ChangePassword" 
+        component={ChangePasswordScreen}
+        options={{ headerShown: false }}
+      />
+    </Stack.Navigator>
+  );
+}
+
+function HomeStack() {
+  return (
+    <Stack.Navigator>
+      <Stack.Screen 
+        name="HomeMain" 
+        component={HomeScreen}
+        options={{ headerShown: false }}
+      />
+      <Stack.Screen 
+        name="OTSchedule" 
+        component={OTScheduleScreen}
+        options={{ headerShown: false }}
+      />
+      <Stack.Screen 
+        name="InternalChat" 
+        component={InternalChatScreen}
+        options={{ headerShown: false }}
       />
     </Stack.Navigator>
   );
@@ -66,7 +114,7 @@ export default function MainNavigator() {
     >
       <Tab.Screen 
         name="Home" 
-        component={HomeScreen}
+        component={HomeStack}
         options={{ title: 'Trang chủ' }}
       />
       <Tab.Screen 
@@ -91,7 +139,7 @@ export default function MainNavigator() {
       />
       <Tab.Screen 
         name="Profile" 
-        component={ProfileScreen}
+        component={ProfileStack}
         options={{ title: 'Hồ sơ' }}
       />
     </Tab.Navigator>

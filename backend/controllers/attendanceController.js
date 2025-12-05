@@ -999,8 +999,9 @@ exports.addAttendance = async (req, res) => {
     }
 
     // 3. Lấy settings và tính lương
+    const STANDARD_WORKING_DAYS = 26; // Ngày công chuẩn (Cách 1)
     const baseSalary = employee.baseSalary || employee.salary || 0;
-    const dailyRate = baseSalary > 0 ? (baseSalary / 30) : 0;
+    const dailyRate = baseSalary > 0 ? (baseSalary / STANDARD_WORKING_DAYS) : 0;
 
     // Bản ghi hôm nay
     let attendance = await Attendance.findOne({ employee: employee._id, date: today });
@@ -1590,8 +1591,9 @@ const totalHours = totalMinutes / 60;
     const otSettings = allSettings['overtime'] || {};
     // HARDCODED: Giờ làm việc cố định 08:00-17:00
 
+    const STANDARD_WORKING_DAYS = 26; // Ngày công chuẩn (Cách 1)
     const baseSalary = employee.baseSalary || employee.salary || 0;
-    const dailyRate = baseSalary > 0 ? baseSalary / 30 : 0;
+    const dailyRate = baseSalary > 0 ? baseSalary / STANDARD_WORKING_DAYS : 0;
     const hourlyRate = dailyRate / 8;
 
     // 5. Tính đi muộn so với giờ chuẩn (startTime)
@@ -1995,8 +1997,9 @@ exports.updateAttendance = async (req, res) => {
     const otRateSettings = allSettings['ot-rate'] || {};
     // HARDCODED: Giờ làm việc cố định 08:00-17:00
     
+    const STANDARD_WORKING_DAYS = 26; // Ngày công chuẩn (Cách 1)
     const baseSalary = employee.baseSalary || employee.salary || 0;
-    const dailyRate = baseSalary > 0 ? baseSalary / 30 : 0;
+    const dailyRate = baseSalary > 0 ? baseSalary / STANDARD_WORKING_DAYS : 0;
     
     // Calculate late minutes
     // HARDCODED: Giờ làm việc cố định 08:00-17:00

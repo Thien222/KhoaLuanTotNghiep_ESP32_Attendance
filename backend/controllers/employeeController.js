@@ -143,10 +143,28 @@ exports.addEmployee = async (req, res) => {
 // Get all employees
 exports.getAllEmployees = async (req, res) => {
   try {
-    const employees = await Employee.find().select('-fingerprintTemplate').sort({ employeeId: 1 });
+    const employees = await Employee.find()
+      .select('-fingerprintTemplate')
+      .sort({ employeeId: 1 })
+      .lean();
+    
+    // Get users for each employee
+    const User = require('../models/User');
+    const employeesWithUsers = await Promise.all(
+      employees.map(async (emp) => {
+        const user = await User.findOne({ employee: emp._id })
+          .select('username email role _id')
+          .lean();
+        return {
+          ...emp,
+          user: user || null
+        };
+      })
+    );
+    
     res.status(200).json({
       success: true,
-      data: employees
+      data: employeesWithUsers
     });
   } catch (error) {
     console.error('Error fetching employees:', error);

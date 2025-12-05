@@ -5,7 +5,9 @@ const { protect, restrictTo } = require('../middleware/authMiddleware');
 
 // Employee routes
 router.post('/request', protect, overtimeController.createOTRequest);
+router.post('/', protect, overtimeController.createOTRequest); // Mobile compatibility
 router.get('/my-requests', protect, overtimeController.getMyOTRequests);
+router.get('/', protect, overtimeController.getMyOTRequests); // Mobile compatibility
 router.delete('/request/:id', protect, overtimeController.cancelOTRequest);
 router.get('/preview/:date', protect, overtimeController.previewOTTimeframe); // NEW: Preview OT timeframe from shift
 
@@ -14,6 +16,7 @@ router.get('/pending', protect, restrictTo('manager'), overtimeController.getPen
 router.get('/all', protect, restrictTo('manager'), overtimeController.getAllOTRequests);
 router.put('/approve/:id', protect, restrictTo('manager'), overtimeController.approveOTRequest);
 router.put('/reject/:id', protect, restrictTo('manager'), overtimeController.rejectOTRequest);
+router.post('/bulk-assign', protect, restrictTo('manager'), overtimeController.bulkAssignOT);
 
 // Check if employee has approved OT for a date
 router.get('/check/:employeeId/:date', protect, overtimeController.checkOTApproval);

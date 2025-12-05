@@ -12,7 +12,8 @@ import {
   Col,
   Statistic,
   Typography,
-  Space
+  Space,
+  DatePicker
 } from 'antd';
 import {
   CalendarOutlined,
@@ -27,6 +28,7 @@ import axios from 'axios';
 import moment from 'moment';
 import { getAPIUrl } from '../../utils/configManager';
 import { useAuth } from '../../contexts/AuthContext';
+import './MyAttendanceCalendar.css';
 
 const { Title, Text } = Typography;
 
@@ -37,6 +39,7 @@ const MyAttendanceCalendar = () => {
   const [selectedDate, setSelectedDate] = useState(null);
   const [modalVisible, setModalVisible] = useState(false);
   const [currentMonth, setCurrentMonth] = useState(moment());
+  const [selectedYear, setSelectedYear] = useState(moment().year());
   const [monthStats, setMonthStats] = useState({
     presentDays: 0,
     absentDays: 0,
@@ -99,67 +102,238 @@ const MyAttendanceCalendar = () => {
     const dateKey = date.format('YYYY-MM-DD');
     const attendance = attendanceData[dateKey];
     const isToday = dateKey === moment().format('YYYY-MM-DD');
-    const isCurrentMonth = date.month() === currentMonth.month();
+    const isCurrentMonth = date.month() === currentMonth.month() && date.year() === currentMonth.year();
+    const dayOfWeek = date.day();
+    const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+    const isFuture = date.isAfter(moment(), 'day');
+    const isPast = date.isBefore(moment(), 'day');
 
-    if (!isCurrentMonth) return null;
+    // Chỉ render các ngày trong tháng hiện tại
+    if (!isCurrentMonth) {
+      return null;
+    }
 
+    // Future dates - hiển thị trống, không click được
+    if (isFuture) {
+      return (
+        <div style={{ 
+          height: '100%', 
+          minHeight: 80,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          background: '#fafafa',
+          border: '1px solid #f0f0f0',
+          borderRadius: 4,
+        }}>
+          <Text style={{ fontSize: 14, color: '#d9d9d9' }}>{date.date()}</Text>
+        </div>
+      );
+    }
+
+    // Weekend không có attendance - hiển thị nhẹ nhàng
+    if (isWeekend && !attendance) {
+      return (
+        <div style={{ 
+          height: '100%',
+          minHeight: 80,
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          background: '#fafafa',
+          border: '1px solid #f0f0f0',
+          borderRadius: 4,
+          padding: '4px'
+        }}>
+          <Text style={{ fontSize: 12, color: '#d9d9d9', marginBottom: 4 }}>{date.date()}</Text>
+          <Text style={{ fontSize: 9, color: '#d9d9d9' }}>Cuối tuần</Text>
+        </div>
+      );
+    }
+
+    // Có dữ liệu attendance
     if (attendance) {
       const isPresent = attendance.status === 'present' || attendance.checkIn?.time;
+      const isAbsent = attendance.status === 'absent';
       const isLate = attendance.lateMinutes > 0;
       const hasOT = attendance.overtimeHours > 0;
+
+      // Xác định màu chính - Ưu tiên: Absent > OT > Late > Present
+      let cellColor = '#fff';
+      let borderColor = '#d9d9d9';
+      let statusDot = '#d9d9d9';
+      
+      if (isAbsent) {
+        cellColor = '#fff2f0';
+        borderColor = '#ffccc7';
+        statusDot = '#ff4d4f';
+      } else if (hasOT) {
+        cellColor = '#f9f0ff';
+        borderColor = '#d3adf7';
+        statusDot = '#722ed1';
+      } else if (isLate) {
+        cellColor = '#fffbe6';
+        borderColor = '#ffe58f';
+        statusDot = '#faad14';
+      } else if (isPresent) {
+        cellColor = '#f6ffed';
+        borderColor = '#b7eb8f';
+        statusDot = '#52c41a';
+      }
 
       return (
         <div 
           style={{ 
             position: 'relative',
             height: '100%',
+            minHeight: 80,
             display: 'flex',
             flexDirection: 'column',
             alignItems: 'center',
-            cursor: 'pointer'
+            justifyContent: 'flex-start',
+            cursor: 'pointer',
+            background: cellColor,
+            border: `2px solid ${borderColor}`,
+            borderRadius: 6,
+            padding: '6px 4px',
+            transition: 'all 0.2s',
+            boxSizing: 'border-box'
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.transform = 'scale(1.02)';
+            e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.15)';
+            e.currentTarget.style.zIndex = 10;
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.transform = 'scale(1)';
+            e.currentTarget.style.boxShadow = 'none';
+            e.currentTarget.style.zIndex = 1;
           }}
           onClick={() => {
             setSelectedDate({ date: dateKey, data: attendance });
             setModalVisible(true);
           }}
         >
-          <Badge 
-            status={isPresent ? 'success' : 'error'} 
-            style={{ position: 'absolute', top: 2, right: 2 }}
-          />
-          {isLate && (
-            <Tag color="orange" style={{ fontSize: 10, padding: '0 4px', marginTop: 20 }}>
+          {/* Status indicator dot */}
+          <div style={{
+            position: 'absolute',
+            top: 4,
+            right: 4,
+            width: 10,
+            height: 10,
+            borderRadius: '50%',
+            background: statusDot,
+            border: '1px solid #fff',
+            boxShadow: '0 1px 2px rgba(0,0,0,0.1)'
+          }} />
+          
+          {/* Date number */}
+          <Text strong style={{ 
+            fontSize: 15, 
+            color: isToday ? '#1890ff' : '#333',
+            marginBottom: 4,
+            fontWeight: isToday ? 'bold' : 'normal'
+          }}>
+            {date.date()}
+          </Text>
+
+          {/* Status tags - chỉ hiển thị nếu có */}
+          <div style={{ 
+            display: 'flex', 
+            flexDirection: 'column', 
+            gap: 2, 
+            alignItems: 'center',
+            width: '100%',
+            marginTop: 'auto'
+          }}>
+            {isAbsent && (
+              <Tag color="red" style={{ fontSize: 8, padding: '0 3px', margin: 0, lineHeight: '14px', width: 'fit-content' }}>
+                Vắng
+              </Tag>
+            )}
+            {!isAbsent && isLate && (
+              <Tag color="orange" style={{ fontSize: 8, padding: '0 3px', margin: 0, lineHeight: '14px', width: 'fit-content' }}>
               Trễ {attendance.lateMinutes}p
             </Tag>
           )}
           {hasOT && (
-            <Tag color="purple" style={{ fontSize: 10, padding: '0 4px', marginTop: 2 }}>
+              <Tag color="purple" style={{ fontSize: 8, padding: '0 3px', margin: 0, lineHeight: '14px', width: 'fit-content' }}>
               OT {attendance.overtimeHours.toFixed(1)}h
             </Tag>
           )}
+          </div>
         </div>
       );
     }
 
-    // Weekend styling
-    const dayOfWeek = date.day();
-    if (dayOfWeek === 0 || dayOfWeek === 6) {
+    // Past weekday without attendance = absent (màu đỏ)
+    if (isPast && !isWeekend) {
       return (
-        <div style={{ color: '#999', fontSize: 10 }}>
-          Cuối tuần
+        <div 
+          style={{
+            position: 'relative',
+            height: '100%',
+            minHeight: 80,
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'flex-start',
+            cursor: 'pointer',
+            background: '#fff2f0',
+            border: '2px solid #ffccc7',
+            borderRadius: 6,
+            padding: '6px 4px',
+            boxSizing: 'border-box'
+          }}
+          onClick={() => {
+            setSelectedDate({ date: dateKey, data: null });
+            setModalVisible(true);
+          }}
+        >
+          <div style={{
+            position: 'absolute',
+            top: 4,
+            right: 4,
+            width: 10,
+            height: 10,
+            borderRadius: '50%',
+            background: '#ff4d4f',
+            border: '1px solid #fff',
+            boxShadow: '0 1px 2px rgba(0,0,0,0.1)'
+          }} />
+          <Text style={{ fontSize: 15, color: '#333', marginBottom: 4 }}>{date.date()}</Text>
+          <Tag color="red" style={{ 
+            fontSize: 8, 
+            padding: '0 3px',
+            margin: 0,
+            lineHeight: '14px',
+            width: 'fit-content',
+            marginTop: 'auto'
+          }}>
+            Vắng
+          </Tag>
         </div>
       );
     }
 
-    // Future date
-    if (date.isAfter(moment(), 'day')) {
-      return null;
-    }
-
-    // Past weekday without attendance = absent
-    if (date.isBefore(moment(), 'day')) {
+    // Default: Past weekend không có attendance
+    if (isPast && isWeekend) {
       return (
-        <Badge status="default" text="" style={{ position: 'absolute', top: 2, right: 2 }} />
+        <div style={{ 
+          height: '100%',
+          minHeight: 80,
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          background: '#fafafa',
+          border: '1px solid #f0f0f0',
+          borderRadius: 4,
+          padding: '4px'
+        }}>
+          <Text style={{ fontSize: 12, color: '#d9d9d9' }}>{date.date()}</Text>
+        </div>
       );
     }
 
@@ -168,6 +342,7 @@ const MyAttendanceCalendar = () => {
 
   const onPanelChange = (date) => {
     setCurrentMonth(date);
+    setSelectedYear(date.year());
   };
 
   const formatCurrency = (value) => {
@@ -193,8 +368,26 @@ const MyAttendanceCalendar = () => {
             </Title>
           </Space>
           <Text type="secondary" style={{ display: 'block', marginTop: 4 }}>
-            {user?.employee?.name || user?.username} - {currentMonth.format('MM/YYYY')}
+            {user?.employee?.name || user?.username}
           </Text>
+        </div>
+
+        {/* Month/Year Selector */}
+        <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'flex-end', alignItems: 'center' }}>
+          <DatePicker
+            picker="month"
+            value={currentMonth}
+            onChange={(date) => {
+              if (date) {
+                setCurrentMonth(date);
+                setSelectedYear(date.year());
+              }
+            }}
+            format="MM/YYYY"
+            placeholder="Chọn tháng"
+            style={{ width: 150 }}
+            allowClear={false}
+          />
         </div>
 
         {/* Statistics */}
@@ -243,31 +436,20 @@ const MyAttendanceCalendar = () => {
           </Col>
         </Row>
 
-        {/* Legend */}
-        <Alert
-          type="info"
-          showIcon
-          message={
-            <Space split={<span style={{ color: '#d9d9d9' }}>|</span>}>
-              <span><Badge status="success" /> Có mặt</span>
-              <span><Badge status="error" /> Vắng</span>
-              <span><Tag color="orange" style={{ fontSize: 10 }}>Trễ</Tag> Đi trễ</span>
-              <span><Tag color="purple" style={{ fontSize: 10 }}>OT</Tag> Làm thêm</span>
-            </Space>
-          }
-          style={{ marginBottom: 16 }}
-        />
-
         {/* Calendar */}
         <Spin spinning={loading}>
           <Calendar
             value={currentMonth}
             onPanelChange={onPanelChange}
-            dateCellRender={getDateCellRender}
+            cellRender={getDateCellRender}
+            validRange={[moment(`${selectedYear}-01-01`), moment(`${selectedYear}-12-31`)]}
+            fullscreen={false}
+            headerRender={() => null}
             style={{ 
               border: '1px solid #f0f0f0',
               borderRadius: 8,
             }}
+            className="attendance-calendar"
           />
         </Spin>
       </Card>
@@ -358,12 +540,17 @@ const MyAttendanceCalendar = () => {
             )}
           </Descriptions>
         )}
+        {!selectedDate?.data && (
+          <Alert
+            message="Không có dữ liệu chấm công"
+            description="Ngày này không có thông tin chấm công."
+            type="info"
+            showIcon
+          />
+        )}
       </Modal>
     </div>
   );
 };
 
 export default MyAttendanceCalendar;
-
-
-

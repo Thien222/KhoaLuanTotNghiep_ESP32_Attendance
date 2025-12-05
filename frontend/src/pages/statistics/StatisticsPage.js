@@ -153,7 +153,11 @@ const StatisticsPage = () => {
 
   const processPayrollStats = (data) => {
     const totalEmployees = data.length;
-    const totalBaseSalary = data.reduce((sum, p) => sum + (p.basicSalary || p.baseSalary || 0), 0);
+    // FIX: Dùng basicSalaryFull (lương cơ bản tháng) thay vì baseSalary (lương ngày công)
+    const totalBaseSalary = data.reduce((sum, p) => {
+      const basicSalaryFull = p.basicSalaryFull || p.employee?.baseSalary || p.employee?.salary || 0;
+      return sum + basicSalaryFull;
+    }, 0);
     const totalOTPay = data.reduce((sum, p) => sum + (p.overtimePay || 0), 0);
     const totalPenalty = data.reduce((sum, p) => sum + (p.latePenalty || 0), 0);
     const totalDeductions = data.reduce((sum, p) => sum + (p.deductions || 0), 0);
@@ -173,15 +177,19 @@ const StatisticsPage = () => {
       avgSalary: totalEmployees > 0 ? Math.round(totalNetSalary / totalEmployees) : 0
     });
 
-    setEmployeeStats(data.map(p => ({
-      employee: p.employee,
-      baseSalary: p.basicSalary || p.baseSalary || 0,
-      workingDays: p.workingDays || 0,
-      otHours: p.overtimeHours || 0,
-      otPay: p.overtimePay || 0,
-      penalty: p.latePenalty || 0,
-      netSalary: p.netSalary || 0
-    })).sort((a, b) => b.netSalary - a.netSalary));
+    // FIX: Dùng basicSalaryFull (lương cơ bản tháng) thay vì baseSalary (lương ngày công)
+    setEmployeeStats(data.map(p => {
+      const basicSalaryFull = p.basicSalaryFull || p.employee?.baseSalary || p.employee?.salary || 0;
+      return {
+        employee: p.employee,
+        baseSalary: basicSalaryFull, // Lương cơ bản tháng từ database
+        workingDays: p.workingDays || 0,
+        otHours: p.overtimeHours || 0,
+        otPay: p.overtimePay || 0,
+        penalty: p.latePenalty || 0,
+        netSalary: p.netSalary || 0
+      };
+    }).sort((a, b) => b.netSalary - a.netSalary));
   };
 
   const formatCurrency = (value) => 

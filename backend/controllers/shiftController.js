@@ -1,6 +1,7 @@
 const Shift = require('../models/Shift');
 const EmployeeShift = require('../models/EmployeeShift');
 const Employee = require('../models/Employee');
+const OvertimeRequest = require('../models/OvertimeRequest');
 const moment = require('moment-timezone');
 
 moment.tz.setDefault('Asia/Ho_Chi_Minh');
@@ -248,6 +249,12 @@ exports.assignShift = async (req, res) => {
       });
     }
 
+    // Determine if this is an OT shift
+    // Check: 1) isOvertimeShift flag, 2) shift name contains "OT", 3) startTime >= 18:00
+    const shiftName = (shift.name || '').toUpperCase();
+    const [startHour] = (shift.startTime || '00:00').split(':').map(Number);
+    const isOTShift = shiftName.includes('OT') || shiftName.includes('OVERTIME') || startHour >= 18;
+
     const assignedDate = startDate ? moment(startDate).toDate() : moment().toDate();
     const assignments = [];
 
@@ -264,11 +271,12 @@ exports.assignShift = async (req, res) => {
         { isActive: false, endDate: assignedDate }
       );
 
-      // Create new assignment
+      // Create new assignment with isOvertimeShift flag
       const employeeShift = new EmployeeShift({
         employee: employeeId,
         shift: shiftId,
-        startDate: assignedDate
+        startDate: assignedDate,
+        isOvertimeShift: isOTShift // Auto-detect OT shift
       });
 
       await employeeShift.save();
@@ -284,6 +292,50 @@ exports.assignShift = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Error assigning shift',
+      error: error.message
+    });
+  }
+};
+
+// Get employee shift assignments for a specific date
+exports.getShiftAssignments = async (req, res) => {
+  try {
+    const { date } = req.query;
+    
+    if (!date) {
+      return res.status(400).json({
+        success: false,
+        message: 'Date parameter is required'
+      });
+    }
+    
+    const targetDate = moment(date).toDate();
+    const startOfDay = moment(targetDate).startOf('day').toDate();
+    const endOfDay = moment(targetDate).endOf('day').toDate();
+    
+    // Find all active employee shifts for the given date
+    const employeeShifts = await EmployeeShift.find({
+      startDate: { $lte: endOfDay },
+      $or: [
+        { endDate: null },
+        { endDate: { $gte: startOfDay } }
+      ],
+      isActive: true
+    })
+    .populate('employee', 'name employeeId department email')
+    .populate('shift', 'name startTime endTime description')
+    .sort({ 'employee.name': 1 });
+    
+    res.status(200).json({
+      success: true,
+      data: employeeShifts,
+      count: employeeShifts.length,
+      date: moment(date).format('YYYY-MM-DD')
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching shift assignments',
       error: error.message
     });
   }
@@ -312,6 +364,154 @@ exports.getEmployeeShifts = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Error fetching employee shifts',
+      error: error.message
+    });
+  }
+};
+
+// Get my OT schedule (for mobile app) - Lấy TẤT CẢ các ngày OT (bao gồm quá khứ)
+exports.getMyOTSchedule = async (req, res) => {
+  try {
+    const employeeId = req.user.employee;
+    
+    if (!employeeId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Employee ID not found'
+      });
+    }
+    
+    // Lấy tất cả active shifts (không filter theo isOvertimeShift để lấy được tất cả)
+    const allShifts = await EmployeeShift.find({
+      employee: employeeId,
+      isActive: true
+    })
+    .populate('shift', 'name startTime endTime')
+    .sort({ startDate: 1 });
+    
+    // Filter để chỉ lấy OT shifts (check isOvertimeShift hoặc shift name hoặc startTime)
+    const filteredOTShifts = allShifts.filter(shift => {
+      // Check flag isOvertimeShift
+      if (shift.isOvertimeShift === true) {
+        console.log(`✅ OT Shift (flag): ${shift.shift?.name}, startDate: ${moment(shift.startDate).format('YYYY-MM-DD')}`);
+        return true;
+      }
+      // Check shift details
+      if (shift.shift) {
+        const shiftName = (shift.shift.name || '').toUpperCase();
+        // Check tên ca chứa "OT"
+        if (shiftName.includes('OT') || shiftName.includes('OVERTIME')) {
+          console.log(`✅ OT Shift (name): ${shift.shift.name}, startDate: ${moment(shift.startDate).format('YYYY-MM-DD')}`);
+          return true;
+        }
+        // Check giờ bắt đầu >= 18:00
+        if (shift.shift.startTime) {
+          const [startHour] = shift.shift.startTime.split(':').map(Number);
+          if (startHour >= 18) {
+            console.log(`✅ OT Shift (time): ${shift.shift.name} (${shift.shift.startTime}), startDate: ${moment(shift.startDate).format('YYYY-MM-DD')}`);
+            return true;
+          }
+        }
+      }
+      return false;
+    });
+    
+    // Lấy TẤT CẢ approved OT requests (không filter theo ngày)
+    const otRequests = await OvertimeRequest.find({
+      employee: employeeId,
+      status: 'approved'
+    }).sort({ date: 1 });
+    
+    // Combine both sources
+    const schedule = [];
+    const dateSet = new Set(); // Để tránh trùng lặp
+    
+    // Chỉ hiển thị startDate của mỗi ca được gán, KHÔNG tạo tất cả các ngày trong khoảng
+    // Mỗi EmployeeShift record đại diện cho 1 ca được gán tại 1 ngày cụ thể (startDate)
+    // Không tạo các ngày từ startDate đến endDate như trước
+    filteredOTShifts.forEach(shift => {
+      const startDate = moment(shift.startDate).startOf('day');
+      const dateKey = startDate.format('YYYY-MM-DD');
+      
+      // Chỉ thêm startDate, không tạo các ngày khác trong khoảng
+        if (!dateSet.has(dateKey)) {
+          schedule.push({
+          date: startDate.toDate(),
+            shift: shift.shift,
+            type: 'shift',
+          isOvertimeShift: true,
+          employeeShiftId: shift._id
+          });
+          dateSet.add(dateKey);
+      }
+    });
+    
+    // Add OT requests
+    otRequests.forEach(request => {
+      const dateKey = moment(request.date).format('YYYY-MM-DD');
+      if (!dateSet.has(dateKey)) {
+        schedule.push({
+          date: request.date,
+          shift: {
+            name: 'OT Request',
+            startTime: request.startTime,
+            endTime: request.endTime
+          },
+          type: 'request',
+          isOvertimeShift: true
+        });
+        dateSet.add(dateKey);
+      }
+    });
+    
+    // Sort by date
+    schedule.sort((a, b) => new Date(a.date) - new Date(b.date));
+    
+    console.log(`📅 [OT Schedule] Employee ${employeeId}: Found ${schedule.length} OT days`);
+    schedule.forEach(s => {
+      console.log(`   - ${moment(s.date).format('YYYY-MM-DD')}: ${s.shift?.name} (${s.type})`);
+    });
+    
+    res.status(200).json({
+      success: true,
+      data: schedule
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching OT schedule',
+      error: error.message
+    });
+  }
+};
+
+// Delete employee shift assignment
+exports.deleteEmployeeShift = async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    const employeeShift = await EmployeeShift.findById(id);
+    if (!employeeShift) {
+      return res.status(404).json({
+        success: false,
+        message: 'Lịch gán ca không tồn tại'
+      });
+    }
+    
+    // Xóa hoặc deactivate lịch gán ca
+    await EmployeeShift.findByIdAndUpdate(id, {
+      isActive: false,
+      endDate: moment().toDate()
+    });
+    
+    res.status(200).json({
+      success: true,
+      message: 'Đã xóa lịch gán ca thành công'
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: 'Lỗi khi xóa lịch gán ca',
       error: error.message
     });
   }

@@ -24,7 +24,8 @@ import {
   EditOutlined,
   DeleteOutlined,
   UserAddOutlined,
-  ClockCircleOutlined
+  ClockCircleOutlined,
+  UserOutlined
 } from '@ant-design/icons';
 import axios from 'axios';
 import moment from 'moment';
@@ -39,7 +40,10 @@ const ShiftManagement = () => {
   const [loading, setLoading] = useState(false);
   const [shiftModalVisible, setShiftModalVisible] = useState(false);
   const [assignModalVisible, setAssignModalVisible] = useState(false);
+  const [viewAssignmentsModalVisible, setViewAssignmentsModalVisible] = useState(false);
   const [editingShift, setEditingShift] = useState(null);
+  const [employeeShifts, setEmployeeShifts] = useState([]);
+  const [selectedDate, setSelectedDate] = useState(moment());
   const [form] = Form.useForm();
   const [assignForm] = Form.useForm();
 
@@ -186,6 +190,57 @@ const ShiftManagement = () => {
     }
   };
 
+  const handleViewAssignments = () => {
+    setSelectedDate(moment());
+    setViewAssignmentsModalVisible(true);
+    fetchEmployeeShifts(moment());
+  };
+
+  const fetchEmployeeShifts = async (date) => {
+    try {
+      setLoading(true);
+      const API_URL = getAPIUrl();
+      const token = localStorage.getItem('token');
+      
+      const response = await axios.get(`${API_URL}/shifts/assignments`, {
+        params: { date: date.format('YYYY-MM-DD') },
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      
+      if (response.data.success) {
+        setEmployeeShifts(response.data.data || []);
+      }
+    } catch (error) {
+      message.error('Lỗi khi tải lịch gán ca');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDateChange = (date) => {
+    setSelectedDate(date);
+    fetchEmployeeShifts(date);
+  };
+
+  const handleDeleteAssignment = async (assignmentId) => {
+    try {
+      const API_URL = getAPIUrl();
+      const token = localStorage.getItem('token');
+      
+      const response = await axios.delete(`${API_URL}/shifts/assignment/${assignmentId}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      
+      if (response.data.success) {
+        message.success('Đã xóa lịch gán ca thành công');
+        // Reload the list
+        fetchEmployeeShifts(selectedDate);
+      }
+    } catch (error) {
+      message.error(error.response?.data?.message || 'Lỗi khi xóa lịch gán ca');
+    }
+  };
+
   const columns = [
     {
       title: 'Tên ca',
@@ -260,6 +315,12 @@ const ShiftManagement = () => {
             Quản lý Ca làm việc
           </Title>
           <Space>
+            <Button
+              icon={<ClockCircleOutlined />}
+              onClick={handleViewAssignments}
+            >
+              Xem Lịch Gán Ca
+            </Button>
             <Button
               type="primary"
               icon={<UserAddOutlined />}
@@ -463,6 +524,186 @@ const ShiftManagement = () => {
             </Space>
           </Form.Item>
         </Form>
+      </Modal>
+
+      {/* View Assignments Modal */}
+      <Modal
+        title={
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <ClockCircleOutlined style={{ color: '#722ed1', fontSize: '20px' }} />
+            <span>Lịch Gán Ca Làm Việc</span>
+          </div>
+        }
+        open={viewAssignmentsModalVisible}
+        onCancel={() => setViewAssignmentsModalVisible(false)}
+        footer={[
+          <Button key="close" type="primary" onClick={() => setViewAssignmentsModalVisible(false)}>
+            Đóng
+          </Button>
+        ]}
+        width={1200}
+        style={{ top: 20 }}
+      >
+        <div style={{ 
+          marginBottom: 16, 
+          padding: '12px 16px',
+          backgroundColor: '#f5f5f5',
+          borderRadius: '8px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <Text strong style={{ fontSize: '15px' }}>Chọn ngày:</Text>
+          <DatePicker
+            value={selectedDate}
+            onChange={handleDateChange}
+            format="DD/MM/YYYY"
+            placeholder="Chọn ngày"
+            style={{ width: 200 }}
+              allowClear={false}
+          />
+          </div>
+          <div>
+            <Text type="secondary">
+              Tổng số: <Text strong style={{ color: '#722ed1' }}>{employeeShifts.length}</Text> lịch gán ca
+            </Text>
+          </div>
+        </div>
+
+        <Table
+          columns={[
+            {
+              title: 'Ngày bắt đầu',
+              dataIndex: 'startDate',
+              key: 'startDate',
+              width: 120,
+              fixed: 'left',
+              sorter: (a, b) => moment(a.startDate).unix() - moment(b.startDate).unix(),
+              render: (date) => (
+                <Text strong style={{ color: '#1890ff' }}>
+                  {moment(date).format('DD/MM/YYYY')}
+                </Text>
+              )
+            },
+            {
+              title: 'Nhân viên',
+              key: 'employeeName',
+              width: 180,
+              fixed: 'left',
+              render: (_, record) => (
+                <div>
+                <Space>
+                    <UserOutlined style={{ color: '#722ed1' }} />
+                    <div>
+                      <Text strong style={{ display: 'block' }}>
+                        {record.employee?.name || record.employee?.employeeId || 'N/A'}
+                      </Text>
+                      <Text type="secondary" style={{ fontSize: '12px' }}>
+                        {record.employee?.employeeId || ''}
+                      </Text>
+                    </div>
+                </Space>
+                </div>
+              )
+            },
+            {
+              title: 'Phòng ban',
+              dataIndex: ['employee', 'department'],
+              key: 'department',
+              width: 120,
+              render: (dept) => dept ? <Tag color="blue">{dept}</Tag> : '-'
+            },
+            {
+              title: 'Ca làm việc',
+              key: 'shiftInfo',
+              width: 200,
+              render: (_, record) => (
+                <div>
+                  <Space direction="vertical" size="small" style={{ width: '100%' }}>
+                    <Space>
+                      <Tag 
+                        color={record.isOvertimeShift ? 'purple' : 'blue'}
+                        style={{ fontSize: '13px', padding: '4px 8px' }}
+                      >
+                        <ClockCircleOutlined style={{ marginRight: 4 }} />
+                        {record.shift?.name || 'N/A'}
+                      </Tag>
+                      {record.isOvertimeShift && (
+                        <Tag color="purple" style={{ fontSize: '12px' }}>OT</Tag>
+                      )}
+                    </Space>
+                    <Text type="secondary" style={{ fontSize: '12px' }}>
+                      {record.shift?.startTime || '--:--'} - {record.shift?.endTime || '--:--'}
+                </Text>
+                  </Space>
+                </div>
+              )
+            },
+            {
+              title: 'Trạng thái',
+              dataIndex: 'isActive',
+              key: 'isActive',
+              width: 130,
+              align: 'center',
+              filters: [
+                { text: 'Đang hoạt động', value: true },
+                { text: 'Đã hủy', value: false }
+              ],
+              onFilter: (value, record) => record.isActive === value,
+              render: (isActive) => (
+                <Tag color={isActive ? 'green' : 'red'} style={{ fontSize: '13px' }}>
+                  {isActive ? 'Đang hoạt động' : 'Đã hủy'}
+                </Tag>
+              )
+            },
+            {
+              title: 'Thao tác',
+              key: 'action',
+              width: 100,
+              fixed: 'right',
+              align: 'center',
+              render: (_, record) => (
+                <Popconfirm
+                  title="Xóa lịch gán ca?"
+                  description={
+                    <div>
+                      <p>Bạn có chắc muốn xóa lịch gán ca cho:</p>
+                      <p><strong>{record.employee?.name}</strong> - {record.shift?.name}?</p>
+                    </div>
+                  }
+                  onConfirm={() => handleDeleteAssignment(record._id)}
+                  okText="Xóa"
+                  cancelText="Hủy"
+                  okButtonProps={{ danger: true }}
+                  icon={<DeleteOutlined style={{ color: '#ff4d4f' }} />}
+                >
+                  <Button
+                    type="text"
+                    danger
+                    icon={<DeleteOutlined />}
+                    disabled={!record.isActive}
+                    size="small"
+                  >
+                    Xóa
+                  </Button>
+                </Popconfirm>
+              )
+            }
+          ]}
+          dataSource={employeeShifts}
+          loading={loading}
+          rowKey="_id"
+          pagination={{ 
+            pageSize: 10,
+            showSizeChanger: true,
+            showTotal: (total) => `Tổng ${total} lịch gán ca`,
+            pageSizeOptions: ['10', '20', '50', '100']
+          }}
+          scroll={{ x: 1000 }}
+          locale={{ emptyText: 'Không có nhân viên nào được gán ca trong ngày này' }}
+          size="middle"
+        />
       </Modal>
     </div>
   );

@@ -46,6 +46,8 @@ const OvertimeManagement = () => {
   const [form] = Form.useForm();
   const [userRole, setUserRole] = useState('employee');
   const [activeTab, setActiveTab] = useState('my-requests');
+  const [bulkOTModalVisible, setBulkOTModalVisible] = useState(false);
+  const [bulkForm] = Form.useForm();
 
   useEffect(() => {
     const userData = localStorage.getItem('user');
@@ -124,6 +126,39 @@ const OvertimeManagement = () => {
     } catch (error) {
       console.error('Error submitting OT request:', error);
       message.error(error.response?.data?.message || 'Lỗi khi gửi đơn OT');
+    }
+  };
+
+  const handleBulkOTSubmit = async (values) => {
+    try {
+      const API_URL = getAPIUrl();
+      const token = localStorage.getItem('token');
+      
+      const payload = {
+        date: values.date.format('YYYY-MM-DD'),
+        startTime: values.startTime.format('HH:mm'),
+        endTime: values.endTime.format('HH:mm'),
+        reason: values.reason
+      };
+
+      const response = await axios.post(`${API_URL}/overtime/bulk-assign`, payload, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+
+      if (response.data.success) {
+        const count = response.data.count || 0;
+        const attendanceCount = response.data.attendanceCount || 0;
+        message.success(
+          `Đã gán OT cho ${count} nhân viên và tạo ${attendanceCount} bản ghi chấm công. Nhân viên có thể làm OT ngay mà không cần gửi đơn.`,
+          5
+        );
+        setBulkOTModalVisible(false);
+        bulkForm.resetFields();
+        fetchData();
+      }
+    } catch (error) {
+      console.error('Error bulk assigning OT:', error);
+      message.error(error.response?.data?.message || 'Lỗi khi gán OT hàng loạt');
     }
   };
 
@@ -389,6 +424,16 @@ const OvertimeManagement = () => {
       ),
       children: (
         <Card>
+          <div style={{ marginBottom: 16 }}>
+            <Button 
+              type="primary" 
+              icon={<PlusOutlined />}
+              onClick={() => setBulkOTModalVisible(true)}
+              style={{ marginBottom: 16 }}
+            >
+              Gán OT cho toàn bộ nhân viên
+            </Button>
+          </div>
           <Row gutter={16} style={{ marginBottom: 16 }}>
             <Col span={8}>
               <Statistic 
@@ -546,6 +591,101 @@ const OvertimeManagement = () => {
               </Button>
               <Button type="primary" htmlType="submit">
                 Gửi đăng ký
+              </Button>
+            </Space>
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      {/* Bulk OT Assignment Modal */}
+      <Modal
+        title="Gán OT cho toàn bộ nhân viên"
+        open={bulkOTModalVisible}
+        onCancel={() => {
+          setBulkOTModalVisible(false);
+          bulkForm.resetFields();
+        }}
+        footer={null}
+        width={600}
+      >
+        <Form
+          form={bulkForm}
+          layout="vertical"
+          onFinish={handleBulkOTSubmit}
+        >
+          <Form.Item
+            name="date"
+            label="Ngày áp dụng OT"
+            rules={[{ required: true, message: 'Vui lòng chọn ngày' }]}
+          >
+            <DatePicker 
+              style={{ width: '100%' }} 
+              format="DD/MM/YYYY"
+            />
+          </Form.Item>
+
+          <Row gutter={16}>
+            <Col span={12}>
+              <Form.Item
+                name="startTime"
+                label="Giờ bắt đầu OT"
+                rules={[{ required: true, message: 'Vui lòng chọn giờ bắt đầu' }]}
+              >
+                <TimePicker 
+                  style={{ width: '100%' }} 
+                  format="HH:mm"
+                  minuteStep={15}
+                />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item
+                name="endTime"
+                label="Giờ kết thúc OT"
+                rules={[{ required: true, message: 'Vui lòng chọn giờ kết thúc' }]}
+              >
+                <TimePicker 
+                  style={{ width: '100%' }} 
+                  format="HH:mm"
+                  minuteStep={15}
+                />
+              </Form.Item>
+            </Col>
+          </Row>
+
+          <Form.Item
+            name="reason"
+            label="Lý do"
+            rules={[{ required: true, message: 'Vui lòng nhập lý do' }]}
+          >
+            <TextArea 
+              rows={3} 
+              placeholder="Ví dụ: OT cuối tuần để hoàn thành deadline..."
+            />
+          </Form.Item>
+
+          <div style={{ background: '#f0f5ff', padding: 12, borderRadius: 8, marginBottom: 16 }}>
+            <Text type="secondary">
+              <ClockCircleOutlined style={{ marginRight: 8 }} />
+              <strong>Lưu ý:</strong> Hệ thống sẽ tự động:
+              <ul style={{ marginTop: 8, marginBottom: 0, paddingLeft: 20 }}>
+                <li>Tạo đơn OT đã được duyệt cho tất cả nhân viên đang hoạt động</li>
+                <li>Tự động tạo bản ghi chấm công với OT đã được phê duyệt</li>
+                <li>Nhân viên không cần gửi đơn xin OT để được làm OT</li>
+              </ul>
+            </Text>
+          </div>
+
+          <Form.Item style={{ marginBottom: 0, textAlign: 'right' }}>
+            <Space>
+              <Button onClick={() => {
+                setBulkOTModalVisible(false);
+                bulkForm.resetFields();
+              }}>
+                Hủy
+              </Button>
+              <Button type="primary" htmlType="submit">
+                Gán OT cho tất cả
               </Button>
             </Space>
           </Form.Item>

@@ -68,9 +68,13 @@ exports.listMonthly = async (req, res) => {
         basicSalaryFull: doc.basicSalaryFull || employee.baseSalary || employee.salary || 0,
         // Lương tính theo ngày công (prorated)
         baseSalary: doc.baseSalary || doc.basicSalary || 0,
+        proratedSalary: doc.baseSalary || doc.basicSalary || 0, // Alias for mobile
         // Lương 1 ngày công
         dailyRate: doc.dailyRate || Math.round((employee.baseSalary || employee.salary || 0) / 26),
         
+        // Phụ cấp - Đảm bảo trả về đầy đủ
+        generalAllowance: doc.generalAllowance || Math.round((doc.basicSalaryFull || employee.baseSalary || employee.salary || 0) * 0.05),
+        allowance: doc.generalAllowance || Math.round((doc.basicSalaryFull || employee.baseSalary || employee.salary || 0) * 0.05), // Alias
         seniorityAllowance: doc.seniorityAllowance || 0,
         positionAllowance: doc.positionAllowance || 0,
 
@@ -82,7 +86,10 @@ exports.listMonthly = async (req, res) => {
         performanceBonus: doc.performanceBonus || 0,
         otherAllowances: doc.otherAllowances || 0,
 
-        // Thành phần giảm
+        // Thành phần giảm - Đảm bảo trả về đầy đủ
+        taxAmount: doc.taxAmount || Math.round((doc.basicSalaryFull || employee.baseSalary || employee.salary || 0) * 0.1),
+        taxRate: doc.taxRate || 10,
+        fixedDeduction: doc.taxAmount || Math.round((doc.basicSalaryFull || employee.baseSalary || employee.salary || 0) * 0.1), // Alias
         latePenalty: doc.latePenalty || 0,
         absentDeduction: doc.absentDeduction || 0,
         unpaidLeaveDeduction: doc.unpaidLeaveDeduction || 0,

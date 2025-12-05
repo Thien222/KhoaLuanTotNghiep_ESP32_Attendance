@@ -49,6 +49,13 @@ const EX = {
     "nay tôi có log checkin chưa",
     "đã chấm công của tôi hôm nay chưa"
   ],
+  MY_ATTENDANCE_YESTERDAY: [
+    "hôm qua tui đã check in chưa",
+    "hôm qua tôi đã điểm danh chưa",
+    "yesterday did I check in",
+    "hôm qua mình có chấm công chưa",
+    "ngày hôm qua tôi đã điểm danh chưa"
+  ],
   TODAY_DATE: [
     "hôm nay là ngày mấy",
     "nay ngày bao nhiêu vậy",
@@ -57,7 +64,7 @@ const EX = {
     "date today"
   ],
   EMPLOYEE_SALARY: [
-    "lương EMP030 tháng 10",
+    "lương EMP003 tháng 10",
     "lương tháng 9 của nhân viên Thien Vip",
     "lương của nhân viên Giữa Trái của tháng 11 này",
     "lương tháng 9 của nhân viên Nguyễn Văn A",
@@ -81,6 +88,13 @@ const EX = {
     "cho xem hồ sơ EMP100",
     "ai là NV012",
     "profile của mã EMP120"
+  ],
+  EMPLOYEE_ATTENDANCE_BY_CODE: [
+    "Nhân viên EMP003 đã check in chưa",
+    "EMP003 đã điểm danh chưa",
+    "nhân viên EMP004 đã chấm công chưa",
+    "EMP005 đã check in chưa",
+    "mã EMP006 đã điểm danh chưa"
   ],
   MY_PROFILE: [
     "hồ sơ của tôi",
@@ -142,7 +156,7 @@ async function classifyIntent({ text, user }) {
   const system = `
 Bạn là NLU tiếng Việt cho hệ thống HR. Trả về JSON duy nhất:
 {
-  "intent": "MY_SALARY | WHAT_IF_LEAVE | TOTAL_PAYROLL | CHECKED_IN_ON_DATE | UNATTENDED_TODAY | MY_ATTENDANCE_TODAY | TODAY_DATE | EMPLOYEE_SALARY | EMPLOYEE_INFO | MY_PROFILE | MY_LEAVE_BALANCE | LEAVE_APPROVER | IS_LATE_DEDUCTED | LATE_PENALTY_RULE | HR_POLICY_SUMMARY | UNKNOWN",
+  "intent": "MY_SALARY | WHAT_IF_LEAVE | TOTAL_PAYROLL | CHECKED_IN_ON_DATE | UNATTENDED_TODAY | MY_ATTENDANCE_TODAY | MY_ATTENDANCE_YESTERDAY | TODAY_DATE | EMPLOYEE_SALARY | EMPLOYEE_INFO | EMPLOYEE_ATTENDANCE_BY_CODE | MY_PROFILE | MY_LEAVE_BALANCE | LEAVE_APPROVER | IS_LATE_DEDUCTED | LATE_PENALTY_RULE | HR_POLICY_SUMMARY | UNKNOWN",
   "entities": { "month": <1..12>, "year": <YYYY>, "dateISO": "YYYY-MM-DD", "days": <int>, "employeeName": "<string>", "employeeCode": "<EMP###>" }
 }
 - Có ngày (YYYY-MM-DD hoặc YYYY/MM/DD) → "dateISO".

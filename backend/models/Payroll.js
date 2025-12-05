@@ -105,17 +105,16 @@ PayrollSchema.index({ status: 1 });
 PayrollSchema.index({ month: 1 });
 
 // Method: Tính toán tự động
-// CÔNG THỨC: Net = (Base × Days/30) + Allowances + OT - Fines - Tax
+// CÔNG THỨC (Cách 1 - Chia cho 26 ngày công chuẩn): Net = (Base × Days/26) + Allowances + OT - Fines - Tax
 PayrollSchema.methods.calculate = function() {
   // Tổng phụ cấp
   const totalAllowances = (this.generalAllowance || 0) + 
                           (this.seniorityAllowance || 0) + 
                           (this.positionAllowance || 0);
   
-  // Tổng OT (bao gồm cả làm lễ, cuối tuần)
+  // Tổng OT (bỏ weekendWorkPay - không có công thức tính lương liên quan)
   const totalOT = (this.overtimePay || 0) + 
-                  (this.holidayWorkPay || 0) + 
-                  (this.weekendWorkPay || 0);
+                  (this.holidayWorkPay || 0);
   
   // Tổng phạt (chỉ latePenalty, các khấu trừ khác đã tính trong baseSalary prorated)
   const totalFines = this.latePenalty || 0;
@@ -135,8 +134,8 @@ PayrollSchema.methods.calculate = function() {
   const taxableIncome = (this.baseSalary || 0) + totalAllowances + totalOT - totalFines;
   this.taxAmount = Math.round((taxableIncome * (this.taxRate || 10)) / 100);
   
-  // Tổng khấu trừ = Fines + Tax
-  this.totalDeductions = totalFines + this.taxAmount + (this.otherDeductions || 0);
+  // Tổng khấu trừ = Fines + Tax (bỏ otherDeductions)
+  this.totalDeductions = totalFines + this.taxAmount;
   
   // NET = Base + Allowances + OT - Fines - Tax
   this.netSalary = (this.baseSalary || 0) + totalAllowances + totalOT - totalFines - this.taxAmount;

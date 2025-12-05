@@ -16,6 +16,7 @@ import MyAttendanceCalendar from './pages/attendance/MyAttendanceCalendar';
 import PayrollManagement from './pages/payroll/PayrollManagement';
 import MyPayroll from './pages/payroll/MyPayroll';
 import ChatBot from './pages/chatbot/ChatBot';
+import InternalChatPage from './pages/chat/InternalChatPage';
 import RequestManagement from './pages/requests/RequestManagement';
 import SettingsManagement from './pages/settings/SettingsManagement';
 import IPConfiguration from './pages/settings/IPConfiguration';
@@ -118,6 +119,14 @@ const App = () => {
               <MainLayout>
                 <ProtectedRoute allowedRoles={['employee', 'manager']} requireProfileComplete={true}>
                   <ChatBot />
+                </ProtectedRoute>
+              </MainLayout>
+            } />
+            
+            <Route path="/internal-chat" element={
+              <MainLayout>
+                <ProtectedRoute allowedRoles={['employee', 'manager', 'accountant']} requireProfileComplete={true}>
+                  <InternalChatPage />
                 </ProtectedRoute>
               </MainLayout>
             } />
