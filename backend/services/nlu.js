@@ -149,7 +149,8 @@ function detectIntentAndEntities(text) {
     return { intent: 'HR_POLICY_SUMMARY', entities: {} };
 
   // Detection cho EMPLOYEE_ATTENDANCE_BY_CODE: hỏi checkin của nhân viên theo mã
-  if ((/\b(hom nay|bua nay|nay|hôm nay)\b/.test(s) || dateISO) && 
+  // Pattern: "Nhân viên EMP003 đã check in chưa" hoặc "EMP003 đã điểm danh chưa"
+  if ((/\b(hom nay|bua nay|nay|hôm nay)\b/.test(s) || dateISO || !dateISO) && 
       /(da|đã|chưa|chua)\s*(checkin|check\s*in|diem danh|điểm danh|cham cong|chấm công)/.test(s) &&
       (employeeCode || /\b(EMP|NV)\s*0?\d{2,6}\b/i.test(raw)) &&
       !/(toi|tui|minh|cua toi|của tôi|m[iì]nh|t[ôo]i|em)\b/.test(s)) {
@@ -158,6 +159,13 @@ function detectIntentAndEntities(text) {
       return { intent: 'EMPLOYEE_ATTENDANCE_BY_CODE', entities: { dateISO: dateISO || null, employeeCode: extractedCode } };
     }
   }
+
+  // Detection cho MY_ATTENDANCE_YESTERDAY: hỏi checkin hôm qua của mình
+  // Pattern: "hôm qua tui đã check in chưa" hoặc "hôm qua tôi đã điểm danh chưa"
+  if (/\b(hom qua|hôm qua|yesterday)\b/.test(s) && 
+      /(toi|tui|m[iì]nh|t[ôo]i|em)\b/.test(s) &&
+      /(da|đã|chưa|chua|check|diem danh|điểm danh|cham cong|chấm công)/.test(s))
+    return { intent: 'MY_ATTENDANCE_YESTERDAY', entities: {} };
 
   if ((/\b(hom nay|bua nay|nay)\b/.test(s) && /(da|đã)?\s*(diem danh|check\s*in|checkin|cham cong|chấm công)/.test(s)) &&
       /(toi|tui|m[iì]nh|t[ôo]i|em)\b/.test(s))

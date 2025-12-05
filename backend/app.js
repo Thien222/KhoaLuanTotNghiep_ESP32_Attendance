@@ -4,6 +4,7 @@ require('dotenv').config({ path: './config.env' });
 require('dotenv').config({ path: './.env' }); // Also try .env for compatibility
 
 const express = require('express');
+const http = require('http');
 const mongoose = require('mongoose');
 const cors = require('cors');
 const morgan = require('morgan');
@@ -16,6 +17,7 @@ const leaveRoutes = require('./routes/leaveRoutes');
 const payrollRoutes = require('./routes/payrollRoutes');
 const shiftRoutes = require('./routes/shiftRoutes');
 const chatRoutes = require('./routes/chatRoutes');
+const internalChatRoutes = require('./routes/internalChatRoutes'); // Internal chat routes
 const testRoutes = require('./routes/testRoutes');
 const timeMachineRoutes = require('./routes/timeMachineRoutes'); // NEW
 const salaryRoutes = require('./routes/salaryRoutes');
@@ -23,8 +25,10 @@ const settingsRoutes = require('./routes/settingsRoutes'); // Settings
 const overtimeRoutes = require('./routes/overtimeRoutes'); // Overtime requests
 const terminatedEmployeeRoutes = require('./routes/terminatedEmployeeRoutes'); // Terminated employees
 const errorHandler = require('./middleware/errorHandler');
+const { initSocket } = require('./socket/socketServer'); // Socket.IO
 
 const app = express();
+const server = http.createServer(app);
 const PORT = process.env.PORT || 3000;
 
 // Debug environment variables
@@ -386,6 +390,7 @@ app.use((req, res, next) => {
   next();
 });
 app.use('/api/chat', chatRoutes);
+app.use('/api/internal-chat', internalChatRoutes); // Internal chat routes
 
 // ESP32 health check endpoint
 app.get('/healthz', (req, res) => {
@@ -1462,11 +1467,15 @@ app.use((req, res) => {
   });
 });
 
+// Initialize Socket.IO
+const io = initSocket(server);
+
 // Start server
-app.listen(PORT, '0.0.0.0', () => {
+server.listen(PORT, '0.0.0.0', () => {
   console.log(`Server running on port ${PORT} in ${process.env.NODE_ENV} mode`);
   const serverIP = process.env.IP_MACHINE || 'localhost';
   console.log(`Server accessible at: http://${serverIP}:${PORT}`);
+  console.log(`Socket.IO initialized and ready for connections`);
 });
 
 

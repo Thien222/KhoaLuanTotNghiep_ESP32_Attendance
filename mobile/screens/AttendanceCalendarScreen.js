@@ -10,7 +10,7 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { attendanceAPI } from '../services/api';
+import { attendanceAPI, leaveAPI } from '../services/api';
 import moment from 'moment';
 import 'moment/locale/vi';
 
@@ -21,33 +21,59 @@ const WEEKDAYS = ['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7'];
 export default function AttendanceCalendarScreen() {
   const [currentMonth, setCurrentMonth] = useState(moment());
   const [attendanceData, setAttendanceData] = useState({});
+  const [leaveData, setLeaveData] = useState({}); // Map date -> leave object
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [selectedDay, setSelectedDay] = useState(null);
   const [modalVisible, setModalVisible] = useState(false);
 
   useEffect(() => {
-    loadAttendances();
+    loadData();
   }, [currentMonth]);
 
-  const loadAttendances = async () => {
+  const loadData = async () => {
     try {
       setLoading(true);
       const startDate = currentMonth.clone().startOf('month').format('YYYY-MM-DD');
       const endDate = currentMonth.clone().endOf('month').format('YYYY-MM-DD');
       
-      const response = await attendanceAPI.getMyAttendance(startDate, endDate);
-      if (response.success) {
-        // Convert array to object with date as key
+      // Load attendance
+      const attendanceResponse = await attendanceAPI.getMyAttendance(startDate, endDate);
+      if (attendanceResponse.success) {
         const dataMap = {};
-        (response.data || []).forEach(att => {
+        (attendanceResponse.data || []).forEach(att => {
           const dateKey = moment(att.date).format('YYYY-MM-DD');
           dataMap[dateKey] = att;
         });
         setAttendanceData(dataMap);
       }
+
+      // Load approved leaves
+      const leaveResponse = await leaveAPI.getMyLeaves();
+      if (leaveResponse.success) {
+        const leaveMap = {};
+        (leaveResponse.data || []).forEach(leave => {
+          // Only show approved leaves
+          if (leave.status === 'approved') {
+            const start = moment(leave.startDate);
+            const end = moment(leave.endDate);
+            const current = start.clone();
+            
+            // Add all days in the leave range
+            while (current.isSameOrBefore(end, 'day')) {
+              const dateKey = current.format('YYYY-MM-DD');
+              // Only add if within current month
+              if (current.month() === currentMonth.month() && current.year() === currentMonth.year()) {
+                leaveMap[dateKey] = leave;
+              }
+              current.add(1, 'day');
+            }
+          }
+        });
+        setLeaveData(leaveMap);
+      }
     } catch (error) {
-      console.error('Error loading attendances:', error);
+      console.error('Error loading data:', error);
     } finally {
       setLoading(false);
     }
@@ -55,7 +81,7 @@ export default function AttendanceCalendarScreen() {
 
   const onRefresh = async () => {
     setRefreshing(true);
-    await loadAttendances();
+    await loadData();
     setRefreshing(false);
   };
 
@@ -69,31 +95,68 @@ export default function AttendanceCalendarScreen() {
 
   const getDayStatus = (dateKey) => {
     const attendance = attendanceData[dateKey];
-    if (!attendance) return 'absent'; // Không có dữ liệu = nghỉ
-    if (attendance.status === 'present') return 'present';
-    if (attendance.status === 'absent') return 'absent';
-    if (attendance.status === 'leave') return 'leave';
-    if (attendance.checkIn?.time) return 'present';
-    return 'absent';
+    const leave = leaveData[dateKey];
+    const date = moment(dateKey);
+    const isPast = date.isBefore(moment(), 'day');
+    const isWeekend = date.day() === 0 || date.day() === 6;
+    
+    // Nghỉ phép đã duyệt
+    if (leave && leave.status === 'approved') {
+      return 'leave';
+    }
+    
+    // Có attendance
+    if (attendance) {
+      // Có OT
+      if (attendance.overtimeHours > 0) {
+        return 'overtime';
+      }
+      // Có mặt
+      if (attendance.status === 'present' || attendance.checkIn?.time) {
+        return 'present';
+      }
+      // Vắng
+      if (attendance.status === 'absent') {
+        return 'absent';
+      }
+    }
+    
+    // Không có attendance - kiểm tra nếu là ngày quá khứ và không phải cuối tuần
+    if (isPast && !isWeekend) {
+      return 'absent'; // Vắng
+    }
+    
+    return null; // Future hoặc weekend không có data
   };
 
   const getDayColor = (status) => {
     switch (status) {
       case 'present':
-        return '#52c41a'; // Xanh
+        return '#52c41a'; // Xanh - Có mặt
       case 'absent':
-        return '#ff4d4f'; // Đỏ
+        return '#ff4d4f'; // Đỏ - Vắng
       case 'leave':
-        return '#faad14'; // Vàng (nghỉ phép)
+        return '#faad14'; // Vàng - Nghỉ phép
+      case 'overtime':
+        return '#722ed1'; // Tím - OT
       default:
-        return '#d9d9d9';
+        return '#d9d9d9'; // Xám - Chưa có dữ liệu
     }
   };
 
   const handleDayPress = (dateKey) => {
     const attendance = attendanceData[dateKey];
-    if (attendance) {
-      setSelectedDay({ date: dateKey, data: attendance });
+    const leave = leaveData[dateKey];
+    const status = getDayStatus(dateKey);
+    
+    // Cho phép click vào ngày có dữ liệu hoặc ngày vắng
+    if (attendance || leave || status === 'absent') {
+      setSelectedDay({ 
+        date: dateKey, 
+        data: attendance, 
+        leave: leave,
+        status: status 
+      });
       setModalVisible(true);
     }
   };
@@ -143,9 +206,10 @@ export default function AttendanceCalendarScreen() {
       const dateKey = currentMonth.clone().date(d).format('YYYY-MM-DD');
       const status = getDayStatus(dateKey);
       const isToday = dateKey === today;
-      const hasData = !!attendanceData[dateKey];
+      const hasData = !!attendanceData[dateKey] || !!leaveData[dateKey] || status === 'absent';
       const isFuture = moment(dateKey).isAfter(moment(), 'day');
       const isWeekend = moment(dateKey).day() === 0 || moment(dateKey).day() === 6;
+      const color = getDayColor(status);
 
       days.push(
         <TouchableOpacity
@@ -155,22 +219,22 @@ export default function AttendanceCalendarScreen() {
             isToday && styles.todayCell,
           ]}
           onPress={() => handleDayPress(dateKey)}
-          disabled={!hasData}
+          disabled={!hasData && isFuture}
         >
           <View
             style={[
               styles.dayContent,
-              hasData && { backgroundColor: getDayColor(status) },
-              isFuture && styles.futureDay,
+              hasData && status && { backgroundColor: color },
+              isFuture && !hasData && styles.futureDay,
               isWeekend && !hasData && styles.weekendDay,
             ]}
           >
             <Text
               style={[
                 styles.dayText,
-                hasData && styles.dayTextWithData,
+                hasData && status && styles.dayTextWithData,
                 isToday && styles.todayText,
-                isFuture && styles.futureText,
+                isFuture && !hasData && styles.futureText,
               ]}
             >
               {d}
@@ -208,8 +272,19 @@ export default function AttendanceCalendarScreen() {
         <View style={[styles.legendDot, { backgroundColor: '#faad14' }]} />
         <Text style={styles.legendText}>Nghỉ phép</Text>
       </View>
+      <View style={styles.legendItem}>
+        <View style={[styles.legendDot, { backgroundColor: '#722ed1' }]} />
+        <Text style={styles.legendText}>OT</Text>
+      </View>
     </View>
   );
+
+  const formatCurrency = (amount) => {
+    return new Intl.NumberFormat('vi-VN', {
+      style: 'currency',
+      currency: 'VND',
+    }).format(amount || 0);
+  };
 
   const renderDetailModal = () => (
     <Modal
@@ -229,113 +304,160 @@ export default function AttendanceCalendarScreen() {
             </TouchableOpacity>
           </View>
 
-          {selectedDay?.data && (
-            <ScrollView style={styles.modalBody}>
-              {/* Status */}
-              <View style={styles.detailRow}>
-                <Ionicons name="checkmark-circle" size={20} color="#1890ff" />
-                <Text style={styles.detailLabel}>Trạng thái:</Text>
-                <View style={[styles.statusBadge, { backgroundColor: getDayColor(getDayStatus(selectedDay.date)) }]}>
-                  <Text style={styles.statusText}>
-                    {getDayStatus(selectedDay.date) === 'present' ? 'Có mặt' : 
-                     getDayStatus(selectedDay.date) === 'leave' ? 'Nghỉ phép' : 'Vắng'}
-                  </Text>
-                </View>
-              </View>
-
-              {/* Check-in time */}
-              <View style={styles.detailRow}>
-                <Ionicons name="log-in" size={20} color="#52c41a" />
-                <Text style={styles.detailLabel}>Check-in:</Text>
-                <Text style={styles.detailValue}>
-                  {selectedDay.data.checkIn?.time 
-                    ? moment(selectedDay.data.checkIn.time).format('HH:mm')
-                    : 'Chưa có'}
-                </Text>
-                {selectedDay.data.checkIn?.status && (
-                  <Text style={[styles.detailStatus, 
-                    { color: selectedDay.data.checkIn.status === 'on-time' ? '#52c41a' : '#ff4d4f' }]}>
-                    ({selectedDay.data.checkIn.status === 'on-time' ? 'Đúng giờ' : 
-                      selectedDay.data.checkIn.status === 'late' ? 'Trễ' : selectedDay.data.checkIn.status})
-                  </Text>
-                )}
-              </View>
-
-              {/* Check-out time */}
-              <View style={styles.detailRow}>
-                <Ionicons name="log-out" size={20} color="#ff4d4f" />
-                <Text style={styles.detailLabel}>Check-out:</Text>
-                <Text style={styles.detailValue}>
-                  {selectedDay.data.checkOut?.time 
-                    ? moment(selectedDay.data.checkOut.time).format('HH:mm')
-                    : 'Chưa có'}
-                </Text>
-                {selectedDay.data.checkOut?.status && (
-                  <Text style={[styles.detailStatus,
-                    { color: selectedDay.data.checkOut.status === 'on-time' ? '#52c41a' : '#faad14' }]}>
-                    ({selectedDay.data.checkOut.status === 'on-time' ? 'Đúng giờ' : 
-                      selectedDay.data.checkOut.status === 'early' ? 'Về sớm' : 
-                      selectedDay.data.checkOut.status === 'overtime' ? 'OT' : selectedDay.data.checkOut.status})
-                  </Text>
-                )}
-              </View>
-
-              {/* Working hours */}
-              <View style={styles.detailRow}>
-                <Ionicons name="time" size={20} color="#1890ff" />
-                <Text style={styles.detailLabel}>Giờ làm:</Text>
-                <Text style={styles.detailValue}>
-                  {selectedDay.data.workingHours 
-                    ? `${selectedDay.data.workingHours.toFixed(1)} giờ` 
-                    : 'Chưa có'}
-                </Text>
-              </View>
-
-              {/* OT hours */}
-              {selectedDay.data.overtimeHours > 0 && (
+          <ScrollView style={styles.modalBody}>
+            {selectedDay?.leave && selectedDay.leave.status === 'approved' ? (
+              // Nghỉ phép
+              <View>
                 <View style={styles.detailRow}>
-                  <Ionicons name="flash" size={20} color="#722ed1" />
-                  <Text style={styles.detailLabel}>Giờ OT:</Text>
+                  <Ionicons name="calendar-outline" size={20} color="#faad14" />
+                  <Text style={styles.detailLabel}>Trạng thái:</Text>
+                  <View style={[styles.statusBadge, { backgroundColor: '#faad14' }]}>
+                    <Text style={styles.statusText}>Nghỉ phép</Text>
+                  </View>
+                </View>
+                <View style={styles.detailRow}>
+                  <Ionicons name="document-text-outline" size={20} color="#1890ff" />
+                  <Text style={styles.detailLabel}>Loại nghỉ:</Text>
                   <Text style={styles.detailValue}>
-                    {selectedDay.data.overtimeHours.toFixed(1)} giờ
+                    {selectedDay.leave.leaveType === 'annual' ? 'Nghỉ phép năm' :
+                     selectedDay.leave.leaveType === 'sick' ? 'Nghỉ ốm' :
+                     selectedDay.leave.leaveType === 'unpaid' ? 'Nghỉ không lương' :
+                     selectedDay.leave.leaveType === 'maternity' ? 'Nghỉ thai sản' : 'Khác'}
                   </Text>
                 </View>
-              )}
-
-              {/* OT salary */}
-              {selectedDay.data.estimatedOTSalary > 0 && (
                 <View style={styles.detailRow}>
-                  <Ionicons name="cash" size={20} color="#52c41a" />
-                  <Text style={styles.detailLabel}>Lương OT:</Text>
-                  <Text style={[styles.detailValue, { color: '#52c41a' }]}>
-                    +{selectedDay.data.estimatedOTSalary.toLocaleString('vi-VN')}đ
-                  </Text>
+                  <Ionicons name="chatbubble-outline" size={20} color="#666" />
+                  <Text style={styles.detailLabel}>Lý do:</Text>
+                  <Text style={styles.detailValue}>{selectedDay.leave.reason}</Text>
                 </View>
-              )}
-
-              {/* Late minutes */}
-              {selectedDay.data.lateMinutes > 0 && (
+              </View>
+            ) : selectedDay?.data ? (
+              // Có attendance
+              <>
+                {/* Status */}
                 <View style={styles.detailRow}>
-                  <Ionicons name="alarm" size={20} color="#ff4d4f" />
-                  <Text style={styles.detailLabel}>Trễ:</Text>
-                  <Text style={[styles.detailValue, { color: '#ff4d4f' }]}>
-                    {selectedDay.data.lateMinutes} phút
-                  </Text>
+                  <Ionicons name="checkmark-circle" size={20} color="#1890ff" />
+                  <Text style={styles.detailLabel}>Trạng thái:</Text>
+                  <View style={[styles.statusBadge, { backgroundColor: getDayColor(selectedDay.status) }]}>
+                    <Text style={styles.statusText}>
+                      {selectedDay.status === 'present' ? 'Có mặt' : 
+                       selectedDay.status === 'overtime' ? 'Có mặt + OT' : 
+                       selectedDay.status === 'absent' ? 'Vắng' : 'Nghỉ phép'}
+                    </Text>
+                  </View>
                 </View>
-              )}
 
-              {/* Penalty */}
-              {selectedDay.data.actualPenalty > 0 && (
+                {/* Check-in time */}
                 <View style={styles.detailRow}>
-                  <Ionicons name="warning" size={20} color="#ff4d4f" />
-                  <Text style={styles.detailLabel}>Phạt:</Text>
-                  <Text style={[styles.detailValue, { color: '#ff4d4f' }]}>
-                    -{selectedDay.data.actualPenalty.toLocaleString('vi-VN')}đ
+                  <Ionicons name="log-in" size={20} color="#52c41a" />
+                  <Text style={styles.detailLabel}>Check-in:</Text>
+                  <Text style={styles.detailValue}>
+                    {selectedDay.data.checkIn?.time 
+                      ? moment(selectedDay.data.checkIn.time).format('HH:mm')
+                      : 'Chưa có'}
+                  </Text>
+                  {selectedDay.data.checkIn?.status && (
+                    <Text style={[styles.detailStatus, 
+                      { color: selectedDay.data.checkIn.status === 'on-time' ? '#52c41a' : '#ff4d4f' }]}>
+                      ({selectedDay.data.checkIn.status === 'on-time' ? 'Đúng giờ' : 
+                        selectedDay.data.checkIn.status === 'late' ? 'Trễ' : selectedDay.data.checkIn.status})
+                    </Text>
+                  )}
+                </View>
+
+                {/* Check-out time */}
+                <View style={styles.detailRow}>
+                  <Ionicons name="log-out" size={20} color="#ff4d4f" />
+                  <Text style={styles.detailLabel}>Check-out:</Text>
+                  <Text style={styles.detailValue}>
+                    {selectedDay.data.checkOut?.time 
+                      ? moment(selectedDay.data.checkOut.time).format('HH:mm')
+                      : 'Chưa có'}
+                  </Text>
+                  {selectedDay.data.checkOut?.status && (
+                    <Text style={[styles.detailStatus,
+                      { color: selectedDay.data.checkOut.status === 'on-time' ? '#52c41a' : 
+                             selectedDay.data.checkOut.status === 'overtime' ? '#722ed1' : '#faad14' }]}>
+                      ({selectedDay.data.checkOut.status === 'on-time' ? 'Đúng giờ' : 
+                        selectedDay.data.checkOut.status === 'early' ? 'Về sớm' : 
+                        selectedDay.data.checkOut.status === 'overtime' ? 'OT' : selectedDay.data.checkOut.status})
+                    </Text>
+                  )}
+                </View>
+
+                {/* Working hours */}
+                <View style={styles.detailRow}>
+                  <Ionicons name="time" size={20} color="#1890ff" />
+                  <Text style={styles.detailLabel}>Giờ làm:</Text>
+                  <Text style={styles.detailValue}>
+                    {selectedDay.data.workingHours 
+                      ? `${selectedDay.data.workingHours.toFixed(1)} giờ` 
+                      : 'Chưa có'}
                   </Text>
                 </View>
-              )}
-            </ScrollView>
-          )}
+
+                {/* OT hours */}
+                {selectedDay.data.overtimeHours > 0 && (
+                  <View style={styles.detailRow}>
+                    <Ionicons name="flash" size={20} color="#722ed1" />
+                    <Text style={styles.detailLabel}>Giờ OT:</Text>
+                    <Text style={[styles.detailValue, { color: '#722ed1' }]}>
+                      {selectedDay.data.overtimeHours.toFixed(1)} giờ
+                    </Text>
+                  </View>
+                )}
+
+                {/* OT salary */}
+                {selectedDay.data.estimatedOTSalary > 0 && (
+                  <View style={styles.detailRow}>
+                    <Ionicons name="cash" size={20} color="#52c41a" />
+                    <Text style={styles.detailLabel}>Tiền OT:</Text>
+                    <Text style={[styles.detailValue, { color: '#52c41a' }]}>
+                      +{formatCurrency(selectedDay.data.estimatedOTSalary)}
+                    </Text>
+                  </View>
+                )}
+
+                {/* Late minutes */}
+                {selectedDay.data.lateMinutes > 0 && (
+                  <View style={styles.detailRow}>
+                    <Ionicons name="alarm" size={20} color="#ff4d4f" />
+                    <Text style={styles.detailLabel}>Trễ:</Text>
+                    <Text style={[styles.detailValue, { color: '#ff4d4f' }]}>
+                      {selectedDay.data.lateMinutes} phút
+                    </Text>
+                  </View>
+                )}
+
+                {/* Penalty */}
+                {selectedDay.data.actualPenalty > 0 && (
+                  <View style={styles.detailRow}>
+                    <Ionicons name="warning" size={20} color="#ff4d4f" />
+                    <Text style={styles.detailLabel}>Phạt:</Text>
+                    <Text style={[styles.detailValue, { color: '#ff4d4f' }]}>
+                      -{formatCurrency(selectedDay.data.actualPenalty)}
+                    </Text>
+                  </View>
+                )}
+              </>
+            ) : (
+              // Vắng (không có attendance và không phải nghỉ phép)
+              <View>
+                <View style={styles.detailRow}>
+                  <Ionicons name="close-circle" size={20} color="#ff4d4f" />
+                  <Text style={styles.detailLabel}>Trạng thái:</Text>
+                  <View style={[styles.statusBadge, { backgroundColor: '#ff4d4f' }]}>
+                    <Text style={styles.statusText}>Vắng</Text>
+                  </View>
+                </View>
+                <View style={styles.detailRow}>
+                  <Ionicons name="information-circle-outline" size={20} color="#666" />
+                  <Text style={styles.detailLabel}>Thông tin:</Text>
+                  <Text style={styles.detailValue}>Không có dữ liệu chấm công</Text>
+                </View>
+              </View>
+            )}
+          </ScrollView>
 
           <TouchableOpacity
             style={styles.closeButton}
@@ -529,13 +651,15 @@ const styles = StyleSheet.create({
   legend: {
     flexDirection: 'row',
     justifyContent: 'center',
+    flexWrap: 'wrap',
     paddingHorizontal: 16,
     marginBottom: 16,
   },
   legendItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginHorizontal: 12,
+    marginHorizontal: 8,
+    marginVertical: 4,
   },
   legendDot: {
     width: 12,
@@ -655,9 +779,3 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
 });
-
-
-
-
-
-

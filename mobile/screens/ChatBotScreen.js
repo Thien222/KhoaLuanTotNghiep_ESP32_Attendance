@@ -10,9 +10,13 @@ import {
   Platform,
   ActivityIndicator,
   SafeAreaView,
+  Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { chatAPI } from '../services/api';
+
+const CHAT_HISTORY_KEY = 'chatbot_history';
 
 const QUICK_QUESTIONS = [
   'Lương tháng này của tôi?',
@@ -22,17 +26,59 @@ const QUICK_QUESTIONS = [
 ];
 
 export default function ChatBotScreen() {
-  const [messages, setMessages] = useState([
-    {
-      id: '1',
-      text: 'Xin chào! Tôi là ChatBot hỗ trợ hệ thống quản lý nhân sự. Tôi có thể giúp bạn về chấm công, nghỉ phép, bảng lương và các vấn đề khác. Bạn cần hỗ trợ gì?',
-      isBot: true,
-      timestamp: new Date(),
-    },
-  ]);
+  // Lấy lịch sử chat từ AsyncStorage khi component mount
+  const getInitialMessages = async () => {
+    try {
+      const saved = await AsyncStorage.getItem(CHAT_HISTORY_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        // Parse lại timestamp từ string về Date object
+        return parsed.map(msg => ({
+          ...msg,
+          timestamp: new Date(msg.timestamp)
+        }));
+      }
+    } catch (error) {
+      console.error('Error loading chat history:', error);
+    }
+    // Message mặc định nếu không có lịch sử
+    return [
+      {
+        id: '1',
+        text: 'Xin chào! Tôi là ChatBot hỗ trợ hệ thống quản lý nhân sự. Tôi có thể giúp bạn về chấm công, nghỉ phép, bảng lương và các vấn đề khác. Bạn cần hỗ trợ gì?',
+        isBot: true,
+        timestamp: new Date(),
+      },
+    ];
+  };
+
+  const [messages, setMessages] = useState([]);
   const [inputText, setInputText] = useState('');
   const [loading, setLoading] = useState(false);
   const flatListRef = useRef(null);
+
+  // Load lịch sử khi component mount
+  useEffect(() => {
+    const loadHistory = async () => {
+      const initialMessages = await getInitialMessages();
+      setMessages(initialMessages);
+    };
+    loadHistory();
+  }, []);
+
+  // Lưu lịch sử chat vào AsyncStorage mỗi khi messages thay đổi
+  useEffect(() => {
+    const saveHistory = async () => {
+      if (messages.length > 0) {
+        try {
+          await AsyncStorage.setItem(CHAT_HISTORY_KEY, JSON.stringify(messages));
+        } catch (error) {
+          console.error('Error saving chat history:', error);
+        }
+      }
+    };
+    saveHistory();
+  }, [messages]);
 
   useEffect(() => {
     // Scroll to bottom when new message arrives
@@ -86,6 +132,40 @@ export default function ChatBotScreen() {
     sendMessage(question);
   };
 
+  // Xóa sạch lịch sử chat
+  const handleClearHistory = () => {
+    Alert.alert(
+      'Xóa lịch sử chat',
+      'Bạn có chắc muốn xóa toàn bộ lịch sử chat?',
+      [
+        {
+          text: 'Hủy',
+          style: 'cancel',
+        },
+        {
+          text: 'Xóa',
+          style: 'destructive',
+          onPress: async () => {
+            const defaultMessage = [
+              {
+                id: '1',
+                text: 'Xin chào! Tôi là ChatBot hỗ trợ hệ thống quản lý nhân sự. Tôi có thể giúp bạn về chấm công, nghỉ phép, bảng lương và các vấn đề khác. Bạn cần hỗ trợ gì?',
+                isBot: true,
+                timestamp: new Date(),
+              },
+            ];
+            setMessages(defaultMessage);
+            try {
+              await AsyncStorage.removeItem(CHAT_HISTORY_KEY);
+            } catch (error) {
+              console.error('Error clearing chat history:', error);
+            }
+          },
+        },
+      ]
+    );
+  };
+
   const renderMessage = ({ item }) => (
     <View
       style={[
@@ -125,10 +205,16 @@ export default function ChatBotScreen() {
           <View style={styles.headerIcon}>
             <Ionicons name="chatbubble-ellipses" size={24} color="#fff" />
           </View>
-          <View>
+          <View style={{ flex: 1 }}>
             <Text style={styles.headerTitle}>ChatBot Hỗ trợ</Text>
             <Text style={styles.headerSubtitle}>Luôn sẵn sàng hỗ trợ bạn</Text>
           </View>
+          <TouchableOpacity
+            onPress={handleClearHistory}
+            style={styles.refreshButton}
+          >
+            <Ionicons name="refresh" size={20} color="#fff" />
+          </TouchableOpacity>
         </View>
       </View>
 
@@ -209,6 +295,16 @@ const styles = StyleSheet.create({
   headerContent: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  refreshButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginLeft: 12,
   },
   headerIcon: {
     width: 44,

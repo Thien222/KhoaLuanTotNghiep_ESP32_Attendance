@@ -164,6 +164,59 @@ export const chatAPI = {
   },
 };
 
+// Overtime APIs
+export const overtimeAPI = {
+  createRequest: async (overtimeData) => {
+    const response = await api.post('/overtime', overtimeData);
+    return response.data;
+  },
+  getMyOTSchedule: async () => {
+    const response = await api.get('/shifts/my-ot-schedule');
+    return response.data;
+  },
+  
+  getMyRequests: async () => {
+    const response = await api.get('/overtime');
+    return response.data;
+  },
+  
+  cancelRequest: async (requestId) => {
+    const response = await api.delete(`/overtime/${requestId}`);
+    return response.data;
+  },
+};
+
+// Internal Chat APIs
+export const internalChatAPI = {
+  getConversations: async () => {
+    const response = await api.get('/internal-chat/conversations');
+    return response.data;
+  },
+  
+  getConversation: async (receiverId) => {
+    const response = await api.get(`/internal-chat/messages/${receiverId}`);
+    return response.data;
+  },
+  
+  sendMessage: async (receiverId, content) => {
+    const response = await api.post('/internal-chat/send', {
+      receiverId,
+      content
+    });
+    return response.data;
+  },
+  
+  getUnreadCount: async () => {
+    const response = await api.get('/internal-chat/unread-count');
+    return response.data;
+  },
+  
+  markAsRead: async (messageIds) => {
+    const response = await api.post('/internal-chat/mark-read', { messageIds });
+    return response.data;
+  },
+};
+
 export default api;
 
 

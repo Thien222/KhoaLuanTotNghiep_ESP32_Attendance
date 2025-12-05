@@ -634,13 +634,18 @@ const getAllSettings = async () => {
 
 /**
  * Check if employee has approved OT for date
+ * Kiểm tra theo thứ tự:
+ * 1. OvertimeRequest với status 'approved'
+ * 2. EmployeeShift với isOvertimeShift: true
+ * 3. EmployeeShift với shift name chứa "OT" (case-insensitive)
+ * 4. EmployeeShift với shift startTime >= 18:00 (giờ OT thường bắt đầu)
  */
 const hasOvertimeShiftForDate = async (employeeId, date) => {
   try {
     const startOfDay = moment(date).startOf('day').toDate();
     const endOfDay = moment(date).endOf('day').toDate();
     
-    // Check approved OT request
+    // 1. Check approved OT request
     const approvedOTRequest = await OvertimeRequest.findOne({
       employee: employeeId,
       date: { $gte: startOfDay, $lte: endOfDay },
@@ -652,21 +657,41 @@ const hasOvertimeShiftForDate = async (employeeId, date) => {
       return true;
     }
     
-    // Check OT shift assignment
-    const overtimeShift = await EmployeeShift.findOne({
+    // 2. Check OT shift assignment - với populate để kiểm tra shift name và time
+    const employeeShift = await EmployeeShift.findOne({
       employee: employeeId,
       startDate: { $lte: endOfDay },
       $or: [
         { endDate: null },
         { endDate: { $gte: startOfDay } }
       ],
-      isActive: true,
-      isOvertimeShift: true
-    });
+      isActive: true
+    }).populate('shift');
     
-    if (overtimeShift) {
-      console.log(`✅ Found OT shift for employee ${employeeId}`);
-      return true;
+    if (employeeShift && employeeShift.shift) {
+      const shift = employeeShift.shift;
+      
+      // Check isOvertimeShift flag
+      if (employeeShift.isOvertimeShift === true) {
+        console.log(`✅ Found OT shift (isOvertimeShift=true) for employee ${employeeId} on ${moment(date).format('YYYY-MM-DD')}`);
+        return true;
+      }
+      
+      // Check shift name contains "OT" (case-insensitive)
+      const shiftName = (shift.name || '').toUpperCase();
+      if (shiftName.includes('OT') || shiftName.includes('OVERTIME')) {
+        console.log(`✅ Found OT shift (name contains OT) for employee ${employeeId} on ${moment(date).format('YYYY-MM-DD')}: ${shift.name}`);
+        return true;
+      }
+      
+      // Check shift startTime >= 18:00 (OT thường bắt đầu từ 18:00)
+      if (shift.startTime) {
+        const [startHour] = shift.startTime.split(':').map(Number);
+        if (startHour >= 18) {
+          console.log(`✅ Found OT shift (startTime >= 18:00) for employee ${employeeId} on ${moment(date).format('YYYY-MM-DD')}: ${shift.name} (${shift.startTime})`);
+          return true;
+        }
+      }
     }
     
     return false;

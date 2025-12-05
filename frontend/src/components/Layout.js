@@ -16,7 +16,8 @@ import {
   BarChartOutlined,
   UserDeleteOutlined,
   CalendarOutlined,
-  CrownOutlined
+  CrownOutlined,
+  MessageOutlined
 } from '@ant-design/icons';
 import { useNavigate, useLocation } from 'react-router-dom';
 import TimeControl from './TimeControl';
@@ -110,6 +111,11 @@ const MainLayout = ({ children }) => {
       label: 'ChatBot AI'
     },
     {
+      key: '/internal-chat',
+      icon: <MessageOutlined />,
+      label: 'Chat nội bộ'
+    },
+    {
       key: '/shifts',
       icon: <ClockCircleOutlined />,
       label: 'Ca làm việc'
@@ -142,6 +148,11 @@ const MainLayout = ({ children }) => {
       key: '/chatbot',
       icon: <RobotOutlined />,
       label: 'ChatBot AI'
+    },
+    {
+      key: '/internal-chat',
+      icon: <MessageOutlined />,
+      label: 'Chat nội bộ'
     }
   ];
 

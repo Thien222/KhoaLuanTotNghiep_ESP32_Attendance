@@ -2,7 +2,9 @@ const OvertimeRequest = require('../models/OvertimeRequest');
 const Employee = require('../models/Employee');
 const Shift = require('../models/Shift');
 const EmployeeShift = require('../models/EmployeeShift');
+const Attendance = require('../models/Attendance');
 const Settings = require('../models/Settings');
+const attendanceHelper = require('../utils/attendanceHelper');
 const moment = require('moment-timezone');
 
 moment.tz.setDefault('Asia/Ho_Chi_Minh');
@@ -563,6 +565,208 @@ exports.checkOTApproval = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Lỗi khi kiểm tra OT',
+      error: error.message
+    });
+  }
+};
+
+// Bulk assign OT to all active employees (Manager only)
+// Tự động tạo attendance records với OT đã được duyệt - nhân viên không cần gửi đơn
+exports.bulkAssignOT = async (req, res) => {
+  try {
+    const { date, startTime, endTime, reason } = req.body;
+    
+    if (!date || !startTime || !endTime || !reason) {
+      return res.status(400).json({
+        success: false,
+        message: 'Thiếu thông tin bắt buộc: date, startTime, endTime, reason'
+      });
+    }
+    
+    // Get all active employees
+    const employees = await Employee.find({ status: 'active' });
+    
+    if (employees.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Không có nhân viên nào đang hoạt động'
+      });
+    }
+    
+    const requestDate = moment(date).toDate();
+    const attendanceDate = moment(date).startOf('day').toDate();
+    const startTimeMoment = moment(`${date} ${startTime}`, 'YYYY-MM-DD HH:mm');
+    const endTimeMoment = moment(`${date} ${endTime}`, 'YYYY-MM-DD HH:mm');
+    const hours = endTimeMoment.diff(startTimeMoment, 'hours', true);
+    
+    // Load settings for OT calculation
+    const [otSettings, overtimeSettings, holidaySettings] = await Promise.all([
+      Settings.findOne({ type: 'ot-rate' }),
+      Settings.findOne({ type: 'overtime' }),
+      Settings.findOne({ type: 'holiday' })
+    ]);
+    
+    const allSettings = {
+      'ot-rate': otSettings,
+      'overtime': overtimeSettings,
+      'holiday': holidaySettings
+    };
+    
+    // Get working hours settings
+    const workingHoursSettings = await Settings.findOne({ type: 'working-hours' });
+    const workStartTime = workingHoursSettings?.config?.startTime || '08:00';
+    const workEndTime = workingHoursSettings?.config?.endTime || '17:00';
+    
+    // Parse check-in and check-out times (giờ làm việc bình thường)
+    const checkInTime = moment(`${date} ${workStartTime}`, 'YYYY-MM-DD HH:mm');
+    const checkOutTime = moment(`${date} ${endTime}`, 'YYYY-MM-DD HH:mm'); // Check-out = endTime của OT
+    
+    let successCount = 0;
+    let attendanceCount = 0;
+    const errors = [];
+    
+    // Create OT requests and attendance records for all employees
+    for (const employee of employees) {
+      try {
+        // Check if OT request already exists for this date
+        const existingRequest = await OvertimeRequest.findOne({
+          employee: employee._id,
+          date: requestDate
+        });
+        
+        if (existingRequest) {
+          errors.push({ employeeName: employee.name, message: 'Đã có đơn OT cho ngày này' });
+          continue;
+        }
+        
+        // 1. Create OT request with auto-approved status
+        const otRequest = new OvertimeRequest({
+          employee: employee._id,
+          date: requestDate,
+          startTime,
+          endTime,
+          hours,
+          reason: `[Gán hàng loạt] ${reason}`,
+          status: 'approved', // Auto-approved
+          reviewedBy: req.user._id,
+          reviewedAt: new Date()
+        });
+        
+        await otRequest.save();
+        
+        // 2. Create or update attendance record with OT approved
+        let attendance = await Attendance.findOne({
+          employee: employee._id,
+          date: attendanceDate
+        });
+        
+        // Calculate OT hours (from startTime to endTime - giờ OT được gán)
+        const otStartMoment = startTimeMoment; // Giờ bắt đầu OT (từ form)
+        const otEndMoment = endTimeMoment;     // Giờ kết thúc OT (từ form)
+        const workEndMoment = moment(`${date} ${workEndTime}`, 'YYYY-MM-DD HH:mm');
+        
+        let overtimeHours = 0;
+        if (otEndMoment.isAfter(otStartMoment)) {
+          overtimeHours = otEndMoment.diff(otStartMoment, 'hours', true);
+          // Round OT: >= 30 mins round up, < 30 mins keep
+          const minutes = (overtimeHours % 1) * 60;
+          if (minutes >= 30) {
+            overtimeHours = Math.ceil(overtimeHours);
+          } else {
+            overtimeHours = Math.floor(overtimeHours);
+          }
+        }
+        
+        // Calculate working hours (from checkIn to workEnd - giờ làm việc bình thường)
+        const workingHours = workEndMoment.diff(checkInTime, 'hours', true);
+        
+        // Calculate OT salary
+        let estimatedOTSalary = 0;
+        if (overtimeHours > 0) {
+          const isHoliday = await attendanceHelper.isHoliday(attendanceDate);
+          const otSettingsForCalc = {
+            ratePerHour: otSettings?.config?.ratePerHour || overtimeSettings?.config?.otRate || 100000,
+            weekdayRate: overtimeSettings?.config?.weekdayRate || 1.5,
+            weekendRate: overtimeSettings?.config?.weekendRate || 2.0,
+            holidayRate: overtimeSettings?.config?.holidayRate || 3.0,
+            ...otSettings?.config,
+            ...overtimeSettings?.config
+          };
+          
+          estimatedOTSalary = await attendanceHelper.calculateOTSalary(
+            overtimeHours,
+            otSettingsForCalc,
+            attendanceDate,
+            isHoliday
+          );
+        }
+        
+        if (attendance) {
+          // Update existing attendance
+          attendance.checkIn = {
+            time: checkInTime.toDate(),
+            status: 'on-time'
+          };
+          attendance.checkOut = {
+            time: checkOutTime.toDate(),
+            status: overtimeHours > 0 ? 'overtime' : 'on-time'
+          };
+          attendance.status = 'present';
+          attendance.workingHours = workingHours;
+          attendance.overtimeHours = overtimeHours;
+          attendance.estimatedOTSalary = estimatedOTSalary;
+          attendance.is_ot_approved = true; // OT đã được duyệt tự động
+          attendance.isManual = true;
+          await attendance.save();
+        } else {
+          // Create new attendance record
+          attendance = new Attendance({
+            employee: employee._id,
+            fingerprintId: employee.fingerprintId || 0,
+            date: attendanceDate,
+            checkIn: {
+              time: checkInTime.toDate(),
+              status: 'on-time'
+            },
+            checkOut: {
+              time: checkOutTime.toDate(),
+              status: overtimeHours > 0 ? 'overtime' : 'on-time'
+            },
+            status: 'present',
+            workingHours: workingHours,
+            overtimeHours: overtimeHours,
+            estimatedOTSalary: estimatedOTSalary,
+            is_ot_approved: true, // OT đã được duyệt tự động
+            isManual: true,
+            lateMinutes: 0,
+            actualPenalty: 0
+          });
+          await attendance.save();
+        }
+        
+        successCount++;
+        attendanceCount++;
+      } catch (error) {
+        console.error(`Error processing employee ${employee.name}:`, error);
+        errors.push({ employeeName: employee.name, message: error.message });
+      }
+    }
+    
+    console.log(`✅ [BULK OT ASSIGN] Created ${successCount} OT requests and ${attendanceCount} attendance records for ${date} ${startTime}-${endTime}`);
+    
+    res.status(200).json({
+      success: true,
+      message: `Đã gán OT cho ${successCount} nhân viên và tạo ${attendanceCount} bản ghi chấm công`,
+      count: successCount,
+      attendanceCount: attendanceCount,
+      total: employees.length,
+      errors: errors.length > 0 ? errors : undefined
+    });
+  } catch (error) {
+    console.error('Error bulk assigning OT:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Lỗi khi gán OT hàng loạt',
       error: error.message
     });
   }

@@ -250,13 +250,18 @@ async function autoCompleteWithOT(attendance, employee, otEndTime, allSettings) 
 
 /**
  * Check if employee has overtime shift for date
+ * Kiểm tra theo thứ tự:
+ * 1. OvertimeRequest với status 'approved'
+ * 2. EmployeeShift với isOvertimeShift: true
+ * 3. EmployeeShift với shift name chứa "OT" (case-insensitive)
+ * 4. EmployeeShift với shift startTime >= 18:00 (giờ OT thường bắt đầu)
  */
 async function checkHasOvertimeShift(employeeId, date) {
   try {
     const startOfDay = moment(date).startOf('day').toDate();
     const endOfDay = moment(date).endOf('day').toDate();
     
-    // Check approved OT request
+    // 1. Check approved OT request
     const approvedOTRequest = await OvertimeRequest.findOne({
       employee: employeeId,
       date: { $gte: startOfDay, $lte: endOfDay },
@@ -267,19 +272,41 @@ async function checkHasOvertimeShift(employeeId, date) {
       return true;
     }
     
-    // Check OT shift assignment
-    const overtimeShift = await EmployeeShift.findOne({
+    // 2. Check OT shift assignment - với populate để kiểm tra shift name và time
+    const employeeShift = await EmployeeShift.findOne({
       employee: employeeId,
       startDate: { $lte: endOfDay },
       $or: [
         { endDate: null },
         { endDate: { $gte: startOfDay } }
       ],
-      isActive: true,
-      isOvertimeShift: true
-    });
+      isActive: true
+    }).populate('shift');
     
-    return !!overtimeShift;
+    if (employeeShift && employeeShift.shift) {
+      const shift = employeeShift.shift;
+      
+      // Check isOvertimeShift flag
+      if (employeeShift.isOvertimeShift === true) {
+        return true;
+      }
+      
+      // Check shift name contains "OT" (case-insensitive)
+      const shiftName = (shift.name || '').toUpperCase();
+      if (shiftName.includes('OT') || shiftName.includes('OVERTIME')) {
+        return true;
+      }
+      
+      // Check shift startTime >= 18:00 (OT thường bắt đầu từ 18:00)
+      if (shift.startTime) {
+        const [startHour] = shift.startTime.split(':').map(Number);
+        if (startHour >= 18) {
+          return true;
+        }
+      }
+    }
+    
+    return false;
   } catch (error) {
     console.error('Error checking OT shift:', error);
     return false;

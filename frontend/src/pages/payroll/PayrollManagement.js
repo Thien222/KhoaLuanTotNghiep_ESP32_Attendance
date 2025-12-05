@@ -121,33 +121,39 @@ const PayrollManagement = () => {
         const enhancedData = (response.data.data || []).map(p => {
           // NEW: Lương cơ bản THÁNG (do admin set) - Hiển thị trên bảng lương
           const basicSalaryFull = p.basicSalaryFull || p.employee?.baseSalary || 0;
-          // Lương tính theo ngày công (prorated)
-          const proratedSalary = p.baseSalary || Math.round((basicSalaryFull * (p.workingDays || 0)) / 30);
+          // Lương tính theo ngày công (prorated) - Cách 1: Chia cho 26 ngày công chuẩn
+          const STANDARD_WORKING_DAYS = 26;
+          const proratedSalary = p.baseSalary || Math.round((basicSalaryFull * (p.workingDays || 0)) / STANDARD_WORKING_DAYS);
           // Lương 1 ngày công
-          const dailyRate = p.dailyRate || Math.round(basicSalaryFull / 26);
+          const dailyRate = p.dailyRate || Math.round(basicSalaryFull / STANDARD_WORKING_DAYS);
           
-          // Fixed 10% deduction (Insurance + Tax combined) - dựa trên lương cơ bản tháng
-          const fixedDeduction = Math.round(basicSalaryFull * 0.1);
+          // FIX: Ưu tiên dùng giá trị từ backend, nếu không có mới tính lại
+          // Phụ cấp chung (5%) - Ưu tiên dùng từ backend
+          const generalAllowance = p.generalAllowance || Math.round(basicSalaryFull * 0.05);
           
-          // Calculate allowance = 5% of Basic Salary (Phụ cấp cố định)
-          const baseAllowance = Math.round(basicSalaryFull * 0.05);
-          
-          // Add other allowances if any
-          const allowance = baseAllowance + 
+          // Tổng phụ cấp (bao gồm thâm niên, chức vụ, khác)
+          const totalAllowances = generalAllowance + 
                            (p.seniorityAllowance || 0) + 
                            (p.positionAllowance || 0) + 
                            (p.otherAllowances || 0);
           
-          // Net Salary = Prorated + Allowance + OT - Late Penalties - Deductions
-          const grossIncome = proratedSalary + (p.overtimePay || 0) + allowance;
-          const netSalary = grossIncome - (p.latePenalty || 0) - (p.deductions || 0) - fixedDeduction;
+          // Thuế (10%) - Ưu tiên dùng taxAmount từ backend
+          const taxAmount = p.taxAmount || Math.round((proratedSalary + totalAllowances + (p.overtimePay || 0) - (p.latePenalty || 0)) * 0.1);
+          
+          // Net Salary = Prorated + Allowances + OT - Late Penalties - Tax
+          // Bỏ weekendWorkPay - không có công thức tính lương liên quan
+          const grossIncome = proratedSalary + totalAllowances + (p.overtimePay || 0) + (p.holidayWorkPay || 0);
+          // Bỏ otherDeductions - không tính vào khấu trừ
+          const netSalary = grossIncome - (p.latePenalty || 0) - taxAmount;
           
           return {
             ...p,
             department: p.employee?.department || 'Chưa phân loại',
-            allowance,
-            fixedDeduction,
-            netSalary: Math.max(0, netSalary),
+            allowance: totalAllowances, // Tổng phụ cấp
+            generalAllowance: generalAllowance, // Phụ cấp chung (5%)
+            fixedDeduction: taxAmount, // Bảo hiểm + Thuế (10%)
+            taxAmount: taxAmount, // Đảm bảo có taxAmount
+            netSalary: netSalary, // FIX: Cho phép hiển thị số âm
             grossIncome: grossIncome,
             // NEW: Thêm cả 2 loại lương
             basicSalaryFull: basicSalaryFull, // Lương cơ bản tháng (do admin set)
@@ -517,13 +523,16 @@ const PayrollManagement = () => {
     currency: 'VND' 
   }).format(value || 0);
 
-  // Number to text helper (simplified for demo)
+  // Number to text helper (simplified for demo) - FIX: Xử lý số âm
   const convertNumberToText = (amount) => {
-    const millions = Math.floor(amount / 1000000);
-    const thousands = Math.floor((amount % 1000000) / 1000);
-    const remainder = amount % 1000;
+    if (amount === 0) return 'Không';
+    const isNegative = amount < 0;
+    const absAmount = Math.abs(amount);
+    const millions = Math.floor(absAmount / 1000000);
+    const thousands = Math.floor((absAmount % 1000000) / 1000);
+    const remainder = absAmount % 1000;
     
-    let text = '';
+    let text = isNegative ? 'Âm ' : '';
     if (millions > 0) text += `${millions} triệu `;
     if (thousands > 0) text += `${thousands} nghìn `;
     if (remainder > 0) text += `${remainder} `;
@@ -575,9 +584,9 @@ const PayrollManagement = () => {
       render: (days) => days > 0 ? <Tag color="green">{days} ngày</Tag> : <Tag color="red">0</Tag>
     },
     {
-      title: 'Lương ngày',
-      dataIndex: 'dailySalary',
-      key: 'dailySalary',
+      title: ' Lương ngày công',
+      dataIndex: 'proratedSalary',
+      key: 'proratedSalary',
       width: 130,
       render: val => currency(val)
     },
@@ -671,7 +680,7 @@ const PayrollManagement = () => {
       render: val => currency(val)
     },
     {
-      title: <Tooltip title="Lương cơ bản × (Số ngày công / 30)">Lương ngày công</Tooltip>,
+      title: <Tooltip title="Lương cơ bản × (Số ngày công / 26)">Tổng lương ngày công</Tooltip>,
       dataIndex: 'proratedSalary',
       key: 'prorated',
       width: 140,
@@ -731,18 +740,24 @@ const PayrollManagement = () => {
       render: val => val > 0 ? <Text type="danger">-{currency(val)}</Text> : '-'
     },
     {
-      title: <Tooltip title="5% lương cơ bản">Phụ cấp (5%)</Tooltip>,
-      dataIndex: 'allowance',
-      key: 'allowance',
+      title: <Tooltip title="5% lương cơ bản tháng">Phụ cấp (5%)</Tooltip>,
+      dataIndex: 'generalAllowance',
+      key: 'generalAllowance',
       width: 130,
-      render: val => val > 0 ? <Text type="success">+{currency(val)}</Text> : '-'
+      render: (val, record) => {
+        const allowance = record.generalAllowance || record.allowance || 0;
+        return allowance > 0 ? <Text type="success">+{currency(allowance)}</Text> : <Text type="secondary">0</Text>;
+      }
     },
     {
       title: 'Khấu trừ (10%)',
-      dataIndex: 'fixedDeduction',
-      key: 'fixedDeduction',
+      dataIndex: 'taxAmount',
+      key: 'taxAmount',
       width: 120,
-      render: val => <Text type="danger">-{currency(val)}</Text>
+      render: (val, record) => {
+        const tax = record.taxAmount || record.fixedDeduction || 0;
+        return <Text type="danger">-{currency(tax)}</Text>;
+      }
     },
     {
       title: <span style={{ color: '#1890ff', fontWeight: 'bold' }}>Thực lãnh</span>,
@@ -750,6 +765,20 @@ const PayrollManagement = () => {
       key: 'net',
       fixed: 'right',
       width: 160,
+      render: (val) => {
+        const netSalary = val || 0;
+        return (
+          <Text 
+            strong 
+            style={{ 
+              color: netSalary < 0 ? '#ff4d4f' : '#1890ff',
+              fontSize: netSalary < 0 ? 14 : 15
+            }}
+          >
+            {currency(netSalary)}
+          </Text>
+        );
+      },
       render: val => <Text strong style={{ color: '#1890ff', fontSize: 16 }}>{currency(val)}</Text>
     },
     {
@@ -1212,15 +1241,29 @@ const PayrollManagement = () => {
                     size="small" 
                     split={false}
                     dataSource={[
-                      { label: 'Lương cơ bản (tháng)', value: selectedPayroll.basicSalaryFull },
-                      { label: `Lương theo ngày công (${selectedPayroll.workingDays || 0} ngày)`, value: selectedPayroll.proratedSalary },
-                      { label: 'Phụ cấp (5%)', value: selectedPayroll.allowance },
-                      ...(selectedPayroll.overtimePay > 0 ? [{ label: `Làm thêm giờ (${selectedPayroll.overtimeHours || 0}h)`, value: selectedPayroll.overtimePay }] : [])
+                      { label: 'Lương cơ bản (tháng)', value: selectedPayroll.basicSalaryFull, isReference: true },
+                      { label: `Lương theo ngày công (${selectedPayroll.workingDays || 0} ngày)`, value: selectedPayroll.proratedSalary || selectedPayroll.baseSalary || 0 },
+                      { label: 'Phụ cấp chung (5%)', value: selectedPayroll.generalAllowance || selectedPayroll.allowance || 0 },
+                      ...(selectedPayroll.seniorityAllowance > 0 ? [{ label: 'PC Thâm niên', value: selectedPayroll.seniorityAllowance }] : []),
+                      ...(selectedPayroll.positionAllowance > 0 ? [{ label: 'PC Chức vụ', value: selectedPayroll.positionAllowance }] : []),
+                      ...(selectedPayroll.overtimePay > 0 ? [{ label: `Làm thêm giờ (${selectedPayroll.overtimeHours || 0}h)`, value: selectedPayroll.overtimePay }] : []),
+                      ...(selectedPayroll.holidayWorkPay > 0 ? [{ label: 'Làm ngày lễ', value: selectedPayroll.holidayWorkPay }] : [])
+                      // Bỏ "Làm cuối tuần" - không có công thức tính lương liên quan
                     ]}
                     renderItem={item => (
-                      <List.Item style={{ border: 'none', padding: '8px 0', display: 'flex', justifyContent: 'space-between' }}>
-                        <Text>{item.label}</Text>
-                        <Text strong>{currency(item.value)}</Text>
+                      <List.Item style={{ 
+                        border: 'none', 
+                        padding: '8px 0', 
+                        display: 'flex', 
+                        justifyContent: 'space-between',
+                        opacity: item.isReference ? 0.7 : 1
+                      }}>
+                        <Text type={item.isReference ? 'secondary' : undefined} style={{ fontSize: item.isReference ? 12 : 14 }}>
+                          {item.label} {item.isReference && '(Tham chiếu)'}
+                        </Text>
+                        <Text strong={!item.isReference} style={{ fontSize: item.isReference ? 12 : 14 }}>
+                          {currency(item.value)}
+                        </Text>
                       </List.Item>
                     )}
                   />
@@ -1236,7 +1279,18 @@ const PayrollManagement = () => {
                   }}>
                     <Text strong style={{ color: '#52c41a' }}>Tổng thu nhập:</Text>
                     <Text strong style={{ color: '#52c41a', fontSize: 16 }}>
-                      {currency(selectedPayroll.grossIncome)}
+                      {currency(
+                        (selectedPayroll.proratedSalary || selectedPayroll.baseSalary || 0) +
+                        (selectedPayroll.generalAllowance || selectedPayroll.allowance || 0) +
+                        (selectedPayroll.seniorityAllowance || 0) +
+                        (selectedPayroll.positionAllowance || 0) +
+                        (selectedPayroll.overtimePay || 0) +
+                        (selectedPayroll.holidayWorkPay || 0) +
+                        // Bỏ weekendWorkPay - không có công thức tính lương liên quan
+                        (selectedPayroll.bonus || 0) +
+                        (selectedPayroll.performanceBonus || 0) +
+                        (selectedPayroll.otherAllowances || 0)
+                      )}
                     </Text>
                   </div>
                 </Col>
@@ -1250,9 +1304,11 @@ const PayrollManagement = () => {
                     size="small" 
                     split={false}
                     dataSource={[
-                      { label: 'Bảo hiểm + Thuế (10%)', value: selectedPayroll.fixedDeduction },
-                      ...(selectedPayroll.latePenalty > 0 ? [{ label: `Phạt đi muộn (${selectedPayroll.lateMinutes}p)`, value: selectedPayroll.latePenalty }] : []),
-                      ...(selectedPayroll.deductions > 0 ? [{ label: 'Khấu trừ khác', value: selectedPayroll.deductions }] : [])
+                      { label: `Bảo hiểm + Thuế (${selectedPayroll.taxRate || 10}%)`, value: selectedPayroll.taxAmount || selectedPayroll.fixedDeduction || 0 },
+                      ...(selectedPayroll.latePenalty > 0 ? [{ label: `Phạt đi muộn (${selectedPayroll.lateMinutes || 0}p, ${selectedPayroll.lateCount || 0} lần)`, value: selectedPayroll.latePenalty }] : []),
+                      ...(selectedPayroll.absentDeduction > 0 ? [{ label: 'Nghỉ không lương', value: selectedPayroll.absentDeduction }] : []),
+                      ...(selectedPayroll.unpaidLeaveDeduction > 0 ? [{ label: 'Nghỉ phép không lương', value: selectedPayroll.unpaidLeaveDeduction }] : [])
+                      // Bỏ "Khấu trừ khác" - không hiển thị
                     ]}
                     renderItem={item => (
                       <List.Item style={{ border: 'none', padding: '8px 0', display: 'flex', justifyContent: 'space-between' }}>
@@ -1273,7 +1329,11 @@ const PayrollManagement = () => {
                   }}>
                     <Text strong style={{ color: '#ff4d4f' }}>Tổng khấu trừ:</Text>
                     <Text strong style={{ color: '#ff4d4f', fontSize: 16 }}>
-                      -{currency((selectedPayroll.fixedDeduction || 0) + (selectedPayroll.latePenalty || 0) + (selectedPayroll.deductions || 0))}
+                      -{currency(
+                        (selectedPayroll.taxAmount || selectedPayroll.fixedDeduction || 0) +
+                        (selectedPayroll.latePenalty || 0)
+                        // Bỏ các khoản khấu trừ khác - chỉ giữ Bảo hiểm + Thuế và Tiền phạt
+                      )}
                     </Text>
                   </div>
                 </Col>
@@ -1281,30 +1341,66 @@ const PayrollManagement = () => {
 
               <Divider />
 
-              {/* Net Pay Footer */}
-              <div style={{ 
-                backgroundColor: '#e6f7ff', 
-                border: '2px solid #1890ff', 
-                padding: 12, 
-                borderRadius: 8, 
-                display: 'flex', 
-                justifyContent: 'space-between', 
-                alignItems: 'center',
-                marginBottom: 8
-              }}>
-                <Text strong style={{ fontSize: 18, color: '#1890ff' }}>
-                  THỰC LÃNH (NET PAY):
-                </Text>
-                <Title level={2} style={{ margin: 0, color: '#1890ff' }}>
-                  {currency(selectedPayroll.netSalary)}
-                </Title>
-              </div>
-              
-              <div style={{ textAlign: 'center', marginBottom: 12 }}>
-                <Text type="secondary" italic>
-                  Số tiền bằng chữ: <Text strong>{convertNumberToText(selectedPayroll.netSalary)} đồng</Text>
-                </Text>
-              </div>
+              {/* Net Pay Footer - FIX: Tính lại từ Tổng thu nhập - Tổng khấu trừ */}
+              {(() => {
+                // Tính lại tổng thu nhập (giống như trên)
+                const totalIncome = 
+                  (selectedPayroll.proratedSalary || selectedPayroll.baseSalary || 0) +
+                  (selectedPayroll.generalAllowance || selectedPayroll.allowance || 0) +
+                  (selectedPayroll.seniorityAllowance || 0) +
+                  (selectedPayroll.positionAllowance || 0) +
+                  (selectedPayroll.overtimePay || 0) +
+                  (selectedPayroll.holidayWorkPay || 0) +
+                  (selectedPayroll.bonus || 0) +
+                  (selectedPayroll.performanceBonus || 0) +
+                  (selectedPayroll.otherAllowances || 0);
+                
+                // Tính lại tổng khấu trừ (chỉ Bảo hiểm + Thuế và Tiền phạt)
+                const totalDeductions = 
+                  (selectedPayroll.taxAmount || selectedPayroll.fixedDeduction || 0) +
+                  (selectedPayroll.latePenalty || 0);
+                
+                // Thực lãnh = Tổng thu nhập - Tổng khấu trừ
+                const netPay = totalIncome - totalDeductions;
+                
+                return (
+                  <>
+                    <div style={{ 
+                      backgroundColor: netPay < 0 ? '#fff2f0' : '#e6f7ff', 
+                      border: `2px solid ${netPay < 0 ? '#ff4d4f' : '#1890ff'}`, 
+                      padding: 12, 
+                      borderRadius: 8, 
+                      display: 'flex', 
+                      justifyContent: 'space-between', 
+                      alignItems: 'center',
+                      marginBottom: 8
+                    }}>
+                      <Text strong style={{ 
+                        fontSize: 18, 
+                        color: netPay < 0 ? '#ff4d4f' : '#1890ff' 
+                      }}>
+                        THỰC LÃNH (NET PAY):
+                      </Text>
+                      <Title level={2} style={{ 
+                        margin: 0, 
+                        color: netPay < 0 ? '#ff4d4f' : '#1890ff' 
+                      }}>
+                        {currency(netPay)}
+                      </Title>
+                    </div>
+                    
+                    <div style={{ textAlign: 'center', marginBottom: 12 }}>
+                      <Text type="secondary" italic>
+                        Số tiền bằng chữ: <Text strong style={{ 
+                          color: netPay < 0 ? '#ff4d4f' : '#333' 
+                        }}>
+                          {convertNumberToText(netPay)} đồng
+                        </Text>
+                      </Text>
+                    </div>
+                  </>
+                );
+              })()}
 
               {/* Manual Adjustments */}
               {selectedPayroll.manualAdjustments && selectedPayroll.manualAdjustments.length > 0 && (
