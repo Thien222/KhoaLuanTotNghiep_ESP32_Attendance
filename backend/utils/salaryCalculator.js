@@ -12,13 +12,14 @@ const STANDARD_WORKING_DAYS = 26;
 
 /**
  * Làm tròn giờ OT theo quy tắc:
- * - ≥ 30 phút: Làm tròn lên 1 tiếng
- * - < 30 phút: Giữ nguyên
+ * - ≥ 30 phút: +0.5 giờ
+ * - < 30 phút: Làm tròn xuống (giữ nguyên phần nguyên)
  * 
  * Ví dụ:
- * - 7.5 giờ (7h30p) → 8 giờ
- * - 7.3 giờ (7h18p) → 7 giờ
- * - 8.9 giờ (8h54p) → 9 giờ
+ * - 4 giờ 35 phút → 4.5 giờ
+ * - 4 giờ 29 phút → 4.0 giờ
+ * - 7.5 giờ (7h30p) → 7.5 giờ
+ * - 7.3 giờ (7h18p) → 7.0 giờ
  */
 function roundOvertimeHours(hours) {
   if (!hours || hours <= 0) return 0;
@@ -27,12 +28,12 @@ function roundOvertimeHours(hours) {
   const fractionalPart = hours - wholePart;
   const minutes = fractionalPart * 60;
 
-  // Nếu >= 30 phút, làm tròn lên
+  // Nếu >= 30 phút, +0.5 giờ
   if (minutes >= 30) {
-    return wholePart + 1;
+    return wholePart + 0.5;
   }
 
-  // Nếu < 30 phút, giữ nguyên phần nguyên
+  // Nếu < 30 phút, làm tròn xuống (giữ nguyên phần nguyên)
   return wholePart;
 }
 

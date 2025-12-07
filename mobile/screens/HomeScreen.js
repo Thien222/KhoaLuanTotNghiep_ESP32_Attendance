@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -11,33 +11,100 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../contexts/AuthContext';
-import { attendanceAPI, leaveAPI, overtimeAPI } from '../services/api';
+import { leaveAPI, overtimeAPI } from '../services/api';
 import moment from 'moment';
 
 export default function HomeScreen({ navigation }) {
   const { user } = useAuth();
-  const [todayAttendance, setTodayAttendance] = useState(null);
   const [leaveStats, setLeaveStats] = useState(null);
   const [otSchedule, setOtSchedule] = useState([]);
   const [refreshing, setRefreshing] = useState(false);
   const [loading, setLoading] = useState(true);
+  
+  // ✅ Lưu trạng thái đơn để so sánh và phát hiện thay đổi
+  const lastLeaveStatusRef = useRef({});
+  const lastOTStatusRef = useRef({});
+  const pollingIntervalRef = useRef(null);
 
   useEffect(() => {
     loadData();
-  }, []);
+    
+    // ✅ Setup polling để kiểm tra đơn mới (mỗi 10 giây)
+    pollingIntervalRef.current = setInterval(() => {
+      checkRequestStatus();
+    }, 10000); // Check mỗi 10 giây
+
+    return () => {
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current);
+      }
+    };
+  }, [user, navigation]);
+
+  // ✅ Kiểm tra trạng thái đơn và hiển thị thông báo nếu có thay đổi
+  const checkRequestStatus = async () => {
+    try {
+      // Check leave requests
+      const leaveResponse = await leaveAPI.getMyLeaves();
+      if (leaveResponse.success) {
+        const leaves = leaveResponse.data || [];
+        leaves.forEach(leave => {
+          const leaveId = leave._id;
+          const currentStatus = leave.status;
+          const lastStatus = lastLeaveStatusRef.current[leaveId];
+          
+          // Nếu status thay đổi từ pending sang approved/rejected
+          if (lastStatus === 'pending' && (currentStatus === 'approved' || currentStatus === 'rejected')) {
+            Alert.alert(
+              currentStatus === 'approved' ? '✅ Đơn được duyệt' : '❌ Đơn bị từ chối',
+              currentStatus === 'approved' 
+                ? `Đơn nghỉ phép của bạn đã được duyệt` 
+                : `Đơn nghỉ phép của bạn đã bị từ chối` +
+                  (leave.reviewComment ? `\n\nGhi chú: ${leave.reviewComment}` : ''),
+              [{ text: 'OK', onPress: () => navigation.navigate('Leave') }]
+            );
+          }
+          lastLeaveStatusRef.current[leaveId] = currentStatus;
+        });
+      }
+
+      // Check OT requests
+      const otResponse = await overtimeAPI.getMyRequests();
+      if (otResponse.success) {
+        const otRequests = otResponse.data || [];
+        otRequests.forEach(ot => {
+          const otId = ot._id;
+          const currentStatus = ot.status;
+          const lastStatus = lastOTStatusRef.current[otId];
+          
+          // Nếu status thay đổi từ pending sang approved/rejected
+          if (lastStatus === 'pending' && (currentStatus === 'approved' || currentStatus === 'rejected')) {
+            Alert.alert(
+              currentStatus === 'approved' ? '✅ Đơn được duyệt' : '❌ Đơn bị từ chối',
+              currentStatus === 'approved' 
+                ? `Đơn OT của bạn đã được duyệt` 
+                : `Đơn OT của bạn đã bị từ chối` +
+                  (ot.reviewComment ? `\n\nGhi chú: ${ot.reviewComment}` : ''),
+              [{ text: 'OK' }]
+            );
+          }
+          lastOTStatusRef.current[otId] = currentStatus;
+        });
+      }
+    } catch (error) {
+      console.error('Error checking request status:', error);
+    }
+  };
 
   const loadData = async () => {
     try {
       setLoading(true);
-      const [attendanceRes, leaveRes, otRes] = await Promise.all([
-        attendanceAPI.getTodayAttendance().catch(() => ({ success: false })),
+      const [leaveRes, otRes, leaveRequestsRes, otRequestsRes] = await Promise.all([
         leaveAPI.getLeaveStats().catch(() => ({ success: false })),
         overtimeAPI.getMyOTSchedule().catch(() => ({ success: false })),
+        leaveAPI.getMyLeaves().catch(() => ({ success: false })),
+        overtimeAPI.getMyRequests().catch(() => ({ success: false })),
       ]);
-
-      if (attendanceRes.success) {
-        setTodayAttendance(attendanceRes.data);
-      }
 
       if (leaveRes.success) {
         setLeaveStats(leaveRes.data);
@@ -49,6 +116,21 @@ export default function HomeScreen({ navigation }) {
           moment(ot.date).isSameOrAfter(moment(), 'day')
         ).slice(0, 5); // Lấy tối đa 5 ngày OT sắp tới
         setOtSchedule(upcomingOT);
+      }
+
+      // ✅ Lưu trạng thái ban đầu của đơn để so sánh sau này
+      if (leaveRequestsRes.success) {
+        const leaves = leaveRequestsRes.data || [];
+        leaves.forEach(leave => {
+          lastLeaveStatusRef.current[leave._id] = leave.status;
+        });
+      }
+
+      if (otRequestsRes.success) {
+        const otRequests = otRequestsRes.data || [];
+        otRequests.forEach(ot => {
+          lastOTStatusRef.current[ot._id] = ot.status;
+        });
       }
     } catch (error) {
       console.error('Error loading data:', error);
@@ -63,33 +145,6 @@ export default function HomeScreen({ navigation }) {
     setRefreshing(false);
   };
 
-  const handleCheckIn = async () => {
-    try {
-      const response = await attendanceAPI.addAttendance('checkin');
-      if (response.success) {
-        Alert.alert('Thành công', 'Check-in thành công!');
-        loadData();
-      } else {
-        Alert.alert('Lỗi', response.message || 'Check-in thất bại');
-      }
-    } catch (error) {
-      Alert.alert('Lỗi', 'Không thể kết nối đến server');
-    }
-  };
-
-  const handleCheckOut = async () => {
-    try {
-      const response = await attendanceAPI.addAttendance('checkout');
-      if (response.success) {
-        Alert.alert('Thành công', 'Check-out thành công!');
-        loadData();
-      } else {
-        Alert.alert('Lỗi', response.message || 'Check-out thất bại');
-      }
-    } catch (error) {
-      Alert.alert('Lỗi', 'Không thể kết nối đến server');
-    }
-  };
 
   const StatCard = ({ icon, title, value, color }) => (
     <View style={[styles.statCard, { borderLeftColor: color }]}>
@@ -116,48 +171,6 @@ export default function HomeScreen({ navigation }) {
       </LinearGradient>
 
       <View style={styles.content}>
-        {/* Today's Attendance */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Chấm công hôm nay</Text>
-          {todayAttendance?.data ? (
-            <View style={styles.attendanceCard}>
-              <View style={styles.attendanceRow}>
-                <Ionicons name="log-in-outline" size={20} color="#52c41a" />
-                <Text style={styles.attendanceText}>
-                  Check-in: {todayAttendance.data.checkIn?.time 
-                    ? moment(todayAttendance.data.checkIn.time).format('HH:mm')
-                    : 'Chưa check-in'}
-                </Text>
-              </View>
-              <View style={styles.attendanceRow}>
-                <Ionicons name="log-out-outline" size={20} color="#ff4d4f" />
-                <Text style={styles.attendanceText}>
-                  Check-out: {todayAttendance.data.checkOut?.time
-                    ? moment(todayAttendance.data.checkOut.time).format('HH:mm')
-                    : 'Chưa check-out'}
-                </Text>
-              </View>
-              {!todayAttendance.data.checkIn?.time && (
-                <TouchableOpacity style={styles.checkInButton} onPress={handleCheckIn}>
-                  <Text style={styles.checkInButtonText}>Check-in</Text>
-                </TouchableOpacity>
-              )}
-              {todayAttendance.data.checkIn?.time && !todayAttendance.data.checkOut?.time && (
-                <TouchableOpacity style={styles.checkOutButton} onPress={handleCheckOut}>
-                  <Text style={styles.checkOutButtonText}>Check-out</Text>
-                </TouchableOpacity>
-              )}
-            </View>
-          ) : (
-            <View style={styles.attendanceCard}>
-              <Text style={styles.noDataText}>Chưa có dữ liệu chấm công hôm nay</Text>
-              <TouchableOpacity style={styles.checkInButton} onPress={handleCheckIn}>
-                <Text style={styles.checkInButtonText}>Check-in</Text>
-              </TouchableOpacity>
-            </View>
-          )}
-        </View>
-
         {/* OT Schedule */}
         {otSchedule.length > 0 && (
           <View style={styles.section}>
@@ -349,56 +362,6 @@ const styles = StyleSheet.create({
     color: '#1890ff',
     fontWeight: '600',
     marginLeft: 4,
-  },
-  attendanceCard: {
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  attendanceRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  attendanceText: {
-    fontSize: 16,
-    color: '#333',
-    marginLeft: 12,
-  },
-  checkInButton: {
-    backgroundColor: '#52c41a',
-    borderRadius: 8,
-    padding: 12,
-    alignItems: 'center',
-    marginTop: 8,
-  },
-  checkInButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  checkOutButton: {
-    backgroundColor: '#ff4d4f',
-    borderRadius: 8,
-    padding: 12,
-    alignItems: 'center',
-    marginTop: 8,
-  },
-  checkOutButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  noDataText: {
-    fontSize: 14,
-    color: '#999',
-    textAlign: 'center',
-    marginBottom: 12,
   },
   statsGrid: {
     flexDirection: 'row',

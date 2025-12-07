@@ -343,9 +343,7 @@ const Dashboard = () => {
           <Title level={2} style={{ margin: 0, fontWeight: 600, color: '#262626' }}>
             Hello, {user?.name || user?.employee?.name || 'User'}
           </Title>
-          <Text type="secondary" style={{ fontSize: 14, marginTop: 4, display: 'block' }}>
-            Track team progress here. You almost reach a goal!
-          </Text>
+       
         </div>
         <Space size="middle">
           <RangePicker
@@ -398,11 +396,8 @@ const Dashboard = () => {
                 borderRadius: 12,
                 border: '1px solid #f0f0f0',
                 boxShadow: '0 2px 8px rgba(0,0,0,0.04)',
-                background: '#ffffff',
-                cursor: 'pointer'
+                background: '#ffffff'
               }}
-              onClick={() => setAttendanceModalVisible(true)}
-              hoverable
             >
               <Statistic
                 title={<span style={{ color: '#8c8c8c', fontSize: 13, fontWeight: 500 }}>Chấm công hôm nay 👆</span>}
@@ -421,11 +416,8 @@ const Dashboard = () => {
                 borderRadius: 12,
                 border: '1px solid #f0f0f0',
                 boxShadow: '0 2px 8px rgba(0,0,0,0.04)',
-                background: '#ffffff',
-                cursor: 'pointer'
+                background: '#ffffff'
               }}
-              onClick={() => setLateModalVisible(true)}
-              hoverable
             >
               <Statistic
                 title={<span style={{ color: '#8c8c8c', fontSize: 13, fontWeight: 500 }}>Đi muộn 👆</span>}

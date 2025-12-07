@@ -98,7 +98,8 @@ export default function AttendanceCalendarScreen() {
     const leave = leaveData[dateKey];
     const date = moment(dateKey);
     const isPast = date.isBefore(moment(), 'day');
-    const isWeekend = date.day() === 0 || date.day() === 6;
+    const isSunday = date.day() === 0; // Chỉ Chủ nhật mới không tính
+    const isSaturday = date.day() === 6; // Thứ 7 vẫn tính là ngày làm việc
     
     // Nghỉ phép đã duyệt
     if (leave && leave.status === 'approved') {
@@ -121,12 +122,13 @@ export default function AttendanceCalendarScreen() {
       }
     }
     
-    // Không có attendance - kiểm tra nếu là ngày quá khứ và không phải cuối tuần
-    if (isPast && !isWeekend) {
-      return 'absent'; // Vắng
+    // Không có attendance - kiểm tra nếu là ngày quá khứ
+    // Thứ 7 vẫn tính vắng, chỉ Chủ nhật mới không tính
+    if (isPast && !isSunday) {
+      return 'absent'; // Vắng (bao gồm cả thứ 7)
     }
     
-    return null; // Future hoặc weekend không có data
+    return null; // Future hoặc Chủ nhật không có data
   };
 
   const getDayColor = (status) => {
@@ -190,15 +192,19 @@ export default function AttendanceCalendarScreen() {
   const renderCalendarDays = () => {
     const startOfMonth = currentMonth.clone().startOf('month');
     const endOfMonth = currentMonth.clone().endOf('month');
-    const startDay = startOfMonth.day(); // 0 = CN
+    const startDay = startOfMonth.day(); // 0 = CN (Chủ nhật), 1 = T2, ..., 6 = T7
     const daysInMonth = endOfMonth.date();
     const today = moment().format('YYYY-MM-DD');
 
     const days = [];
     
-    // Empty cells before first day
+    // Empty cells before first day - đảm bảo cùng kích thước với cells có ngày
     for (let i = 0; i < startDay; i++) {
-      days.push(<View key={`empty-${i}`} style={styles.dayCell} />);
+      days.push(
+        <View key={`empty-${i}`} style={styles.dayCell}>
+          <View style={[styles.dayContent, { backgroundColor: 'transparent' }]} />
+        </View>
+      );
     }
     
     // Days of month
@@ -208,7 +214,7 @@ export default function AttendanceCalendarScreen() {
       const isToday = dateKey === today;
       const hasData = !!attendanceData[dateKey] || !!leaveData[dateKey] || status === 'absent';
       const isFuture = moment(dateKey).isAfter(moment(), 'day');
-      const isWeekend = moment(dateKey).day() === 0 || moment(dateKey).day() === 6;
+      const isSunday = moment(dateKey).day() === 0; // Chỉ Chủ nhật mới không tính
       const color = getDayColor(status);
 
       days.push(
@@ -226,7 +232,7 @@ export default function AttendanceCalendarScreen() {
               styles.dayContent,
               hasData && status && { backgroundColor: color },
               isFuture && !hasData && styles.futureDay,
-              isWeekend && !hasData && styles.weekendDay,
+              isSunday && !hasData && styles.weekendDay,
             ]}
           >
             <Text
@@ -245,12 +251,21 @@ export default function AttendanceCalendarScreen() {
       );
     }
 
-    // Split into rows of 7
+    // Split into rows of 7 - đảm bảo mỗi hàng có đúng 7 cells
     const rows = [];
     for (let i = 0; i < days.length; i += 7) {
+      const weekDays = days.slice(i, i + 7);
+      // Đảm bảo mỗi hàng có đủ 7 cells (thêm empty cells nếu thiếu)
+      while (weekDays.length < 7) {
+        weekDays.push(
+          <View key={`empty-end-${weekDays.length}`} style={styles.dayCell}>
+            <View style={[styles.dayContent, { backgroundColor: 'transparent' }]} />
+          </View>
+        );
+      }
       rows.push(
         <View key={i} style={styles.weekRow}>
-          {days.slice(i, i + 7)}
+          {weekDays}
         </View>
       );
     }
@@ -402,7 +417,7 @@ export default function AttendanceCalendarScreen() {
                     <Ionicons name="flash" size={20} color="#722ed1" />
                     <Text style={styles.detailLabel}>Giờ OT:</Text>
                     <Text style={[styles.detailValue, { color: '#722ed1' }]}>
-                      {selectedDay.data.overtimeHours.toFixed(1)} giờ
+                      {selectedDay.data.overtimeHours.toFixed(2)} giờ
                     </Text>
                   </View>
                 )}
@@ -520,7 +535,7 @@ export default function AttendanceCalendarScreen() {
           </View>
           <View style={styles.summaryItem}>
             <Text style={[styles.summaryValue, { color: '#722ed1' }]}>
-              {Object.values(attendanceData).reduce((sum, a) => sum + (a.overtimeHours || 0), 0).toFixed(1)}
+              {Object.values(attendanceData).reduce((sum, a) => sum + (a.overtimeHours || 0), 0).toFixed(2)}
             </Text>
             <Text style={styles.summaryLabel}>Giờ OT</Text>
           </View>
@@ -586,12 +601,15 @@ const styles = StyleSheet.create({
   },
   weekDaysRow: {
     flexDirection: 'row',
-    marginBottom: 8,
+    justifyContent: 'space-between',
+    marginBottom: 12,
+    paddingHorizontal: 2,
   },
   weekDayCell: {
     flex: 1,
     alignItems: 'center',
-    paddingVertical: 8,
+    paddingVertical: 10,
+    minHeight: 32,
   },
   weekDayText: {
     fontSize: 12,
@@ -603,13 +621,17 @@ const styles = StyleSheet.create({
   },
   weekRow: {
     flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
   },
   dayCell: {
     flex: 1,
-    aspectRatio: 1,
-    padding: 2,
     alignItems: 'center',
     justifyContent: 'center',
+    paddingVertical: 6,
+    paddingHorizontal: 2,
+    minHeight: 44,
   },
   dayContent: {
     width: 36,

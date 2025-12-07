@@ -295,7 +295,7 @@ const AttendanceCalendar = () => {
                 )}
               </Descriptions.Item>
               <Descriptions.Item label="Số giờ làm">
-                {(selectedAttendance.workingHours || 0).toFixed(1)} giờ
+                {(selectedAttendance.workingHours || 0).toFixed(2)} giờ
               </Descriptions.Item>
               <Descriptions.Item label="Đi trễ">
                 {selectedAttendance.lateMinutes > 0 ? (

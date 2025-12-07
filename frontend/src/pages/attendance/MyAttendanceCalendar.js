@@ -259,7 +259,7 @@ const MyAttendanceCalendar = () => {
           )}
           {hasOT && (
               <Tag color="purple" style={{ fontSize: 8, padding: '0 3px', margin: 0, lineHeight: '14px', width: 'fit-content' }}>
-              OT {attendance.overtimeHours.toFixed(1)}h
+              OT {attendance.overtimeHours.toFixed(2)}h
             </Tag>
           )}
           </div>
@@ -416,7 +416,7 @@ const MyAttendanceCalendar = () => {
             <Card size="small">
               <Statistic
                 title="Giờ OT"
-                value={monthStats.otHours.toFixed(1)}
+                value={monthStats.otHours.toFixed(2)}
                 prefix={<FieldTimeOutlined style={{ color: '#722ed1' }} />}
                 valueStyle={{ color: '#722ed1', fontSize: 20 }}
                 suffix="h"
@@ -507,7 +507,7 @@ const MyAttendanceCalendar = () => {
 
             <Descriptions.Item label="Giờ làm việc">
               {selectedDate.data.workingHours 
-                ? `${selectedDate.data.workingHours.toFixed(1)} giờ`
+                ? `${selectedDate.data.workingHours.toFixed(2)} giờ`
                 : 'Chưa có'}
             </Descriptions.Item>
 
@@ -519,7 +519,7 @@ const MyAttendanceCalendar = () => {
 
             {selectedDate.data.overtimeHours > 0 && (
               <Descriptions.Item label="Giờ OT">
-                <Text type="secondary">{selectedDate.data.overtimeHours.toFixed(1)} giờ</Text>
+                <Text type="secondary">{selectedDate.data.overtimeHours.toFixed(2)} giờ</Text>
               </Descriptions.Item>
             )}
 

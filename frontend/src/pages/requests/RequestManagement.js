@@ -54,7 +54,19 @@ const RequestManagement = () => {
   const [rejectReason, setRejectReason] = useState('');
   const [form] = Form.useForm();
   const [userRole, setUserRole] = useState('employee');
-  const [activeTab, setActiveTab] = useState('my-requests');
+  const [activeTab, setActiveTab] = useState(() => {
+    // Admin mặc định vào tab "pending", nhân viên vào tab "my-requests"
+    try {
+      const userData = localStorage.getItem('user');
+      if (userData) {
+        const user = JSON.parse(userData);
+        return user.role === 'manager' ? 'pending' : 'my-requests';
+      }
+    } catch (error) {
+      console.error('Error parsing user data:', error);
+    }
+    return 'my-requests';
+  });
   const [otPreview, setOtPreview] = useState(null); // NEW: Preview OT timeframe from shift
   const [previewLoading, setPreviewLoading] = useState(false);
   const [filterDate, setFilterDate] = useState(null); // Filter by month/date
@@ -401,7 +413,7 @@ const RequestManagement = () => {
     {
       title: 'Hành động',
       key: 'action',
-      width: 180,
+      width: 250,
       align: 'center',
       render: (_, record) => (
         <Space size={8} style={{ display: 'flex', justifyContent: 'center' }}>
@@ -431,6 +443,22 @@ const RequestManagement = () => {
           >
             Từ chối
           </Button>
+          <Popconfirm
+            title="Xóa đơn này?"
+            description="Bạn có chắc muốn xóa đơn này không?"
+            onConfirm={() => handleCancel(record._id, record.requestType)}
+            okText="Xóa"
+            cancelText="Hủy"
+          >
+            <Button 
+              type="text" 
+              danger 
+              icon={<DeleteOutlined />}
+              size="small"
+            >
+              Xóa
+            </Button>
+          </Popconfirm>
         </Space>
       )
     }
@@ -560,8 +588,11 @@ const RequestManagement = () => {
     }
   ];
 
-  const tabItems = [
-    {
+  const tabItems = [];
+  
+  // Chỉ thêm tab "Đơn chờ duyệt" cho nhân viên, không cho admin
+  if (userRole !== 'manager') {
+    tabItems.push({
       key: 'my-requests',
       label: (
         <span>
@@ -616,8 +647,11 @@ const RequestManagement = () => {
           </div>
         </div>
       )
-    },
-    {
+    });
+  }
+  
+  // Tab "Lịch sử đơn" cho tất cả
+  tabItems.push({
       key: 'my-history',
       label: (
         <span>
@@ -631,6 +665,16 @@ const RequestManagement = () => {
       ),
       children: (
         <div style={{ height: 'calc(100vh - 280px)', display: 'flex', flexDirection: 'column' }}>
+          <div style={{ marginBottom: 8 }}>
+            <Button 
+              type="primary" 
+              icon={<PlusOutlined />}
+              onClick={() => setModalVisible(true)}
+              style={{ borderRadius: 6 }}
+            >
+              Gửi yêu cầu
+            </Button>
+          </div>
           {/* Filter Section */}
           <div style={{ marginBottom: 12, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
             <Select
@@ -740,9 +784,8 @@ const RequestManagement = () => {
           </div>
         </div>
       )
-    }
-  ];
-
+    });
+  
   // Add admin tab
   if (userRole === 'manager') {
     tabItems.push({

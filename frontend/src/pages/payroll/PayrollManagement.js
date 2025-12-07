@@ -1365,39 +1365,39 @@ const PayrollManagement = () => {
                 
                 return (
                   <>
-                    <div style={{ 
+              <div style={{ 
                       backgroundColor: netPay < 0 ? '#fff2f0' : '#e6f7ff', 
                       border: `2px solid ${netPay < 0 ? '#ff4d4f' : '#1890ff'}`, 
-                      padding: 12, 
-                      borderRadius: 8, 
-                      display: 'flex', 
-                      justifyContent: 'space-between', 
-                      alignItems: 'center',
-                      marginBottom: 8
-                    }}>
+                padding: 12, 
+                borderRadius: 8, 
+                display: 'flex', 
+                justifyContent: 'space-between', 
+                alignItems: 'center',
+                marginBottom: 8
+              }}>
                       <Text strong style={{ 
                         fontSize: 18, 
                         color: netPay < 0 ? '#ff4d4f' : '#1890ff' 
                       }}>
-                        THỰC LÃNH (NET PAY):
-                      </Text>
+                  THỰC LÃNH (NET PAY):
+                </Text>
                       <Title level={2} style={{ 
                         margin: 0, 
                         color: netPay < 0 ? '#ff4d4f' : '#1890ff' 
                       }}>
                         {currency(netPay)}
-                      </Title>
-                    </div>
-                    
-                    <div style={{ textAlign: 'center', marginBottom: 12 }}>
-                      <Text type="secondary" italic>
+                </Title>
+              </div>
+              
+              <div style={{ textAlign: 'center', marginBottom: 12 }}>
+                <Text type="secondary" italic>
                         Số tiền bằng chữ: <Text strong style={{ 
                           color: netPay < 0 ? '#ff4d4f' : '#333' 
                         }}>
                           {convertNumberToText(netPay)} đồng
                         </Text>
-                      </Text>
-                    </div>
+                </Text>
+              </div>
                   </>
                 );
               })()}

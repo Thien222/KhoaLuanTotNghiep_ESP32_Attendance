@@ -159,10 +159,29 @@ export default function InternalChatScreen({ navigation, route }) {
     }
   };
 
-  const handleSelectUser = (userId, userName) => {
+  const handleSelectUser = async (userId, userName) => {
     setSelectedUserId(userId);
     setSelectedUserName(userName);
     setMessages([]);
+    
+    // ✅ Mark messages as read khi click vào conversation
+    try {
+      const response = await internalChatAPI.getConversation(userId);
+      if (response.success) {
+        const messages = response.data || [];
+        const unreadIds = messages
+          .filter(msg => !msg.read && msg.receiver?._id === (user?._id || user?.id))
+          .map(msg => msg._id);
+        
+        if (unreadIds.length > 0) {
+          await internalChatAPI.markAsRead(unreadIds);
+          // Reload conversations để cập nhật unread count
+          loadConversations();
+        }
+      }
+    } catch (error) {
+      console.error('Error marking messages as read:', error);
+    }
   };
 
   const onRefresh = async () => {

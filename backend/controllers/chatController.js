@@ -103,7 +103,7 @@ async function computeSalaryFor(emp, year, month, extraLeaveDays = 0) {
   // Công thức mới: Lương 1 ngày = Lương cơ bản / 26
   const STANDARD_WORKING_DAYS = 26;
   const dailyRate = baseSalaryFull / STANDARD_WORKING_DAYS;
-  
+
   // Tính lương tháng = (Lương cơ bản / 26) × Số ngày công thực tế
   // Khấu trừ nghỉ = (Lương cơ bản / 26) × Số ngày nghỉ
   const net = Math.max(0, baseSalaryFull - dailyRate * Number(extraLeaveDays || 0));

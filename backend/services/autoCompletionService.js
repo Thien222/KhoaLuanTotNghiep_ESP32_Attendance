@@ -192,15 +192,20 @@ async function autoCompleteWithOT(attendance, employee, otEndTime, allSettings) 
       .second(0);
     
     // OT is time worked after work end time
+    // Lưu ý: 17:00-18:00 là thời gian nghỉ, OT chỉ tính từ sau 18:00
     let overtimeHours = 0;
-    if (checkOutTime.isAfter(workDayEnd)) {
-      overtimeHours = checkOutTime.diff(workDayEnd, 'hours', true);
-      overtimeHours = Math.max(0, Math.floor(overtimeHours)); // Round down to full hours
+    const otStartTime = checkInDate.clone().hour(18).minute(0).second(0);
+    if (checkOutTime.isAfter(otStartTime)) {
+      // Tính OT từ sau 18:00 với số lẻ chính xác
+      overtimeHours = checkOutTime.diff(otStartTime, 'hours', true);
     }
     
-    // Calculate OT salary
+    // Giờ OT hiển thị: giữ số lẻ chính xác (2 chữ số thập phân)
+    const roundedOvertimeHours = Math.round(overtimeHours * 100) / 100;
+    
+    // Calculate OT salary (hàm calculateOTSalary sẽ tự động làm tròn theo quy tắc: >= 30 phút → +0.5h, < 30 phút → làm tròn xuống)
     let estimatedOTSalary = 0;
-    if (overtimeHours > 0) {
+    if (roundedOvertimeHours > 0) {
       const holiday = await attendanceHelper.isHoliday(attendance.date);
       const isHoliday = !!holiday;
       
@@ -214,7 +219,7 @@ async function autoCompleteWithOT(attendance, employee, otEndTime, allSettings) 
       };
       
       estimatedOTSalary = await attendanceHelper.calculateOTSalary(
-        overtimeHours,
+        roundedOvertimeHours,
         mergedOTSettings,
         attendance.date,
         isHoliday
@@ -224,11 +229,11 @@ async function autoCompleteWithOT(attendance, employee, otEndTime, allSettings) 
     // Update attendance record
     attendance.checkOut = {
       time: checkOutDate,
-      status: overtimeHours > 0 ? 'overtime' : 'on-time',
+      status: roundedOvertimeHours > 0 ? 'overtime' : 'on-time',
       auto: true
     };
     attendance.workingHours = workingHours;
-    attendance.overtimeHours = overtimeHours;
+    attendance.overtimeHours = roundedOvertimeHours;
     attendance.estimatedOTSalary = estimatedOTSalary;
     attendance.is_ot_approved = true;
     attendance.autoCompleted = true;

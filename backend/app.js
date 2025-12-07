@@ -288,6 +288,116 @@ app.post('/api/esp32-update-config', async (req, res) => {
   }
 });
 
+// Get all ESP32 configs
+app.get('/api/esp32-configs', async (req, res) => {
+  try {
+    const ESP32Config = require('./models/ESP32Config');
+    const configs = await ESP32Config.find().sort({ lastSeen: -1 });
+    
+    res.json({
+      success: true,
+      data: configs
+    });
+  } catch (error) {
+    console.error('Get ESP32 configs error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to get ESP32 configs',
+      error: error.message
+    });
+  }
+});
+
+// Delete ESP32 IP from database
+app.delete('/api/esp32-config/:ip', async (req, res) => {
+  try {
+    const ESP32Config = require('./models/ESP32Config');
+    const { ip } = req.params;
+    
+    const deleted = await ESP32Config.findOneAndDelete({ esp32Ip: ip });
+    
+    if (!deleted) {
+      return res.status(404).json({
+        success: false,
+        message: `ESP32 IP ${ip} not found in database`
+      });
+    }
+    
+    // Clear in-memory info if it matches
+    if (esp32Info.ip === ip) {
+      esp32Info.ip = null;
+      esp32Info.lastSeen = null;
+    }
+    
+    console.log(`✅ Deleted ESP32 IP from database: ${ip}`);
+    
+    res.json({
+      success: true,
+      message: `ESP32 IP ${ip} deleted successfully`,
+      data: deleted
+    });
+  } catch (error) {
+    console.error('Delete ESP32 config error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to delete ESP32 config',
+      error: error.message
+    });
+  }
+});
+
+// Update ESP32 IP manually
+app.put('/api/esp32-config', async (req, res) => {
+  try {
+    const ESP32Config = require('./models/ESP32Config');
+    const { oldIp, newIp, serverUrl } = req.body;
+    
+    if (!oldIp || !newIp) {
+      return res.status(400).json({
+        success: false,
+        message: 'Missing oldIp or newIp'
+      });
+    }
+    
+    // Delete old IP if exists
+    await ESP32Config.findOneAndDelete({ esp32Ip: oldIp });
+    
+    // Create new IP config
+    const config = await ESP32Config.findOneAndUpdate(
+      { esp32Ip: newIp },
+      {
+        esp32Ip: newIp,
+        serverUrl: serverUrl || getServerUrl(req),
+        lastSeen: new Date(),
+        lastUpdated: new Date(),
+        status: 'offline'
+      },
+      { upsert: true, new: true }
+    );
+    
+    // Update in-memory info if it matches
+    if (esp32Info.ip === oldIp) {
+      esp32Info.ip = newIp;
+      esp32Info.lastSeen = new Date().toISOString();
+    }
+    
+    console.log(`✅ Updated ESP32 IP from ${oldIp} to ${newIp}`);
+    
+    res.json({
+      success: true,
+      message: `ESP32 IP updated from ${oldIp} to ${newIp}`,
+      data: config
+    });
+  } catch (error) {
+    console.error('Update ESP32 IP error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to update ESP32 IP',
+      error: error.message
+    });
+  }
+});
+
 // Broadcast new server URL to all ESP32s
 app.post('/api/esp32-broadcast-config', async (req, res) => {
   try {
