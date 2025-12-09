@@ -2,6 +2,14 @@
 // Allows easy switching between different network environments
 
 const CONFIG_KEY = 'hr_system_config';
+
+// Production backend URL - Deployed on Render
+const PRODUCTION_API_URL = process.env.REACT_APP_API_URL || 'https://khoaluantotnghiep-esp32-attendance.onrender.com/api';
+
+// Check if running in production (Vercel, Netlify, etc.)
+const isProduction = process.env.NODE_ENV === 'production' ||
+  window.location.hostname !== 'localhost';
+
 const DEFAULT_CONFIG = {
   serverIP: 'localhost',  // Default to localhost
   esp32IP: '192.168.1.101',   // Example ESP32 IP
@@ -41,6 +49,11 @@ export const resetConfig = () => {
 
 // Get API URL
 export const getAPIUrl = () => {
+  // In production, use the configured production API URL
+  if (isProduction) {
+    return PRODUCTION_API_URL;
+  }
+  // In development, use localStorage config
   const config = getConfig();
   return `http://${config.serverIP}:${config.serverPort}/api`;
 };
@@ -118,12 +131,12 @@ export const testESP32Connection = async (esp32IP) => {
     console.warn('ESP32 IP is empty');
     return false;
   }
-  
+
   try {
     // Create AbortController for timeout
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 seconds timeout
-    
+
     const response = await fetch(`http://${esp32IP}/healthz`, {
       method: 'GET',
       signal: controller.signal,
@@ -131,9 +144,9 @@ export const testESP32Connection = async (esp32IP) => {
         'Accept': 'application/json'
       }
     });
-    
+
     clearTimeout(timeoutId);
-    
+
     if (response.ok) {
       const data = await response.json();
       console.log('ESP32 health check OK:', data);
