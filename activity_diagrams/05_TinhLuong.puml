@@ -1,0 +1,31 @@
+@startuml
+!theme plain
+skinparam activity {
+  BackgroundColor #FFFFFF
+  BorderColor #333333
+  FontSize 12
+}
+skinparam swimlane {
+  BackgroundColor<<Actor>> #E3F2FD
+  BackgroundColor<<System>> #FFF3E0
+  BorderColor #333333
+  FontSize 14
+  FontStyle bold
+}
+
+|#E3F2FD|Actor (Kế toán)|
+start
+:1. Vào trang "Tính lương",\nchọn tháng/năm và phạm vi\n(một nhân viên hoặc tất cả);
+:2. Click nút "Tính lương";
+|#FFF3E0|System|
+repeat
+  :3. Tính lương cho mỗi nhân viên:\nlấy Attendance records,\ntính workingDays, latePenalty,\novertimePay, phụ cấp, khấu trừ,\ngrossSalary, netSalary;
+  if (Tính thành công?) then (Lỗi)
+    :Ghi lỗi, tiếp tục;
+  else (Thành công)
+    :4. Lưu Payroll record\n(status = 'draft')\nvà hiển thị kết quả;
+  endif
+repeat while (Còn nhân viên?) is (Có)
+stop
+@enduml
+

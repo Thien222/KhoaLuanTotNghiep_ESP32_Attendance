@@ -1,0 +1,30 @@
+@startuml
+!theme plain
+skinparam activity {
+  BackgroundColor #FFFFFF
+  BorderColor #333333
+  FontSize 12
+}
+skinparam swimlane {
+  BackgroundColor<<Actor>> #E3F2FD
+  BackgroundColor<<System>> #FFF3E0
+  BorderColor #333333
+  FontSize 14
+  FontStyle bold
+}
+
+|#E3F2FD|Actor (Quản lý)|
+start
+:1. Vào trang "Quản lý ca làm việc" và thực hiện:\n- Tạo ca: Click "Tạo ca mới",\n  điền form (tên ca, giờ bắt đầu/kết thúc,\n  grace period) và click "Lưu"\n- Cập nhật/Xóa: Chọn ca,\n  click "Chỉnh sửa" hoặc "Xóa",\n  cập nhật/xác nhận\n- Gán ca: Chọn ca,\n  click "Gán cho nhân viên",\n  chọn danh sách nhân viên và ngày bắt đầu,\n  click "Gán";
+|#FFF3E0|System|
+if (Thao tác là gì?) then (Tạo ca)
+  :2. Tạo ca:\nvalidate,\ntạo Shift record;
+elseif (Cập nhật/Xóa) then
+  :3. Cập nhật/Xóa:\nkiểm tra (nếu xóa:\ncó nhân viên đang sử dụng không),\ncập nhật hoặc xóa Shift record;
+elseif (Gán ca) then
+  :4. Gán ca:\ndeactivate EmployeeShift cũ,\ntạo EmployeeShift mới\ncho mỗi nhân viên;
+endif
+:5. Thông báo thành công;
+stop
+@enduml
+

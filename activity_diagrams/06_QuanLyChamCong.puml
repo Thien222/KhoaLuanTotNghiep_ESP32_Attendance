@@ -1,0 +1,34 @@
+@startuml
+!theme plain
+skinparam activity {
+  BackgroundColor #FFFFFF
+  BorderColor #333333
+  FontSize 12
+}
+skinparam swimlane {
+  BackgroundColor<<Actor>> #E3F2FD
+  BackgroundColor<<System>> #FFF3E0
+  BorderColor #333333
+  FontSize 14
+  FontStyle bold
+}
+
+|#E3F2FD|Actor (Quản lý)|
+start
+:1. Vào trang "Quản lý chấm công"\nvà chọn khoảng thời gian,\nphòng ban (tùy chọn);
+|#FFF3E0|System|
+:2. Lấy tất cả Attendance records\nvà hiển thị bảng chấm công;
+|#E3F2FD|Actor (Quản lý)|
+:3. Chọn bản ghi và thực hiện:\nXem chi tiết / Chỉnh sửa\n(nhập giờ vào/ra mới) / Xóa (xác nhận);
+|#FFF3E0|System|
+if (Thao tác là gì?) then (Xem)
+  :Xem chi tiết;
+elseif (Sửa) then
+  :4. Chỉnh sửa:\nvalidate thời gian,\ntính lại late/early minutes,\npenalties, working hours, OT,\ncập nhật Attendance record;
+elseif (Xóa) then
+  :5. Xóa:\nxóa Attendance record;
+endif
+:6. Thông báo thành công;
+stop
+@enduml
+

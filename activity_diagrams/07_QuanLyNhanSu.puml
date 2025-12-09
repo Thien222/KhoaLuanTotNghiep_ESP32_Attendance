@@ -1,0 +1,32 @@
+@startuml
+!theme plain
+skinparam activity {
+  BackgroundColor #FFFFFF
+  BorderColor #333333
+  FontSize 12
+}
+skinparam swimlane {
+  BackgroundColor<<Actor>> #E3F2FD
+  BackgroundColor<<System>> #FFF3E0
+  BorderColor #333333
+  FontSize 14
+  FontStyle bold
+}
+
+|#E3F2FD|Actor (Quản lý)|
+start
+:1. Vào trang "Quản lý nhân sự" và thực hiện:\n- Thêm: Click "Thêm nhân viên",\n  điền form và click "Lưu"\n- Cập nhật: Chọn nhân viên,\n  click "Chỉnh sửa", cập nhật và click "Lưu"\n- Vô hiệu hóa: Chọn nhân viên,\n  click "Vô hiệu hóa" và xác nhận\n- Đăng ký vân tay: Chọn nhân viên\n  và click "Đăng ký vân tay";
+|#FFF3E0|System|
+if (Thao tác là gì?) then (Thêm)
+  :2. Thêm:\ntự động tạo employeeId,\nfingerprintId,\ntạo Employee record;
+elseif (Cập nhật) then
+  :3. Cập nhật:\nvalidate,\ncập nhật Employee record;
+elseif (Vô hiệu hóa) then
+  :4. Vô hiệu hóa:\ncập nhật\nstatus = 'inactive';
+elseif (Đăng ký vân tay) then
+  :5. Đăng ký vân tay:\ngửi lệnh đến ESP32,\nnhân viên quét vân tay,\nESP32 gửi template về server,\ncập nhật fingerprintTemplate\nvà fingerprintEnrolled = true;
+endif
+:6. Thông báo thành công;
+stop
+@enduml
+

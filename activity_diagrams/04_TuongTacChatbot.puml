@@ -1,0 +1,35 @@
+@startuml
+!theme plain
+skinparam activity {
+  BackgroundColor #FFFFFF
+  BorderColor #333333
+  FontSize 12
+}
+skinparam swimlane {
+  BackgroundColor<<Actor>> #E3F2FD
+  BackgroundColor<<System>> #FFF3E0
+  BorderColor #333333
+  FontSize 14
+  FontStyle bold
+}
+
+|#E3F2FD|Actor (Nhân viên)|
+start
+:1. Vào trang "Chatbot"\nvà nhập câu hỏi;
+:2. Click nút "Gửi";
+|#FFF3E0|System|
+if (Profile hoàn thiện?) then (Không)
+  :Trả về lỗi:\n"Vui lòng hoàn thiện hồ sơ\ntrước khi sử dụng chatbot";
+  stop
+else (Có)
+  :3. Phân tích intent bằng LLM\nhoặc NLU, xử lý intent\nvà lấy dữ liệu từ database;
+  if (Phân tích được?) then (Không)
+    :Trả về helpText\nvới danh sách câu hỏi hỗ trợ;
+    stop
+  else (Có)
+    :4. Trả về và hiển thị\nreply trong chat;
+    stop
+  endif
+endif
+@enduml
+
