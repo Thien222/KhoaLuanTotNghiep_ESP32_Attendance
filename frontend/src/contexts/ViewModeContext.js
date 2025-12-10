@@ -28,8 +28,8 @@ export const ViewModeProvider = ({ children }) => {
 
   // Reset viewMode when user changes
   useEffect(() => {
-    if (user && !initialized) {
-      // Default mode based on role
+    if (user) {
+      // Default mode based on role - always re-initialize when user changes
       if (user.role === 'manager') {
         setViewMode('admin');
       } else if (user.role === 'accountant') {
@@ -38,11 +38,11 @@ export const ViewModeProvider = ({ children }) => {
         setViewMode('personal');
       }
       setInitialized(true);
-    } else if (!user) {
+    } else {
       setInitialized(false);
       setViewMode('personal');
     }
-  }, [user, initialized]);
+  }, [user?.role, user?._id]); // Re-initialize when user role or ID changes
 
   // Check if user can switch modes
   const canSwitchMode = React.useMemo(() => {

@@ -150,10 +150,12 @@ function detectIntentAndEntities(text) {
 
   // Detection cho EMPLOYEE_ATTENDANCE_BY_CODE: hỏi checkin của nhân viên theo mã
   // Pattern: "Nhân viên EMP003 đã check in chưa" hoặc "EMP003 đã điểm danh chưa"
-  if ((/\b(hom nay|bua nay|nay|hôm nay)\b/.test(s) || dateISO || !dateISO) && 
-      /(da|đã|chưa|chua)\s*(checkin|check\s*in|diem danh|điểm danh|cham cong|chấm công)/.test(s) &&
+  // Ưu tiên kiểm tra check-in trước khi kiểm tra lương
+  if ((/(da|đã|chưa|chua)\s*(checkin|check\s*in|diem danh|điểm danh|cham cong|chấm công)/.test(s) ||
+       /(checkin|check\s*in|diem danh|điểm danh|cham cong|chấm công)\s*(da|đã|chưa|chua)/.test(s)) &&
       (employeeCode || /\b(EMP|NV)\s*0?\d{2,6}\b/i.test(raw)) &&
-      !/(toi|tui|minh|cua toi|của tôi|m[iì]nh|t[ôo]i|em)\b/.test(s)) {
+      !/(toi|tui|minh|cua toi|của tôi|m[iì]nh|t[ôo]i|em)\b/.test(s) &&
+      !/l[ươ]ng|b[ả]ng l[ươ]ng/i.test(s)) {
     const extractedCode = employeeCode || pickEmployeeCode(s, raw);
     if (extractedCode) {
       return { intent: 'EMPLOYEE_ATTENDANCE_BY_CODE', entities: { dateISO: dateISO || null, employeeCode: extractedCode } };

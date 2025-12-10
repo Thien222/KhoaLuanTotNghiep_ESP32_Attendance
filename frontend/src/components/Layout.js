@@ -423,7 +423,8 @@ const MainLayout = ({ children }) => {
           padding: '16px 12px 16px 8px',
           background: '#f5f7fa',
           minHeight: 'calc(100vh - 56px)',
-          width: '100%'
+          width: '100%',
+          overflowX: 'hidden'
           /* Removed overflow:auto - let browser handle scrolling naturally */
         }}
         className="main-content-area"

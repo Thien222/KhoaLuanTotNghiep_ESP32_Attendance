@@ -584,7 +584,7 @@ const PayrollManagement = () => {
       render: (days) => days > 0 ? <Tag color="green">{days} ngày</Tag> : <Tag color="red">0</Tag>
     },
     {
-      title: ' Lương ngày công',
+      title: 'Lương ngày công',
       dataIndex: 'proratedSalary',
       key: 'proratedSalary',
       width: 130,
@@ -914,7 +914,7 @@ const PayrollManagement = () => {
   const totalDeductions = payrolls.reduce((sum, p) => sum + (p.fixedDeduction || 0) + (p.latePenalty || 0), 0);
 
   return (
-    <div style={{ width: '100%', maxWidth: '100%' }}>
+    <div style={{ width: '100%', maxWidth: '100%', overflowX: 'hidden' }}>
       <Card bodyStyle={{ padding: '12px' }}>
         {/* Header - ALIGNED */}
         <div style={{ 
@@ -984,7 +984,7 @@ const PayrollManagement = () => {
               </Col>
               <Col xs={24} sm={12} lg={6}>
                 <Statistic 
-                  title={<Text type="secondary"><DollarOutlined /> Tổng lương cơ bản</Text>}
+                  title={<Text type="secondary"><DollarOutlined /> Tổng lương ngày công</Text>}
                   value={totalBasicSalary} 
                   prefix={<PlusOutlined />}
                   valueStyle={{ color: '#1890ff', fontSize: 18 }}
@@ -1108,7 +1108,6 @@ const PayrollManagement = () => {
             dataSource={payrolls}
             loading={loading}
             rowKey="_id"
-            scroll={{ x: 1500 }}
             pagination={{
               pageSize: 10,
               showSizeChanger: true,
@@ -1125,7 +1124,6 @@ const PayrollManagement = () => {
             dataSource={payrolls}
             loading={loading}
             rowKey="_id"
-            scroll={{ x: 1000 }}
             pagination={{
               pageSize: 10,
               showSizeChanger: true,
