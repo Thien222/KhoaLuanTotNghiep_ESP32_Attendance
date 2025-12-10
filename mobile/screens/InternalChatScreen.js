@@ -34,7 +34,7 @@ export default function InternalChatScreen({ navigation, route }) {
   useEffect(() => {
     loadUsers();
     loadConversations();
-    
+
     return () => {
       if (messagePollInterval.current) {
         clearInterval(messagePollInterval.current);
@@ -45,16 +45,16 @@ export default function InternalChatScreen({ navigation, route }) {
   useEffect(() => {
     if (selectedUserId) {
       loadMessages();
-      // Poll for new messages every 3 seconds
+      // ⚡ Poll for new messages every 1 second (faster!)
       messagePollInterval.current = setInterval(() => {
         loadMessages();
-      }, 3000);
+      }, 1000);
     } else {
       if (messagePollInterval.current) {
         clearInterval(messagePollInterval.current);
       }
     }
-    
+
     return () => {
       if (messagePollInterval.current) {
         clearInterval(messagePollInterval.current);
@@ -66,7 +66,7 @@ export default function InternalChatScreen({ navigation, route }) {
     try {
       const currentUserRole = user?.role;
       const allowedRoles = getAllowedRolesForChat(currentUserRole);
-      
+
       // Get employees with user accounts
       const response = await employeeAPI.getMyProfile();
       // For now, we'll get users from conversations
@@ -120,13 +120,38 @@ export default function InternalChatScreen({ navigation, route }) {
 
   const loadMessages = async () => {
     if (!selectedUserId) return;
-    
+
     try {
       const response = await internalChatAPI.getConversation(selectedUserId);
       if (response.success) {
-        setMessages(response.data || []);
+        const newMessages = response.data || [];
+
+        // ✅ SMART DEDUPLICATION - prevent duplicates
+        setMessages(prev => {
+          // Create a Set of existing message IDs
+          const existingIds = new Set(prev.map(m => m._id));
+
+          // Only add truly new messages
+          const uniqueNewMessages = newMessages.filter(m => !existingIds.has(m._id));
+
+          // If we have new messages, append them
+          if (uniqueNewMessages.length > 0) {
+            return [...prev, ...uniqueNewMessages].sort((a, b) =>
+              new Date(a.createdAt) - new Date(b.createdAt)
+            );
+          }
+
+          // If no new messages and count is same, return prev (avoid re-render)
+          if (prev.length === newMessages.length) {
+            return prev;
+          }
+
+          // Otherwise, use new messages (handles deletes, edits, etc)
+          return newMessages;
+        });
+
         // Mark messages as read
-        const unreadIds = response.data
+        const unreadIds = newMessages
           .filter(msg => !msg.read && msg.receiver?._id === (user?._id || user?.id))
           .map(msg => msg._id);
         if (unreadIds.length > 0) {
@@ -141,18 +166,43 @@ export default function InternalChatScreen({ navigation, route }) {
   const sendMessage = async () => {
     if (!inputValue.trim() || !selectedUserId || sending) return;
 
+    const messageContent = inputValue.trim();
+    const currentUserId = user?._id || user?.id;
+
+    // ✅ OPTIMISTIC UI - Show message instantly
+    const optimisticMessage = {
+      _id: `temp-${Date.now()}`,
+      content: messageContent,
+      sender: { _id: currentUserId },
+      receiver: { _id: selectedUserId },
+      createdAt: new Date().toISOString(),
+      isOptimistic: true
+    };
+
+    // Add to UI immediately
+    setMessages(prev => [...prev, optimisticMessage]);
+    setInputValue('');
+
+    // Scroll to bottom
+    setTimeout(() => {
+      flatListRef.current?.scrollToEnd({ animated: true });
+    }, 100);
+
     setSending(true);
     try {
-      const response = await internalChatAPI.sendMessage(selectedUserId, inputValue.trim());
+      const response = await internalChatAPI.sendMessage(selectedUserId, messageContent);
       if (response.success) {
-        setInputValue('');
-        // Reload messages
-        setTimeout(() => loadMessages(), 500);
+        // ⚡ Reload messages instantly
+        setTimeout(() => loadMessages(), 100);
       } else {
+        // Remove optimistic message on error
+        setMessages(prev => prev.filter(m => m._id !== optimisticMessage._id));
         Alert.alert('Lỗi', response.message || 'Không thể gửi tin nhắn');
       }
     } catch (error) {
       console.error('Error sending message:', error);
+      // Remove optimistic message on error
+      setMessages(prev => prev.filter(m => m._id !== optimisticMessage._id));
       Alert.alert('Lỗi', 'Không thể gửi tin nhắn');
     } finally {
       setSending(false);
@@ -163,7 +213,7 @@ export default function InternalChatScreen({ navigation, route }) {
     setSelectedUserId(userId);
     setSelectedUserName(userName);
     setMessages([]);
-    
+
     // ✅ Mark messages as read khi click vào conversation
     try {
       const response = await internalChatAPI.getConversation(userId);
@@ -172,7 +222,7 @@ export default function InternalChatScreen({ navigation, route }) {
         const unreadIds = messages
           .filter(msg => !msg.read && msg.receiver?._id === (user?._id || user?.id))
           .map(msg => msg._id);
-        
+
         if (unreadIds.length > 0) {
           await internalChatAPI.markAsRead(unreadIds);
           // Reload conversations để cập nhật unread count
@@ -192,7 +242,7 @@ export default function InternalChatScreen({ navigation, route }) {
 
   const renderMessage = ({ item }) => {
     const isOwnMessage = item.sender?._id === (user?._id || user?.id);
-    
+
     return (
       <View
         style={[

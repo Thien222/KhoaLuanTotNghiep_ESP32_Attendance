@@ -42,16 +42,37 @@ const InternalChat = ({ receiverId, receiverName, receiverAvatar, currentUserId 
       if (isForThisConversation) {
         console.log('✅ Message is for this conversation, adding INSTANTLY...');
         setMessages(prev => {
-          // Check if message already exists
-          const exists = prev.some(m => {
+          // ✅ SMART DEDUPLICATION:
+          // 1. Check by ID
+          const existsById = prev.some(m => {
             const mId = m._id || m.id;
             const msgId = message._id || message.id;
             return mId === msgId;
           });
-          if (exists) {
-            console.log('⚠️ Message already exists, skipping');
+
+          if (existsById) {
+            console.log('⚠️ Message with same ID already exists, skipping');
             return prev;
           }
+
+          // 2. Check by content + sender + approximate time (for duplicates within 2 seconds)
+          const existsByContent = prev.some(m => {
+            const sameContent = m.content === message.content;
+            const sameSender = (m.sender?._id || m.sender) === senderId;
+            const timeDiff = Math.abs(
+              new Date(m.createdAt).getTime() - new Date(message.createdAt).getTime()
+            );
+            return sameContent && sameSender && timeDiff < 2000; // Within 2 seconds
+          });
+
+          if (existsByContent) {
+            console.log('⚠️ Message with same content already exists, replacing optimistic with real...');
+            // Remove optimistic, keep real message
+            return prev
+              .filter(m => !(m.isOptimistic && m.content === message.content))
+              .concat(message);
+          }
+
           console.log('✅ Adding new message to state');
           return [...prev, message];
         });
