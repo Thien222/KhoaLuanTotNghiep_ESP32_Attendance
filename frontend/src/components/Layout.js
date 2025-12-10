@@ -23,6 +23,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import TimeControl from './TimeControl';
 import { useViewMode } from '../contexts/ViewModeContext';
 import { useSocket } from '../hooks/useSocket';
+import { useUnreadCount } from '../hooks/useUnreadCount';
 
 const { Header, Sider, Content } = AntLayout;
 const { Text } = Typography;
@@ -55,7 +56,11 @@ const MainLayout = ({ children }) => {
     return null;
   };
 
+
   const user = getUser();
+
+  // Hook for unread message count
+  const { unreadCount } = useUnreadCount(user?._id);
 
   // Redirect to login if no user
   React.useEffect(() => {
@@ -63,6 +68,7 @@ const MainLayout = ({ children }) => {
       navigate('/login');
     }
   }, [user, navigate]);
+
 
   // ✅ Socket listener cho thông báo đơn mới (chỉ cho admin/manager)
   useEffect(() => {
@@ -371,7 +377,7 @@ const MainLayout = ({ children }) => {
             {/* Time Machine - for Admin only */}
             {isAdmin && <TimeControl />}
 
-            <Badge count={notificationCount} size="small">
+            <Badge count={notificationCount + unreadCount} size="small">
               <Button
                 type="text"
                 icon={<BellOutlined />}
