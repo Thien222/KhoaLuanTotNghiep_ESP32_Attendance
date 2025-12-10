@@ -29,18 +29,18 @@ const InternalChat = ({ receiverId, receiverName, receiverAvatar, currentUserId 
     const handleNewMessage = (message) => {
       console.log('📨 New message received:', message);
       console.log('Current receiverId:', receiverId, 'Current userId:', currentUserId);
-      
+
       // ✅ Sửa logic check: message có thể có sender/receiver là object hoặc string ID
       const senderId = message.sender?._id || message.sender;
       const receiverIdFromMsg = message.receiver?._id || message.receiver;
-      
+
       // Check if message is for this conversation
-      const isForThisConversation = 
+      const isForThisConversation =
         (senderId === receiverId && receiverIdFromMsg === currentUserId) ||
         (senderId === currentUserId && receiverIdFromMsg === receiverId);
-      
+
       if (isForThisConversation) {
-        console.log('✅ Message is for this conversation, adding...');
+        console.log('✅ Message is for this conversation, adding INSTANTLY...');
         setMessages(prev => {
           // Check if message already exists
           const exists = prev.some(m => {
@@ -55,8 +55,10 @@ const InternalChat = ({ receiverId, receiverName, receiverAvatar, currentUserId 
           console.log('✅ Adding new message to state');
           return [...prev, message];
         });
-        // ✅ Force scroll immediately
-        setTimeout(() => scrollToBottom(), 50);
+        // ✅ Instant scroll - no delay!
+        scrollToBottom();
+        // Backup scroll after 10ms to ensure DOM updated
+        setTimeout(() => scrollToBottom(), 10);
       } else {
         console.log('❌ Message is not for this conversation, ignoring');
       }
@@ -114,7 +116,7 @@ const InternalChat = ({ receiverId, receiverName, receiverAvatar, currentUserId 
 
   const loadMessages = async (merge = false) => {
     if (!receiverId) return;
-    
+
     setLoading(true);
     try {
       const API_URL = getAPIUrl();
@@ -122,7 +124,7 @@ const InternalChat = ({ receiverId, receiverName, receiverAvatar, currentUserId 
       const response = await axios.get(`${API_URL}/internal-chat/messages/${receiverId}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      
+
       if (response.data.success) {
         const newMessages = response.data.data || [];
         if (merge) {
@@ -151,19 +153,33 @@ const InternalChat = ({ receiverId, receiverName, receiverAvatar, currentUserId 
   const sendMessage = async () => {
     if (!inputValue.trim() || !socket || !connected || sending) return;
 
+    const messageContent = inputValue.trim();
+    const tempId = `temp-${Date.now()}`;
+
+    // ✅ OPTIMISTIC UI: Show message INSTANTLY
+    const optimisticMessage = {
+      _id: tempId,
+      content: messageContent,
+      sender: { _id: currentUserId },
+      receiver: { _id: receiverId },
+      createdAt: new Date().toISOString(),
+      isOptimistic: true
+    };
+
+    setMessages(prev => [...prev, optimisticMessage]);
+    setInputValue('');
+    scrollToBottom();
+
     setSending(true);
     try {
       socket.emit('send_message', {
         receiverId,
-        content: inputValue.trim()
+        content: messageContent
       });
-
-      // Stop typing indicator
       socket.emit('stop_typing', { receiverId });
-      
-      setInputValue('');
     } catch (error) {
       console.error('Error sending message:', error);
+      setMessages(prev => prev.filter(m => m._id !== tempId));
     } finally {
       setSending(false);
     }
@@ -171,14 +187,14 @@ const InternalChat = ({ receiverId, receiverName, receiverAvatar, currentUserId 
 
   const handleTyping = () => {
     if (!socket || !connected) return;
-    
+
     socket.emit('typing', { receiverId });
-    
+
     // Clear existing timeout
     if (typingTimeoutRef.current) {
       clearTimeout(typingTimeoutRef.current);
     }
-    
+
     // Stop typing after 2 seconds of no input
     typingTimeoutRef.current = setTimeout(() => {
       socket.emit('stop_typing', { receiverId });
@@ -200,7 +216,7 @@ const InternalChat = ({ receiverId, receiverName, receiverAvatar, currentUserId 
   }
 
   return (
-    <Card 
+    <Card
       title={
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <Badge dot={connected} color={connected ? '#52c41a' : '#ff4d4f'}>
@@ -214,10 +230,10 @@ const InternalChat = ({ receiverId, receiverName, receiverAvatar, currentUserId 
       bodyStyle={{ flex: 1, display: 'flex', flexDirection: 'column', padding: '16px' }}
     >
       <Spin spinning={loading}>
-        <div style={{ 
+        <div style={{
           flex: 1,
-          height: '450px', 
-          overflowY: 'auto', 
+          height: '450px',
+          overflowY: 'auto',
           marginBottom: '16px',
           padding: '8px',
           backgroundColor: '#fafafa',
@@ -231,7 +247,7 @@ const InternalChat = ({ receiverId, receiverName, receiverAvatar, currentUserId 
               renderItem={(msg) => {
                 const isOwnMessage = msg.sender && msg.sender._id === currentUserId;
                 return (
-                  <List.Item style={{ 
+                  <List.Item style={{
                     justifyContent: isOwnMessage ? 'flex-end' : 'flex-start',
                     padding: '4px 0',
                     border: 'none'
@@ -274,7 +290,7 @@ const InternalChat = ({ receiverId, receiverName, receiverAvatar, currentUserId 
           <div ref={messagesEndRef} />
         </div>
       </Spin>
-      
+
       <Input.Group compact style={{ display: 'flex' }}>
         <Input
           value={inputValue}
@@ -287,9 +303,9 @@ const InternalChat = ({ receiverId, receiverName, receiverAvatar, currentUserId 
           disabled={!connected || sending}
           style={{ flex: 1 }}
         />
-        <Button 
-          type="primary" 
-          icon={<SendOutlined />} 
+        <Button
+          type="primary"
+          icon={<SendOutlined />}
           onClick={sendMessage}
           disabled={!connected || sending || !inputValue.trim()}
           loading={sending}

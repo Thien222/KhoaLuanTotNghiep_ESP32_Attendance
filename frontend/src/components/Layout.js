@@ -237,9 +237,13 @@ const MainLayout = ({ children }) => {
     window.location.href = '/';
   };
 
-  // Use toggleMode from context
+  // Use toggleMode from context with immediate feedback
   const handleToggleMode = () => {
+    console.log('[Layout] Mode toggle clicked, current mode:', viewMode);
     toggleMode();
+    // Force re-render by updating a dummy state
+    setCollapsed(prev => prev); // Trigger re-render
+    console.log('[Layout] Mode toggled, new mode should update automatically');
   };
 
   const getModeButtonStyle = () => {
@@ -256,7 +260,7 @@ const MainLayout = ({ children }) => {
   const siderWidth = collapsed ? 80 : 200;
 
   return (
-    <AntLayout style={{ minHeight: '100vh', overflowX: 'hidden' }}>
+    <AntLayout style={{ minHeight: '100vh' }}>
       {/* Fixed Sidebar */}
       <Sider
         trigger={null}
@@ -315,9 +319,7 @@ const MainLayout = ({ children }) => {
         marginLeft: siderWidth,
         minHeight: '100vh',
         transition: 'margin-left 0.2s ease',
-        width: `calc(100% - ${siderWidth}px)`,
-        overflowX: 'hidden',
-        maxWidth: '100vw'
+        width: `calc(100% - ${siderWidth}px)`
       }}>
         {/* Fixed Header */}
         <Header style={{
