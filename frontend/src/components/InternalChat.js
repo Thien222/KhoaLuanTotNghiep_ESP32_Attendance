@@ -16,6 +16,7 @@ const InternalChat = ({ receiverId, receiverName, receiverAvatar, currentUserId 
   const [sending, setSending] = useState(false);
   const messagesEndRef = useRef(null);
   const typingTimeoutRef = useRef(null);
+  const pollingIntervalRef = useRef(null);
   const { socket, connected } = useSocket();
 
   useEffect(() => {
@@ -26,22 +27,43 @@ const InternalChat = ({ receiverId, receiverName, receiverAvatar, currentUserId 
 
     // Listen for new messages
     const handleNewMessage = (message) => {
-      // Only add if it's for this conversation
-      if (
-        (message.receiver && message.receiver._id === receiverId && message.sender._id === currentUserId) ||
-        (message.sender && message.sender._id === receiverId && message.receiver && message.receiver._id === currentUserId) ||
-        (message.sender && message.sender._id === currentUserId && message.receiver && message.receiver._id === receiverId)
-      ) {
+      console.log('📨 New message received:', message);
+      console.log('Current receiverId:', receiverId, 'Current userId:', currentUserId);
+      
+      // ✅ Sửa logic check: message có thể có sender/receiver là object hoặc string ID
+      const senderId = message.sender?._id || message.sender;
+      const receiverIdFromMsg = message.receiver?._id || message.receiver;
+      
+      // Check if message is for this conversation
+      const isForThisConversation = 
+        (senderId === receiverId && receiverIdFromMsg === currentUserId) ||
+        (senderId === currentUserId && receiverIdFromMsg === receiverId);
+      
+      if (isForThisConversation) {
+        console.log('✅ Message is for this conversation, adding...');
         setMessages(prev => {
           // Check if message already exists
-          const exists = prev.some(m => m._id === message._id);
-          if (exists) return prev;
+          const exists = prev.some(m => {
+            const mId = m._id || m.id;
+            const msgId = message._id || message.id;
+            return mId === msgId;
+          });
+          if (exists) {
+            console.log('⚠️ Message already exists, skipping');
+            return prev;
+          }
+          console.log('✅ Adding new message to state');
           return [...prev, message];
         });
-        scrollToBottom();
+        // ✅ Force scroll immediately
+        setTimeout(() => scrollToBottom(), 50);
+      } else {
+        console.log('❌ Message is not for this conversation, ignoring');
       }
     };
 
+    // ✅ Remove old listener before adding new one to avoid duplicates
+    socket.off('new_message', handleNewMessage);
     socket.on('new_message', handleNewMessage);
 
     // Listen for typing
@@ -63,6 +85,20 @@ const InternalChat = ({ receiverId, receiverName, receiverAvatar, currentUserId 
       }
     });
 
+    // ✅ Thêm polling dự phòng nếu socket không connected (mỗi 3 giây check 1 lần)
+    if (!connected) {
+      pollingIntervalRef.current = setInterval(() => {
+        console.log('🔄 Polling for new messages (socket not connected)');
+        loadMessages(true); // Merge mode để không mất messages mới
+      }, 3000);
+    } else {
+      // Clear polling nếu socket đã connected
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current);
+        pollingIntervalRef.current = null;
+      }
+    }
+
     return () => {
       socket.off('new_message', handleNewMessage);
       socket.off('user_typing');
@@ -70,10 +106,13 @@ const InternalChat = ({ receiverId, receiverName, receiverAvatar, currentUserId 
       if (typingTimeoutRef.current) {
         clearTimeout(typingTimeoutRef.current);
       }
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current);
+      }
     };
-  }, [socket, receiverId, currentUserId]);
+  }, [socket, receiverId, currentUserId, connected]);
 
-  const loadMessages = async () => {
+  const loadMessages = async (merge = false) => {
     if (!receiverId) return;
     
     setLoading(true);
@@ -85,7 +124,21 @@ const InternalChat = ({ receiverId, receiverName, receiverAvatar, currentUserId 
       });
       
       if (response.data.success) {
-        setMessages(response.data.data || []);
+        const newMessages = response.data.data || [];
+        if (merge) {
+          // ✅ Merge với messages hiện tại, tránh mất messages mới từ socket
+          setMessages(prev => {
+            const existingIds = new Set(prev.map(m => m._id || m.id));
+            const uniqueNewMessages = newMessages.filter(m => !existingIds.has(m._id || m.id));
+            return [...prev, ...uniqueNewMessages].sort((a, b) => {
+              const timeA = new Date(a.createdAt || a.created_at || 0).getTime();
+              const timeB = new Date(b.createdAt || b.created_at || 0).getTime();
+              return timeA - timeB;
+            });
+          });
+        } else {
+          setMessages(newMessages);
+        }
         scrollToBottom();
       }
     } catch (error) {
@@ -249,6 +302,12 @@ const InternalChat = ({ receiverId, receiverName, receiverAvatar, currentUserId 
 };
 
 export default InternalChat;
+
+
+
+
+
+
 
 
 

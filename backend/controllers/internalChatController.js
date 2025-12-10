@@ -1,5 +1,6 @@
 const InternalMessage = require('../models/InternalMessage');
 const User = require('../models/User');
+const { getIO } = require('../socket/socketServer');
 
 // Helper function to check if two users can chat based on their roles
 function canUsersChat(senderRole, receiverRole) {
@@ -323,6 +324,21 @@ exports.sendMessage = async (req, res) => {
     // Populate sender and receiver for response
     await message.populate('sender', 'username email employee');
     await message.populate('receiver', 'username email employee');
+
+    // ✅ Emit socket event để frontend nhận real-time
+    try {
+      const io = getIO();
+      if (io) {
+        // Emit to receiver
+        io.to(`user_${receiverId}`).emit('new_message', message);
+        // Also emit to sender for confirmation
+        io.to(`user_${senderId}`).emit('new_message', message);
+        console.log(`📨 Message sent via REST API from ${senderId} to ${receiverId} - Socket event emitted`);
+      }
+    } catch (socketError) {
+      console.error('Error emitting socket event:', socketError);
+      // Continue even if socket emit fails
+    }
 
     res.json({
       success: true,

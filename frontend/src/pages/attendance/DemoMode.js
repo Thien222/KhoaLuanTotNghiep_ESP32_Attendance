@@ -949,7 +949,7 @@ const DemoMode = () => {
                   <Col span={6}>
                     <Statistic
                       title="OT"
-                      value={lastAttendance.overtimeHours?.toFixed(1) || 0}
+                      value={lastAttendance.overtimeHours?.toFixed(2) || 0}
                       suffix="giờ"
                       valueStyle={{ color: lastAttendance.overtimeHours > 0 ? '#1890ff' : '#8c8c8c' }}
                     />
@@ -962,7 +962,7 @@ const DemoMode = () => {
                   <Col span={8}>
                     <Statistic
                       title="Giờ Làm"
-                      value={lastAttendance.workingHours?.toFixed(1) || 0}
+                      value={lastAttendance.workingHours?.toFixed(2) || 0}
                       suffix="giờ"
                     />
                   </Col>

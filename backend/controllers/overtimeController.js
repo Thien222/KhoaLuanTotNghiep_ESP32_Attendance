@@ -6,6 +6,8 @@ const Attendance = require('../models/Attendance');
 const Settings = require('../models/Settings');
 const attendanceHelper = require('../utils/attendanceHelper');
 const moment = require('moment-timezone');
+const { getIO } = require('../socket/socketServer');
+const User = require('../models/User');
 
 moment.tz.setDefault('Asia/Ho_Chi_Minh');
 
@@ -202,6 +204,27 @@ exports.createOTRequest = async (req, res) => {
     const employeeName = otRequest.employee?.name || 'N/A';
     console.log(`📋 [OT Request] ${employeeName} submitted OT for ${moment(date).format('YYYY-MM-DD')}`);
     console.log(`   Shift: ${otTimeframe.shiftName}, OT: ${otTimeframe.startTime} - ${otTimeframe.endTime} (~${otTimeframe.estimatedHours}h)`);
+    
+    // ✅ Emit socket event để thông báo cho admin/manager
+    try {
+      const io = getIO();
+      if (io) {
+        // Tìm tất cả admin/manager users
+        const admins = await User.find({ role: { $in: ['admin', 'manager'] } }).select('_id');
+        admins.forEach(admin => {
+          io.to(`user_${admin._id}`).emit('new_ot_request', {
+            type: 'overtime',
+            request: otRequest,
+            employee: otRequest.employee,
+            message: `Nhân viên ${employeeName} đã gửi đơn OT cần duyệt`
+          });
+        });
+        console.log(`📢 [Socket] Emitted new_ot_request to ${admins.length} admin(s)`);
+      }
+    } catch (socketError) {
+      console.error('Error emitting socket event for OT request:', socketError);
+      // Continue even if socket emit fails
+    }
     
     res.status(201).json({
       success: true,
@@ -470,8 +493,27 @@ exports.approveOTRequest = async (req, res) => {
     
     await request.save();
     await request.populate('employee', 'name employeeId department');
+    await request.populate('employee.user', '_id');
     
     console.log(`✅ [OT Approved] ${request.employee.name} - ${moment(request.date).format('YYYY-MM-DD')}`);
+    
+    // ✅ Emit socket event để thông báo cho nhân viên
+    try {
+      const io = getIO();
+      if (io && request.employee && request.employee.user) {
+        const employeeUserId = request.employee.user._id || request.employee.user;
+        io.to(`user_${employeeUserId}`).emit('ot_request_reviewed', {
+          type: 'overtime',
+          request: request,
+          status: 'approved',
+          message: `Đơn OT của bạn đã được duyệt`,
+          reviewComment: request.reviewComment
+        });
+        console.log(`📢 [Socket] Emitted ot_request_reviewed to employee ${employeeUserId}`);
+      }
+    } catch (socketError) {
+      console.error('Error emitting socket event for OT review:', socketError);
+    }
     
     res.status(200).json({
       success: true,
@@ -520,8 +562,27 @@ exports.rejectOTRequest = async (req, res) => {
     
     await request.save();
     await request.populate('employee', 'name employeeId department');
+    await request.populate('employee.user', '_id');
     
     console.log(`❌ [OT Rejected] ${request.employee.name} - ${moment(request.date).format('YYYY-MM-DD')}`);
+    
+    // ✅ Emit socket event để thông báo cho nhân viên
+    try {
+      const io = getIO();
+      if (io && request.employee && request.employee.user) {
+        const employeeUserId = request.employee.user._id || request.employee.user;
+        io.to(`user_${employeeUserId}`).emit('ot_request_reviewed', {
+          type: 'overtime',
+          request: request,
+          status: 'rejected',
+          message: `Đơn OT của bạn đã bị từ chối`,
+          reviewComment: request.reviewComment
+        });
+        console.log(`📢 [Socket] Emitted ot_request_reviewed (rejected) to employee ${employeeUserId}`);
+      }
+    } catch (socketError) {
+      console.error('Error emitting socket event for OT reject:', socketError);
+    }
     
     res.status(200).json({
       success: true,
@@ -668,13 +729,9 @@ exports.bulkAssignOT = async (req, res) => {
         let overtimeHours = 0;
         if (otEndMoment.isAfter(otStartMoment)) {
           overtimeHours = otEndMoment.diff(otStartMoment, 'hours', true);
-          // Round OT: >= 30 mins round up, < 30 mins keep
-          const minutes = (overtimeHours % 1) * 60;
-          if (minutes >= 30) {
-            overtimeHours = Math.ceil(overtimeHours);
-          } else {
-            overtimeHours = Math.floor(overtimeHours);
-          }
+          // Làm tròn giờ OT theo quy tắc: >= 30 phút → +0.5h, < 30 phút → làm tròn xuống
+          const attendanceHelper = require('../utils/attendanceHelper');
+          overtimeHours = attendanceHelper.roundOvertimeHours(overtimeHours);
         }
         
         // Calculate working hours (from checkIn to workEnd - giờ làm việc bình thường)

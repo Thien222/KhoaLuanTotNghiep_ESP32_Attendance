@@ -22,17 +22,14 @@ import {
 import { 
   ClockCircleOutlined, 
   CheckCircleOutlined,
-  CloseCircleOutlined,
   UserOutlined,
-  SafetyCertificateOutlined,
-  WifiOutlined,
   EditOutlined,
-  DeleteOutlined,
-  PlusOutlined
+  DeleteOutlined
 } from '@ant-design/icons';
 import axios from 'axios';
 import moment from 'moment';
-import { getESP32Url, getAPIUrl } from '../../utils/configManager';
+import { getAPIUrl } from '../../utils/configManager';
+import { useSocket } from '../../hooks/useSocket';
 
 const { Title, Text } = Typography;
 const { RangePicker } = DatePicker;
@@ -44,16 +41,42 @@ const AttendanceManagement = () => {
   const [modalVisible, setModalVisible] = useState(false);
   const [editingRecord, setEditingRecord] = useState(null);
   const [form] = Form.useForm();
-  const [esp32Connected, setEsp32Connected] = useState(false);
   const [previewData, setPreviewData] = useState(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [employees, setEmployees] = useState([]);
+  const { socket, connected } = useSocket();
 
   useEffect(() => {
     fetchAttendances();
-    checkESP32Connection();
     fetchEmployees();
   }, [dateRange]);
+
+  // ✅ Socket listener để nhận thông báo chấm công mới
+  useEffect(() => {
+    if (!socket || !connected) return;
+
+    const handleNewAttendance = (data) => {
+      console.log('📢 New attendance received:', data);
+      const { attendance, type } = data;
+      
+      // Kiểm tra xem attendance có nằm trong dateRange hiện tại không
+      const attendanceDate = moment(attendance.date);
+      const startDate = dateRange[0];
+      const endDate = dateRange[1];
+      
+      if (attendanceDate.isBetween(startDate, endDate, 'day', '[]')) {
+        // Reload attendances để cập nhật ngay lập tức
+        fetchAttendances();
+        message.success(`${attendance.employee?.name || 'Nhân viên'} đã ${type === 'checkin' ? 'check-in' : 'check-out'}`);
+      }
+    };
+
+    socket.on('new_attendance', handleNewAttendance);
+
+    return () => {
+      socket.off('new_attendance', handleNewAttendance);
+    };
+  }, [socket, connected, dateRange]);
 
   const fetchEmployees = async () => {
     try {
@@ -66,16 +89,6 @@ const AttendanceManagement = () => {
       }
     } catch (error) {
       console.error('Error fetching employees:', error);
-    }
-  };
-
-  const checkESP32Connection = async () => {
-    try {
-      const esp32Url = getESP32Url();
-      const response = await axios.get(`${esp32Url}/healthz`, { timeout: 2000 });
-      setEsp32Connected(response.status === 200);
-    } catch (error) {
-      setEsp32Connected(false);
     }
   };
 
@@ -118,17 +131,28 @@ const AttendanceManagement = () => {
 
   const handleOpenModal = (record = null) => {
     setEditingRecord(record);
+    setPreviewData(null); // Reset preview data
     if (record) {
-      form.setFieldsValue({
+      const formValues = {
         employeeId: record.employee?._id,
         date: moment(record.date),
         checkInTime: record.checkIn?.time ? moment(record.checkIn.time) : null,
         checkOutTime: record.checkOut?.time ? moment(record.checkOut.time) : null
-      });
+      };
+      form.setFieldsValue(formValues);
+      setModalVisible(true);
+      // Tính preview ngay sau khi mở modal edit (dùng setTimeout để đảm bảo form đã được set xong)
+      setTimeout(() => {
+        // Lấy lại giá trị từ form để đảm bảo đúng format
+        const currentValues = form.getFieldsValue();
+        if (currentValues.employeeId && currentValues.date && currentValues.checkInTime && currentValues.checkOutTime) {
+          calculatePreview(currentValues);
+        }
+      }, 200);
     } else {
       form.resetFields();
+      setModalVisible(true);
     }
-    setModalVisible(true);
   };
 
   const handleDelete = async (id) => {
@@ -283,7 +307,7 @@ const AttendanceManagement = () => {
       dataIndex: 'workingHours',
       key: 'workingHours',
       width: 70,
-      render: (hours) => hours ? `${Number(hours).toFixed(1)}h` : '-'
+      render: (hours) => hours ? `${Number(hours).toFixed(2)}h` : '-'
     },
     {
       title: 'Trễ',
@@ -300,7 +324,7 @@ const AttendanceManagement = () => {
         if (!record.overtimeHours || record.overtimeHours <= 0) return '-';
         return (
           <div>
-            <Tag color="blue">{record.overtimeHours}h</Tag>
+            <Tag color="blue">{Number(record.overtimeHours).toFixed(2)}h</Tag>
             {record.estimatedOTSalary > 0 && (
               <Text style={{ color: '#52c41a', fontSize: 11 }}>
                 +{formatCurrency(record.estimatedOTSalary)}đ
@@ -363,17 +387,7 @@ const AttendanceManagement = () => {
       </Title>
 
       <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
-        <Col xs={12} lg={6}>
-          <Card size="small">
-            <Statistic
-              title="ESP32"
-              value={esp32Connected ? "Online" : "Offline"}
-              prefix={esp32Connected ? <WifiOutlined style={{ color: '#52c41a' }} /> : <CloseCircleOutlined style={{ color: '#ff4d4f' }} />}
-              valueStyle={{ color: esp32Connected ? '#52c41a' : '#ff4d4f', fontSize: 14 }}
-            />
-          </Card>
-        </Col>
-        <Col xs={12} lg={6}>
+        <Col xs={12} lg={8}>
           <Card size="small">
             <Statistic
               title="Hôm nay"
@@ -383,7 +397,7 @@ const AttendanceManagement = () => {
             />
           </Card>
         </Col>
-        <Col xs={12} lg={6}>
+        <Col xs={12} lg={8}>
           <Card size="small">
             <Statistic
               title="Nhân viên"
@@ -393,7 +407,7 @@ const AttendanceManagement = () => {
             />
           </Card>
         </Col>
-        <Col xs={12} lg={6}>
+        <Col xs={12} lg={8}>
           <Card size="small">
             <Statistic
               title="Bản ghi"
@@ -413,12 +427,6 @@ const AttendanceManagement = () => {
           size="small"
         />
         <Button size="small" onClick={fetchAttendances}>Tải lại</Button>
-        <Button size="small" type="primary" icon={<PlusOutlined />} onClick={() => handleOpenModal()}>
-          Thêm thủ công
-        </Button>
-        <Button size="small" icon={<SafetyCertificateOutlined />} onClick={checkESP32Connection}>
-          Test ESP32
-        </Button>
       </div>
 
       <div style={{ flex: 1, overflow: 'auto' }}>
@@ -524,11 +532,11 @@ const AttendanceManagement = () => {
                 <Row gutter={16}>
                   <Col span={8}>
                     <Text type="secondary">Giờ làm:</Text>
-                    <div><Text strong>{previewData.workingHours}h</Text></div>
+                    <div><Text strong>{previewData.workingHours ? Number(previewData.workingHours).toFixed(2) : '0.00'}h</Text></div>
                   </Col>
                   <Col span={8}>
                     <Text type="secondary">Giờ OT:</Text>
-                    <div><Text strong style={{ color: '#52c41a' }}>{previewData.overtimeHours}h</Text></div>
+                    <div><Text strong style={{ color: '#52c41a' }}>{previewData.overtimeHours ? Number(previewData.overtimeHours).toFixed(2) : '0.00'}h</Text></div>
                   </Col>
                   <Col span={8}>
                     <Text type="secondary">Trễ:</Text>

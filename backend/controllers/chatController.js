@@ -100,14 +100,54 @@ async function computeSalaryFor(emp, year, month, extraLeaveDays = 0) {
 
   /** Employee.salary là Number theo schema gốc (default 0) — dùng làm lương cơ bản fallback. */
   const baseSalaryFull = Number(emp.baseSalary || emp.salary || 0);
-  // Công thức mới: Lương 1 ngày = Lương cơ bản / 26
+  
+  // Công thức: Lương 1 ngày = Lương cơ bản / 26
   const STANDARD_WORKING_DAYS = 26;
   const dailyRate = baseSalaryFull / STANDARD_WORKING_DAYS;
+
+  // Lấy số ngày công thực tế từ attendance
+  const { start, end } = monthRange(year, month);
+  const attendances = await Attendance.find(
+    { employee: emp._id, date: { $gte: start, $lt: end } },
+    'status'
+  ).lean();
   
+  // Tính số ngày công thực tế (present = 1 ngày, half-day = 0.5 ngày)
+  let actualWorkingDays = 0;
+  let absentDays = 0;
+  attendances.forEach(att => {
+    if (att.status === 'present') {
+      actualWorkingDays += 1;
+    } else if (att.status === 'half-day') {
+      actualWorkingDays += 0.5;
+    } else if (att.status === 'absent') {
+      absentDays += 1;
+    }
+  });
+
   // Tính lương tháng = (Lương cơ bản / 26) × Số ngày công thực tế
-  // Khấu trừ nghỉ = (Lương cơ bản / 26) × Số ngày nghỉ
-  const net = Math.max(0, baseSalaryFull - dailyRate * Number(extraLeaveDays || 0));
-  return { mode: 'daily', base: baseSalaryFull, baseSalaryFull, wd: STANDARD_WORKING_DAYS, dailyRate, leaveDays: 0, extraLeaveDays, totalLeave: extraLeaveDays || 0, hours: 0, total: net };
+  const monthlySalary = (baseSalaryFull / STANDARD_WORKING_DAYS) * actualWorkingDays;
+  
+  // Tính khấu trừ nghỉ = (Lương cơ bản / 26) × Số ngày nghỉ (bao gồm extraLeaveDays nếu có)
+  const totalLeaveDays = absentDays + Number(extraLeaveDays || 0);
+  const leaveDeduction = (baseSalaryFull / STANDARD_WORKING_DAYS) * totalLeaveDays;
+  
+  // Lương thực nhận = Lương tháng - Khấu trừ nghỉ
+  const net = Math.max(0, monthlySalary - leaveDeduction);
+  
+  return { 
+    mode: 'daily', 
+    base: baseSalaryFull, 
+    baseSalaryFull, 
+    wd: STANDARD_WORKING_DAYS, 
+    dailyRate, 
+    workingDays: actualWorkingDays,
+    leaveDays: absentDays, 
+    extraLeaveDays, 
+    totalLeave: totalLeaveDays, 
+    hours: 0, 
+    total: net 
+  };
 }
 
 function isPrivileged(user) {
@@ -244,7 +284,11 @@ async function handleEmployeeSalary(user, entities, rawText) {
     return `Lương ${month}/${year} của ${emp.name}${codePart}: ${fmtVND(info.total)} (giờ: ${info.hours.toFixed(2)}h × ${fmtVND(info.base)}/h).`;
   }
   if (info.mode === 'snapshot') {
-    // Có dữ liệu từ Payroll - hiển thị chi tiết
+    // Có dữ liệu từ Payroll - với admin/accountant chỉ trả về thực lãnh
+    if (privileged) {
+      return `Lương ${month}/${year} của ${emp.name}${codePart}: ${fmtVND(info.netSalary || info.total)}`;
+    }
+    // Nhân viên xem lương của mình - hiển thị chi tiết
     const parts = [
       `Lương ${month}/${year} của ${emp.name}${codePart}:`,
       `• Lương cơ bản: ${fmtVND(info.baseSalaryFull || info.base)}`,
@@ -607,7 +651,9 @@ exports.postMessage = async (req, res) => {
           reply = await handleMyAttendanceYesterday(user, entities);
         }
         // Fallback: Nếu câu có "lương" và "nhân viên" → thử coi như EMPLOYEE_SALARY
-        else if (/l[ươ]ng|b[ả]ng l[ươ]ng/i.test(text) && /nhân\s*viên/i.test(text) && !/(toi|tui|minh|cua toi|của tôi|m[iì]nh|t[ôo]i|em)\b/i.test(text)) {
+        // NHƯNG không phải nếu có từ khóa check-in/điểm danh
+        else if (/l[ươ]ng|b[ả]ng l[ươ]ng/i.test(text) && /nhân\s*viên/i.test(text) && !/(toi|tui|minh|cua toi|của tôi|m[iì]nh|t[ôo]i|em)\b/i.test(text) &&
+                 !/(checkin|check\s*in|diem danh|điểm danh|cham cong|chấm công)/i.test(text)) {
           // Thử extract lại một lần nữa
           const extractedName = pickEmployeeName(text);
           const extractedCode = pickEmployeeCode(toASCII(text), text);
@@ -620,8 +666,22 @@ exports.postMessage = async (req, res) => {
           }
         }
         // Nếu câu có "lương ... của ..." hoặc mã NV → thử coi như EMPLOYEE_SALARY
-        else if ((/l[ươ]ng|b[ả]ng l[ươ]ng/i.test(text) && /c[ủ]a\s+/i.test(text)) || /\b(EMP|NV)\s*\d{2,6}\b/i.test(text)) {
+        // NHƯNG không phải nếu có từ khóa check-in/điểm danh
+        else if ((/l[ươ]ng|b[ả]ng l[ươ]ng/i.test(text) && /c[ủ]a\s+/i.test(text)) || 
+                 (/\b(EMP|NV)\s*\d{2,6}\b/i.test(text) && !/(checkin|check\s*in|diem danh|điểm danh|cham cong|chấm công)/i.test(text))) {
           reply = await handleEmployeeSalary(user, entities, text);
+        }
+        // Fallback: Nếu có mã nhân viên + check-in/điểm danh → EMPLOYEE_ATTENDANCE_BY_CODE
+        else if (/\b(EMP|NV)\s*\d{2,6}\b/i.test(text) && 
+                 /(checkin|check\s*in|diem danh|điểm danh|cham cong|chấm công|da|đã|chưa)/i.test(text) &&
+                 !/l[ươ]ng|b[ả]ng l[ươ]ng/i.test(text)) {
+          const extractedCode = pickEmployeeCode(toASCII(text), text);
+          if (extractedCode) {
+            entities.employeeCode = extractedCode;
+            reply = await handleEmployeeAttendanceByCode(user, entities, text);
+          } else {
+            reply = helpText();
+          }
         }
         else reply = helpText();
     }

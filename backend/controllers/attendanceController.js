@@ -1092,6 +1092,26 @@ exports.addAttendance = async (req, res) => {
       }
 
       await attendance.save();
+      await attendance.populate('employee', 'name employeeId department');
+
+      // ✅ Emit socket event để frontend cập nhật ngay lập tức
+      try {
+        const { getIO } = require('../socket/socketServer');
+        const io = getIO();
+        if (io) {
+          // Emit đến tất cả admin/manager
+          io.emit('new_attendance', {
+            type: 'checkin',
+            attendance: attendance,
+            employee: attendance.employee,
+            message: `${attendance.employee?.name || employeeName} đã check-in`
+          });
+          console.log(`📢 [Socket] Emitted new_attendance (check-in) for ${attendance.employee?.name || employeeName}`);
+        }
+      } catch (socketError) {
+        console.error('Error emitting socket event for attendance:', socketError);
+        // Continue even if socket emit fails
+      }
 
       // Build ESP32 response (remove Vietnamese accents for OLED display)
       const { removeVietnameseAccents } = require('../utils/attendanceHelper');
@@ -1165,13 +1185,45 @@ exports.addAttendance = async (req, res) => {
         }
       }
 
-      // Tính giờ làm và OT
-      const workingHours = attendanceHelper.calculateWorkingHours(attendance.checkIn.time, actualCheckOutTime);
+      // Tính giờ làm chuẩn (08:00-17:00) và OT (từ 18:00)
+      // 17:00-18:00 là thời gian nghỉ, không tính vào cả standardHours và overtimeHours
+      const workStartTime = '08:00';
+      const workEndTime = '17:00';
+      const checkInMoment = moment(attendance.checkIn.time);
+      const checkOutMoment = moment(actualCheckOutTime);
+      const baseDate = moment(today).startOf('day');
+      
+      const [wsHour, wsMin] = workStartTime.split(':').map(Number);
+      const [weHour, weMin] = workEndTime.split(':').map(Number);
+      
+      const workDayStart = baseDate.clone().hour(wsHour).minute(wsMin).second(0).millisecond(0);
+      const workDayEnd = baseDate.clone().hour(weHour).minute(weMin).second(0).millisecond(0);
+      
+      // Tính standardHours = overlap giữa [checkIn, checkOut] và [08:00, 17:00]
+      const overlapStart = moment.max(checkInMoment, workDayStart);
+      const overlapEnd = moment.min(checkOutMoment, workDayEnd);
+      
+      let standardHours = 0;
+      if (overlapEnd.isAfter(overlapStart)) {
+        standardHours = overlapEnd.diff(overlapStart, 'minutes') / 60;
+      }
+      if (standardHours > 8) standardHours = 8;
+      
+      // Tính OT từ sau 18:00 với số lẻ chính xác (không làm tròn xuống)
       let overtimeHours = 0;
       let estimatedOTSalary = 0;
-
-      if (checkoutValidation.isOTTime && checkoutValidation.otHours > 0) {
-        overtimeHours = checkoutValidation.otHours;
+      
+      const otStartTime = baseDate.clone().hour(18).minute(0).second(0).millisecond(0);
+      
+      if (checkOutMoment.isAfter(otStartTime)) {
+        // Tính OT từ sau 18:00 với số lẻ chính xác (tính bằng phút rồi chia 60)
+        // Ví dụ: 18:00-21:41 = 3h41p = 221 phút = 3.6833...h
+        const otMinutes = checkOutMoment.diff(otStartTime, 'minutes');
+        overtimeHours = otMinutes / 60; // Giữ số lẻ, không làm tròn xuống
+      }
+      
+      // Chỉ tính tiền OT nếu có OT approved và có giờ OT
+      if (checkoutValidation.isOTTime && overtimeHours > 0) {
         
         // Kiểm tra ngày lễ
         const holiday = await attendanceHelper.isHoliday(today);
@@ -1197,16 +1249,46 @@ exports.addAttendance = async (req, res) => {
         checkOutStatus = 'overtime';
       }
 
+      // Tính tổng giờ làm (không bao gồm thời gian nghỉ 17:00-18:00)
+      // workingHours = standardHours (08:00-17:00) + overtimeHours (từ 18:00)
+      const workingHours = standardHours + overtimeHours;
+      
+      // Làm tròn với 2 chữ số thập phân để hiển thị số lẻ chính xác
+      const roundedWorkingHours = Math.round(workingHours * 100) / 100;
+      // Giờ OT hiển thị: giữ số lẻ chính xác (2 chữ số thập phân)
+      // Giờ OT tính tiền: sẽ được làm tròn trong calculateOTSalary (>= 30 phút → +0.5h, < 30 phút → làm tròn xuống)
+      const roundedOvertimeHours = Math.round(overtimeHours * 100) / 100;
+      
       // Update attendance
       attendance.checkOut = { time: actualCheckOutTime, status: checkOutStatus };
-      attendance.workingHours = workingHours;
-      attendance.overtimeHours = overtimeHours;
+      attendance.workingHours = roundedWorkingHours;
+      attendance.overtimeHours = roundedOvertimeHours;
       attendance.estimatedOTSalary = estimatedOTSalary;
       attendance.is_ot_approved = hasOTApproved && overtimeHours > 0;
       attendance.earlyMinutes = earlyResult.earlyMinutes || 0;
       attendance.actualPenalty = totalPenalty;
 
       await attendance.save();
+      await attendance.populate('employee', 'name employeeId department');
+
+      // ✅ Emit socket event để frontend cập nhật ngay lập tức
+      try {
+        const { getIO } = require('../socket/socketServer');
+        const io = getIO();
+        if (io) {
+          // Emit đến tất cả admin/manager
+          io.emit('new_attendance', {
+            type: 'checkout',
+            attendance: attendance,
+            employee: attendance.employee,
+            message: `${attendance.employee?.name || employeeName} đã check-out`
+          });
+          console.log(`📢 [Socket] Emitted new_attendance (check-out) for ${attendance.employee?.name || employeeName}`);
+        }
+      } catch (socketError) {
+        console.error('Error emitting socket event for attendance:', socketError);
+        // Continue even if socket emit fails
+      }
 
       // Build ESP32 response (remove Vietnamese accents for OLED display)
       const { removeVietnameseAccents } = require('../utils/attendanceHelper');
@@ -1663,7 +1745,19 @@ const totalHours = totalMinutes / 60;
     // Chuẩn tối đa 8h / ngày
     if (standardHours > 8) standardHours = 8;
 
-    let overtimeHours = Math.max(0, totalHours - standardHours);
+    // Tính OT: 17:00-18:00 là thời gian nghỉ, OT chỉ tính từ sau 18:00
+    // Nếu checkout trước 18:00 → không có OT
+    let overtimeHours = 0;
+    const otStartTime = baseDate.clone().hour(18).minute(0).second(0).millisecond(0);
+    
+    if (checkOutMoment.isAfter(otStartTime)) {
+      // Tính OT từ sau 18:00 với số lẻ chính xác (không làm tròn xuống)
+      // Ví dụ: checkout 18:30 → OT = 0.5h
+      // Ví dụ: checkout 19:00 → OT = 1.0h
+      // Ví dụ: checkout 21:41 → OT = 3.6833...h
+      const otMinutes = checkOutMoment.diff(otStartTime, 'minutes');
+      overtimeHours = otMinutes / 60; // Giữ số lẻ, không làm tròn xuống
+    }
 
     // 8. Trạng thái check-out và tính phạt về sớm
     let checkOutStatus = 'on-time';
@@ -1692,10 +1786,16 @@ const totalHours = totalMinutes / 60;
       checkOutStatus = 'overtime';
     }
 
-    // 9. Làm tròn
-    const roundedWorkingHours = Math.round(totalHours * 10) / 10;
-    const roundedStandardHours = Math.round(standardHours * 10) / 10;
-    const roundedOvertimeHours = Math.round(overtimeHours * 10) / 10;
+    // 9. Tính tổng giờ làm (không bao gồm thời gian nghỉ 17:00-18:00)
+    // workingHours = standardHours (08:00-17:00) + overtimeHours (từ 18:00)
+    // Ví dụ: 08:00-21:41 → standardHours = 9h, overtimeHours = 3.683h → workingHours = 12.683h
+    const workingHours = standardHours + overtimeHours;
+    
+    // Làm tròn với 2 chữ số thập phân để hiển thị số lẻ chính xác
+    const roundedWorkingHours = Math.round(workingHours * 100) / 100;
+    const roundedStandardHours = Math.round(standardHours * 100) / 100;
+    // Làm tròn giờ OT theo quy tắc: >= 30 phút → +0.5h, < 30 phút → làm tròn xuống
+    const roundedOvertimeHours = attendanceHelper.roundOvertimeHours(overtimeHours);
 
     console.log('📊 [MANUAL ATTENDANCE CALC]', {
       employee: employee.name,
@@ -1873,6 +1973,25 @@ const totalHours = totalMinutes / 60;
       
       // Populate employee để trả về đầy đủ thông tin
       await attendance.populate('employee', 'name employeeId position email');
+      
+      // ✅ Emit socket event để frontend cập nhật ngay lập tức
+      try {
+        const { getIO } = require('../socket/socketServer');
+        const io = getIO();
+        if (io) {
+          // Emit đến tất cả admin/manager
+          io.emit('new_attendance', {
+            type: 'manual',
+            attendance: attendance,
+            employee: attendance.employee,
+            message: `Đã cập nhật chấm công thủ công cho ${attendance.employee?.name || employee.name}`
+          });
+          console.log(`📢 [Socket] Emitted new_attendance (manual) for ${attendance.employee?.name || employee.name}`);
+        }
+      } catch (socketError) {
+        console.error('Error emitting socket event for manual attendance:', socketError);
+        // Continue even if socket emit fails
+      }
       
       console.log(
         `✅ [MANUAL ATTENDANCE SAVED] ${employee.name} ` +
@@ -2092,14 +2211,30 @@ exports.updateAttendance = async (req, res) => {
     }
     if (standardHours > 8) standardHours = 8;
     
-    let overtimeHours = Math.max(0, totalHours - standardHours);
+    // Tính OT: 17:00-18:00 là thời gian nghỉ, OT chỉ tính từ sau 18:00
+    // Nếu checkout trước 18:00 → không có OT
+    let overtimeHours = 0;
+    const otStartTime = moment(attendance.date).hour(18).minute(0).second(0).millisecond(0);
+    
+    if (checkOutMoment.isAfter(otStartTime)) {
+      // Tính OT từ sau 18:00 với số lẻ chính xác (không làm tròn xuống)
+      // Ví dụ: 18:00-21:41 = 3h41p = 221 phút = 3.6833...h
+      const otMinutes = checkOutMoment.diff(otStartTime, 'minutes');
+      overtimeHours = otMinutes / 60; // Giữ số lẻ, không làm tròn xuống
+    }
     if (overtimeHours > 0) {
       checkOutStatus = 'overtime';
     }
     
-    // Round values
-    const roundedWorkingHours = Math.round(totalHours * 10) / 10;
-    const roundedOvertimeHours = Math.round(overtimeHours * 10) / 10;
+    // Tính tổng giờ làm (không bao gồm thời gian nghỉ 17:00-18:00)
+    // workingHours = standardHours (08:00-17:00) + overtimeHours (từ 18:00)
+    const workingHours = standardHours + overtimeHours;
+    
+    // Làm tròn với 2 chữ số thập phân để hiển thị số lẻ chính xác
+    const roundedWorkingHours = Math.round(workingHours * 100) / 100;
+    // Giờ OT hiển thị: giữ số lẻ chính xác (2 chữ số thập phân)
+    // Giờ OT tính tiền: sẽ được làm tròn trong calculateOTSalary (>= 30 phút → +0.5h, < 30 phút → làm tròn xuống)
+    const roundedOvertimeHours = Math.round(overtimeHours * 100) / 100;
     
     // Calculate OT salary (chỉ tính nếu có OT duyệt)
     let otRate = 1.0;
@@ -2138,7 +2273,9 @@ exports.updateAttendance = async (req, res) => {
           attendance.isHoliday || false  // isHoliday flag
         );
         
-        console.log(`✅ [OT APPROVED] ${employee.name}: ${roundedOvertimeHours}h -> ${Math.floor(roundedOvertimeHours)}h tính = ${estimatedOTSalary}đ`);
+        // Log với giờ OT đã làm tròn (từ calculateOTSalary)
+        const roundedOTForSalary = attendanceHelper.roundOvertimeHours(roundedOvertimeHours);
+        console.log(`✅ [OT APPROVED] ${employee.name}: ${roundedOvertimeHours}h -> ${roundedOTForSalary}h (đã làm tròn) = ${estimatedOTSalary}đ`);
       } else {
         // Không có OT duyệt -> không tính tiền OT
         console.log(`⚠️ [NO OT APPROVAL] ${employee.name}: ${roundedOvertimeHours}h OT but no approval`);

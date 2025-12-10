@@ -135,7 +135,7 @@ export default function PayrollScreen() {
                     Bảng lương tháng {payroll.month || payroll.monthStr || `${selectedMonth}/${selectedYear}`}
                   </Text>
                   <Text style={styles.workingDaysText}>
-                    {payroll.workingDays || 0} ngày công • {(payroll.overtimeHours || 0).toFixed(1)}h OT
+                    {payroll.workingDays || 0} ngày công • {(payroll.overtimeHours || 0).toFixed(2)}h OT
                 </Text>
                 </View>
                 <View style={[styles.statusBadge, { backgroundColor: payroll.status === 'paid' ? '#52c41a' : '#faad14' }]}>
@@ -201,7 +201,7 @@ export default function PayrollScreen() {
                 {/* Tiền OT - Luôn hiển thị nếu có */}
                 {(payroll.overtimePay || 0) > 0 && (
                   <View style={styles.amountRow}>
-                    <Text style={styles.amountLabel}>Tiền OT ({(payroll.overtimeHours || 0).toFixed(1)}h):</Text>
+                    <Text style={styles.amountLabel}>Tiền OT ({(payroll.overtimeHours || 0).toFixed(2)}h):</Text>
                     <Text style={styles.amountValue}>
                       {formatCurrency(payroll.overtimePay)}
                     </Text>
