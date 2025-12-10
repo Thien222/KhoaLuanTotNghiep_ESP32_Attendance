@@ -32,6 +32,7 @@ const MainLayout = ({ children }) => {
   const [collapsed, setCollapsed] = useState(false);
   const [notificationCount, setNotificationCount] = useState(0);
   const {
+    viewMode,
     canSwitchMode,
     isPersonalMode,
     isAdminMode,
