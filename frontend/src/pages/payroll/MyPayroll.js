@@ -155,7 +155,7 @@ const MyPayroll = () => {
         icon: <RiseOutlined />
       }] : []),
       ...(totalOTPay > 0 ? [{
-        label: `Lương OT (${(payrollData.overtimeHours || 0).toFixed(1)}h)`,
+        label: `Lương OT (${(payrollData.overtimeHours || 0).toFixed(2)}h)`,
         value: totalOTPay,
         type: 'positive',
         icon: <ClockCircleOutlined />
@@ -234,7 +234,7 @@ const MyPayroll = () => {
             <Card>
               <Statistic
                 title="Giờ OT"
-                value={(payrollData.overtimeHours || 0).toFixed(1)}
+                value={(payrollData.overtimeHours || 0).toFixed(2)}
                 suffix="giờ"
                 prefix={<ClockCircleOutlined style={{ color: '#722ed1' }} />}
                 valueStyle={{ color: '#722ed1' }}

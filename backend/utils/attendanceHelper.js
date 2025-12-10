@@ -281,7 +281,7 @@ const validateCheckoutTime = (checkOutTime, hasApprovedOT = false, settings = {}
     };
   }
   
-  // Sau 18:00 - Thời gian OT
+  // Sau 18:00 - Thời gian OT (17:00-18:00 là thời gian nghỉ, không tính OT)
   if (mins >= otStart) {
     // Không có OT approved -> Block
     if (!hasApprovedOT) {
@@ -294,22 +294,12 @@ const validateCheckoutTime = (checkOutTime, hasApprovedOT = false, settings = {}
       };
     }
     
-    // Có OT nhưng < 19:00 -> Không tính tiền OT
-    if (mins < otMinThreshold) {
-      return { 
-        valid: true, 
-        blocked: false, 
-        earlyMinutes: 0,
-        isOTTime: true,
-        otHours: 0,
-        message: 'Check-out OT',
-        subMessage: 'OT < 1h - Khong tinh tien'
-      };
-    }
-    
-    // Có OT và >= 19:00 -> Tính tiền OT
+    // Có OT và >= 18:00 -> Tính tiền OT từ sau 18:00
+    // Ví dụ: checkout 18:30 → OT = 0h (làm tròn xuống)
+    // Ví dụ: checkout 19:00 → OT = 1h
+    // Ví dụ: checkout 20:45 → OT = 2h
     const otMinutes = mins - otStart; // Từ 18:00
-    const otHours = Math.floor(otMinutes / 60); // Bước nhảy 1 giờ
+    const otHours = Math.floor(otMinutes / 60); // Bước nhảy 1 giờ (làm tròn xuống)
     
     // Lấy OT rate từ settings để hiển thị message
     const otRatePerHour = getOTRate(settings);
@@ -322,7 +312,7 @@ const validateCheckoutTime = (checkOutTime, hasApprovedOT = false, settings = {}
       isOTTime: true,
       otHours,
       message: 'Check-out OT',
-      subMessage: `OT: ${otHours}h = +${(otSalary / 1000)}k`
+      subMessage: otHours > 0 ? `OT: ${otHours}h = +${(otSalary / 1000)}k` : 'OT < 1h - Khong tinh tien'
     };
   }
   
@@ -465,7 +455,9 @@ const calculateLateMinutes = (checkInTime, workStartTime = null, graceMinutes = 
 
 /**
  * Calculate overtime hours
- * Only counts full hours after threshold (step of 1 hour)
+ * 17:00-18:00 là thời gian nghỉ (không tính vào OT)
+ * OT chỉ tính từ sau 18:00
+ * Nếu checkout trước 18:00 → không có OT
  * @param {Date} checkInTime - Check-in time
  * @param {Date} checkOutTime - Check-out time
  * @param {Number} standardWorkHours - Standard work hours (optional)
@@ -476,20 +468,37 @@ const calculateOvertimeHours = (checkInTime, checkOutTime, standardWorkHours = 8
   
   const outMins = dateToMinutes(checkOutTime);
   const otTimes = getOTTimes(settings);
-  const otMinThreshold = timeToMinutes(otTimes.otMinThreshold);
-  const otStart = timeToMinutes(otTimes.otStart);
+  const otStart = timeToMinutes(otTimes.otStart); // 18:00
   
-  // Nếu checkout trước 19:00, không tính OT
-  if (outMins < otMinThreshold) return 0;
+  // Nếu checkout trước 18:00, không tính OT (17:00-18:00 là thời gian nghỉ)
+  if (outMins < otStart) return 0;
   
-  // Tính giờ OT từ 18:00, bước nhảy 1 giờ
+  // Tính giờ OT từ sau 18:00, bước nhảy 1 giờ (làm tròn xuống)
+  // Ví dụ: checkout 19:30 → OT = 1h (từ 18:00-19:00)
+  // Ví dụ: checkout 20:45 → OT = 2h (từ 18:00-20:00)
   const otMinutes = outMins - otStart;
   return Math.floor(otMinutes / 60);
 };
 
 /**
+ * Làm tròn giờ OT theo quy tắc:
+ * - ≥ 30 phút: +0.5 giờ
+ * - < 30 phút: Làm tròn xuống (giữ nguyên phần nguyên)
+ */
+const roundOvertimeHours = (hours) => {
+  if (!hours || hours <= 0) return 0;
+  const wholePart = Math.floor(hours);
+  const fractionalPart = hours - wholePart;
+  const minutes = fractionalPart * 60;
+  if (minutes >= 30) {
+    return wholePart + 0.5;
+  }
+  return wholePart;
+};
+
+/**
  * Calculate OT salary with multiplier (weekday/weekend/holiday)
- * @param {Number} otHours - Overtime hours
+ * @param {Number} otHours - Overtime hours (chưa làm tròn)
  * @param {Object} otSettings - OT settings config (optional)
  * @param {Date|String} date - Date to determine multiplier (optional)
  * @param {Boolean} isHoliday - Whether the date is a holiday (optional)
@@ -498,6 +507,9 @@ const calculateOvertimeHours = (checkInTime, checkOutTime, standardWorkHours = 8
  */
 const calculateOTSalary = async (otHours, otSettings = {}, date = null, isHoliday = false, multiplier = null) => {
   if (!otHours || otHours <= 0) return 0;
+  
+  // Làm tròn giờ OT theo quy tắc: >= 30 phút → +0.5h, < 30 phút → làm tròn xuống
+  const roundedOTHours = roundOvertimeHours(otHours);
   
   // Lấy base OT rate từ settings (có thể từ ot-rate hoặc overtime config)
   const baseRatePerHour = otSettings.ratePerHour || otSettings.otRate || DEFAULT_OT_RATE_PER_HOUR;
@@ -515,13 +527,10 @@ const calculateOTSalary = async (otHours, otSettings = {}, date = null, isHolida
     }
   }
   
-  // Chỉ tính từ >= 1h (bước nhảy 1 giờ)
-  const countableHours = Math.floor(otHours);
-  
-  // Tính lương: baseRate × multiplier
+  // Tính lương: Giờ OT đã làm tròn × Lương giờ × Hệ số OT
   const finalRatePerHour = baseRatePerHour * finalMultiplier;
   
-  return Math.round(countableHours * finalRatePerHour);
+  return Math.round(roundedOTHours * finalRatePerHour);
 };
 
 /**
@@ -794,6 +803,7 @@ module.exports = {
   calculateOTSalary,
   calculateWorkingHours,
   getOvertimeRate,
+  roundOvertimeHours,
   
   // Utilities
   isHoliday,

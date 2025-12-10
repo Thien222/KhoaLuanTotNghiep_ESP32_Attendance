@@ -110,9 +110,36 @@ const InternalChatPage = () => {
     }
   };
 
-  const handleSelectUser = (userId, userName) => {
+  const handleSelectUser = async (userId, userName) => {
     setSelectedUserId(userId);
     setSelectedUserName(userName);
+    
+    // ✅ Mark messages as read khi click vào conversation
+    try {
+      const API_URL = getAPIUrl();
+      const token = localStorage.getItem('token');
+      const response = await axios.get(`${API_URL}/internal-chat/messages/${userId}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      
+      if (response.data.success) {
+        const messages = response.data.data || [];
+        const unreadIds = messages
+          .filter(msg => !msg.read && msg.receiver?._id === currentUserId)
+          .map(msg => msg._id);
+        
+        if (unreadIds.length > 0) {
+          await axios.put(`${API_URL}/internal-chat/messages/mark-read`, 
+            { messageIds: unreadIds },
+            { headers: { Authorization: `Bearer ${token}` } }
+          );
+          // Reload conversations để cập nhật unread count
+          loadConversations();
+        }
+      }
+    } catch (error) {
+      console.error('Error marking messages as read:', error);
+    }
   };
 
   const filteredUsers = users.filter(user => {
@@ -169,9 +196,7 @@ const InternalChatPage = () => {
                         >
                           <List.Item.Meta
                             avatar={
-                              <Badge count={unreadCount} offset={[-5, 5]}>
-                                <Avatar icon={<UserOutlined />} />
-                              </Badge>
+                              <Avatar icon={<UserOutlined />} />
                             }
                             title={
                               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>

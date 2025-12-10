@@ -1,6 +1,8 @@
 const Leave = require('../models/Leave');
 const Employee = require('../models/Employee');
 const moment = require('moment-timezone');
+const { getIO } = require('../socket/socketServer');
+const User = require('../models/User');
 
 // @desc    Apply for leave
 // @route   POST /api/leave
@@ -100,6 +102,26 @@ exports.applyLeave = async (req, res) => {
     } catch (populateError) {
       console.error('Error populating leave:', populateError);
       // Continue anyway - employee data might not be critical for response
+    }
+    
+    // ✅ Emit socket event để thông báo cho admin/manager
+    try {
+      const io = getIO();
+      if (io) {
+        // Tìm tất cả admin/manager users
+        const admins = await User.find({ role: { $in: ['admin', 'manager'] } }).select('_id');
+        admins.forEach(admin => {
+          io.to(`user_${admin._id}`).emit('new_leave_request', {
+            type: 'leave',
+            request: leave,
+            employee: leave.employee,
+            message: `Nhân viên ${leave.employee?.name || 'N/A'} đã gửi đơn nghỉ phép cần duyệt`
+          });
+        });
+        console.log(`📢 [Socket] Emitted new_leave_request to ${admins.length} admin(s)`);
+      }
+    } catch (socketError) {
+      console.error('Error emitting socket event for leave request:', socketError);
     }
     
     res.status(201).json({
@@ -429,7 +451,28 @@ exports.reviewLeave = async (req, res) => {
     }
     
     await leave.populate('employee', 'name employeeId position email');
+    await leave.populate('employee.user', '_id');
     await leave.populate('reviewedBy', 'username');
+    
+    // ✅ Emit socket event để thông báo cho nhân viên
+    try {
+      const io = getIO();
+      if (io && leave.employee && leave.employee.user) {
+        const employeeUserId = leave.employee.user._id || leave.employee.user;
+        io.to(`user_${employeeUserId}`).emit('leave_request_reviewed', {
+          type: 'leave',
+          request: leave,
+          status: status,
+          message: status === 'approved' 
+            ? `Đơn nghỉ phép của bạn đã được duyệt` 
+            : `Đơn nghỉ phép của bạn đã bị từ chối`,
+          reviewComment: leave.reviewComment
+        });
+        console.log(`📢 [Socket] Emitted leave_request_reviewed to employee ${employeeUserId}`);
+      }
+    } catch (socketError) {
+      console.error('Error emitting socket event for leave review:', socketError);
+    }
     
     res.status(200).json({
       success: true,

@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Layout as AntLayout, Menu, Button, Avatar, Dropdown, Space, Typography, Badge, Tooltip, Tag } from 'antd';
+import React, { useState, useEffect } from 'react';
+import { Layout as AntLayout, Menu, Button, Avatar, Dropdown, Space, Typography, Badge, Tooltip, Tag, message } from 'antd';
 import { 
   MenuFoldOutlined, 
   MenuUnfoldOutlined, 
@@ -22,12 +22,14 @@ import {
 import { useNavigate, useLocation } from 'react-router-dom';
 import TimeControl from './TimeControl';
 import { useViewMode } from '../contexts/ViewModeContext';
+import { useSocket } from '../hooks/useSocket';
 
 const { Header, Sider, Content } = AntLayout;
 const { Text } = Typography;
 
 const MainLayout = ({ children }) => {
   const [collapsed, setCollapsed] = useState(false);
+  const [notificationCount, setNotificationCount] = useState(0);
   const { 
     canSwitchMode, 
     isPersonalMode,
@@ -38,6 +40,7 @@ const MainLayout = ({ children }) => {
   } = useViewMode();
   const navigate = useNavigate();
   const location = useLocation();
+  const { socket, connected } = useSocket();
   
   // Get user from localStorage
   const getUser = () => {
@@ -60,6 +63,42 @@ const MainLayout = ({ children }) => {
       navigate('/login');
     }
   }, [user, navigate]);
+  
+  // ✅ Socket listener cho thông báo đơn mới (chỉ cho admin/manager)
+  useEffect(() => {
+    if (!socket || !connected || !user) return;
+    
+    const isAdmin = user?.role === 'manager';
+    if (!isAdmin) return;
+    
+    const handleNewLeaveRequest = (data) => {
+      console.log('📢 New leave request notification:', data);
+      setNotificationCount(prev => prev + 1);
+      message.info({
+        content: data.message || 'Có đơn nghỉ phép mới cần duyệt',
+        duration: 5,
+        onClick: () => navigate('/requests')
+      });
+    };
+    
+    const handleNewOTRequest = (data) => {
+      console.log('📢 New OT request notification:', data);
+      setNotificationCount(prev => prev + 1);
+      message.info({
+        content: data.message || 'Có đơn OT mới cần duyệt',
+        duration: 5,
+        onClick: () => navigate('/requests')
+      });
+    };
+    
+    socket.on('new_leave_request', handleNewLeaveRequest);
+    socket.on('new_ot_request', handleNewOTRequest);
+    
+    return () => {
+      socket.off('new_leave_request', handleNewLeaveRequest);
+      socket.off('new_ot_request', handleNewOTRequest);
+    };
+  }, [socket, connected, user, navigate]);
   
   if (!user) {
     return null;
@@ -329,8 +368,15 @@ const MainLayout = ({ children }) => {
             {/* Time Machine - for Admin only */}
             {isAdmin && <TimeControl />}
             
-            <Badge count={0} size="small">
-              <Button type="text" icon={<BellOutlined />} />
+            <Badge count={notificationCount} size="small">
+              <Button 
+                type="text" 
+                icon={<BellOutlined />} 
+                onClick={() => {
+                  setNotificationCount(0);
+                  navigate('/requests');
+                }}
+              />
             </Badge>
             
             <Dropdown menu={{ 
@@ -377,7 +423,8 @@ const MainLayout = ({ children }) => {
           padding: '16px 12px 16px 8px',
           background: '#f5f7fa',
           minHeight: 'calc(100vh - 56px)',
-          width: '100%'
+          width: '100%',
+          overflowX: 'hidden'
           /* Removed overflow:auto - let browser handle scrolling naturally */
         }}
         className="main-content-area"

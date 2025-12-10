@@ -5,6 +5,7 @@ import {
   StyleSheet,
   ScrollView,
   Alert,
+  TouchableOpacity,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { leaveAPI } from '../services/api';
@@ -60,6 +61,17 @@ export default function LeaveDetailScreen({ route, navigation }) {
     }
   };
 
+  const getLeaveTypeText = (type) => {
+    const map = {
+      annual: 'Nghỉ phép năm',
+      sick: 'Nghỉ ốm',
+      unpaid: 'Nghỉ không lương',
+      maternity: 'Thai sản',
+      other: 'Khác'
+    };
+    return map[type] || type;
+  };
+
   if (!leave) {
     return (
       <View style={styles.container}>
@@ -72,7 +84,7 @@ export default function LeaveDetailScreen({ route, navigation }) {
     <ScrollView style={styles.container}>
       <View style={styles.card}>
         <View style={styles.header}>
-          <Text style={styles.leaveType}>{leave.type}</Text>
+          <Text style={styles.leaveType}>{getLeaveTypeText(leave.leaveType || leave.type)}</Text>
           <View style={[styles.statusBadge, { backgroundColor: getStatusColor(leave.status) }]}>
             <Text style={styles.statusText}>{getStatusText(leave.status)}</Text>
           </View>

@@ -109,7 +109,7 @@ export default function AttendanceScreen() {
         <View style={styles.workingHours}>
           <Ionicons name="time-outline" size={16} color="#1890ff" />
           <Text style={styles.workingHoursText}>
-            Tổng giờ làm: {item.workingHours.toFixed(1)}h
+            Tổng giờ làm: {item.workingHours.toFixed(2)}h
           </Text>
         </View>
       )}
