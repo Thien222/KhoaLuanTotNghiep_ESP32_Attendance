@@ -1,19 +1,14 @@
 // API Configuration
-<<<<<<< HEAD
 // Production backend URL (Deployed on Render)
 const PRODUCTION_API_URL = 'https://khoaluantotnghiep-esp32-attendance.onrender.com/api';
 
 // Development backend URL (Local network)
-const DEVELOPMENT_API_URL = 'http://192.168.1.164:3000/api';
+const DEVELOPMENT_API_URL = 'http://192.168.1.11:3000/api';
 
 // Switch between development and production
 // Set to false for production builds (default)
 // Set to true for local development
 const IS_DEV_MODE = false;
-=======
-// Default to localhost, user can change in app settings
-const DEFAULT_API_URL = 'http://192.168.1.11:3000/api';
->>>>>>> a8c49814caa659e3a4ce7ec835afa53e14fb7c1b
 
 export const getAPIUrl = () => {
   const url = IS_DEV_MODE ? DEVELOPMENT_API_URL : PRODUCTION_API_URL;
@@ -29,9 +24,3 @@ export const API_CONFIG = {
 // Hướng dẫn:
 // - Production (deployed app): IS_DEV_MODE = false
 // - Development (local testing): IS_DEV_MODE = true
-
-
-
-
-
-
