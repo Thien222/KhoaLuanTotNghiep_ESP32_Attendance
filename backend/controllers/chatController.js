@@ -9,12 +9,12 @@ moment.tz.setDefault('Asia/Ho_Chi_Minh');
 // ===== Commons =====
 function dayRange(dateISO) {
   const start = new Date(dateISO + 'T00:00:00.000Z');
-  const end   = new Date(dateISO + 'T23:59:59.999Z');
+  const end = new Date(dateISO + 'T23:59:59.999Z');
   return { start, end };
 }
 function monthRange(year, month) {
   const start = new Date(Date.UTC(year, month - 1, 1, 0, 0, 0, 0));
-  const end   = new Date(Date.UTC(year, month, 1, 0, 0, 0, 0));
+  const end = new Date(Date.UTC(year, month, 1, 0, 0, 0, 0));
   return { start, end };
 }
 const fmtVND = (n = 0) => `${Math.round(n).toLocaleString('vi-VN')}₫`;
@@ -22,9 +22,9 @@ const fmtVND = (n = 0) => `${Math.round(n).toLocaleString('vi-VN')}₫`;
 // ===== Helpers =====
 async function resolveMe(user) {
   return (user.employee && await Employee.findById(user.employee)) ||
-         await Employee.findOne({ user: user._id }) ||
-         await Employee.findOne({ name: user.name }) ||
-         await Employee.findOne();
+    await Employee.findOne({ user: user._id }) ||
+    await Employee.findOne({ name: user.name }) ||
+    await Employee.findOne();
 }
 
 /** Ưu tiên snapshot bảng lương nếu đã có; nếu chưa thì fallback Employee.salary + Attendance */
@@ -44,14 +44,14 @@ async function computeSalaryFor(emp, year, month, extraLeaveDays = 0) {
     const generalAllowance = Number(snap.generalAllowance || 0);
     const taxAmount = Number(snap.taxAmount || 0);
     const totalDeductions = Number(snap.totalDeductions || 0);
-    
+
     // Tính daily rate từ lương cơ bản đầy đủ / 26 (Cách 1 - Ngày công chuẩn)
     const STANDARD_WORKING_DAYS = 26;
     const dailyRate = baseSalaryFull / STANDARD_WORKING_DAYS;
-    
+
     // Nếu có extraLeaveDays (what-if), trừ thêm theo đơn giá ngày để dự báo
     const totalLeave = Number(snap.absentDays || 0) + Number(snap.unpaidLeaveDays || 0) + Number(extraLeaveDays || 0);
-    const total = netSalary > 0 
+    const total = netSalary > 0
       ? Math.max(0, netSalary - dailyRate * Number(extraLeaveDays || 0))
       : base;
 
@@ -90,7 +90,7 @@ async function computeSalaryFor(emp, year, month, extraLeaveDays = 0) {
       hours = docs.reduce((s, d) => s + Number(d.workingHours || 0), 0);
     else {
       for (const d of docs) {
-        const inT  = d?.checkIn?.time ? new Date(d.checkIn.time) : null;
+        const inT = d?.checkIn?.time ? new Date(d.checkIn.time) : null;
         const outT = d?.checkOut?.time ? new Date(d.checkOut.time) : null;
         if (inT && outT && outT > inT) hours += (outT - inT) / 3600000;
       }
@@ -100,7 +100,7 @@ async function computeSalaryFor(emp, year, month, extraLeaveDays = 0) {
 
   /** Employee.salary là Number theo schema gốc (default 0) — dùng làm lương cơ bản fallback. */
   const baseSalaryFull = Number(emp.baseSalary || emp.salary || 0);
-  
+
   // Công thức: Lương 1 ngày = Lương cơ bản / 26
   const STANDARD_WORKING_DAYS = 26;
   const dailyRate = baseSalaryFull / STANDARD_WORKING_DAYS;
@@ -111,7 +111,7 @@ async function computeSalaryFor(emp, year, month, extraLeaveDays = 0) {
     { employee: emp._id, date: { $gte: start, $lt: end } },
     'status'
   ).lean();
-  
+
   // Tính số ngày công thực tế (present = 1 ngày, half-day = 0.5 ngày)
   let actualWorkingDays = 0;
   let absentDays = 0;
@@ -127,26 +127,26 @@ async function computeSalaryFor(emp, year, month, extraLeaveDays = 0) {
 
   // Tính lương tháng = (Lương cơ bản / 26) × Số ngày công thực tế
   const monthlySalary = (baseSalaryFull / STANDARD_WORKING_DAYS) * actualWorkingDays;
-  
+
   // Tính khấu trừ nghỉ = (Lương cơ bản / 26) × Số ngày nghỉ (bao gồm extraLeaveDays nếu có)
   const totalLeaveDays = absentDays + Number(extraLeaveDays || 0);
   const leaveDeduction = (baseSalaryFull / STANDARD_WORKING_DAYS) * totalLeaveDays;
-  
+
   // Lương thực nhận = Lương tháng - Khấu trừ nghỉ
   const net = Math.max(0, monthlySalary - leaveDeduction);
-  
-  return { 
-    mode: 'daily', 
-    base: baseSalaryFull, 
-    baseSalaryFull, 
-    wd: STANDARD_WORKING_DAYS, 
-    dailyRate, 
+
+  return {
+    mode: 'daily',
+    base: baseSalaryFull,
+    baseSalaryFull,
+    wd: STANDARD_WORKING_DAYS,
+    dailyRate,
     workingDays: actualWorkingDays,
-    leaveDays: absentDays, 
-    extraLeaveDays, 
-    totalLeave: totalLeaveDays, 
-    hours: 0, 
-    total: net 
+    leaveDays: absentDays,
+    extraLeaveDays,
+    totalLeave: totalLeaveDays,
+    hours: 0,
+    total: net
   };
 }
 
@@ -236,21 +236,21 @@ async function handleEmployeeSalary(user, entities, rawText) {
   const month = entities.month || now.getMonth() + 1;
 
   let emp = null;
-  
+
   // Tìm theo mã nhân viên (ưu tiên)
   if (code) {
-    emp = await Employee.findOne({ 
+    emp = await Employee.findOne({
       $or: [
-        { employeeId: code }, 
-        { code }, 
+        { employeeId: code },
+        { code },
         { empCode: code },
         { employeeId: code.toUpperCase() },
         { code: code.toUpperCase() },
         { empCode: code.toUpperCase() }
-      ] 
+      ]
     });
   }
-  
+
   // Tìm theo tên nhân viên (không phân biệt hoa thường, có dấu)
   if (!emp && name) {
     // Tìm chính xác trước
@@ -261,25 +261,25 @@ async function handleEmployeeSalary(user, entities, rawText) {
       emp = await Employee.findOne({ name: nameRegex }).collation({ locale: 'vi', strength: 1 });
     }
   }
-  
+
   // Fallback: nếu không tìm thấy và không phải admin thì lấy thông tin của mình
   if (!emp && !privileged) {
     emp = await resolveMe(user);
   }
 
   if (!emp) {
-    const notFoundMsg = code 
+    const notFoundMsg = code
       ? `Không tìm thấy nhân viên với mã "${code}".`
       : name
-      ? `Không tìm thấy nhân viên với tên "${name}".`
-      : 'Không tìm thấy nhân viên.';
+        ? `Không tìm thấy nhân viên với tên "${name}".`
+        : 'Không tìm thấy nhân viên.';
     return notFoundMsg + (privileged ? ' Vui lòng kiểm tra lại mã nhân viên hoặc tên.' : '');
   }
 
   const info = await computeSalaryFor(emp, year, month, 0);
   const empCodeDisplay = emp.employeeId || emp.code || emp.empCode || '';
   const codePart = empCodeDisplay ? ` (${empCodeDisplay})` : '';
-  
+
   if (info.mode === 'hourly') {
     return `Lương ${month}/${year} của ${emp.name}${codePart}: ${fmtVND(info.total)} (giờ: ${info.hours.toFixed(2)}h × ${fmtVND(info.base)}/h).`;
   }
@@ -341,7 +341,7 @@ async function handleTotalPayroll(user, entities) {
 
   // Lấy tổng lương từ database Payroll (netSalary hoặc totalSalary)
   const payrolls = await Payroll.find({ month: monthStr }).lean();
-  
+
   if (!payrolls || payrolls.length === 0) {
     return `Chưa có dữ liệu lương tháng ${month}/${year}. Vui lòng tính lương trước.`;
   }
@@ -358,16 +358,16 @@ async function handleTotalPayroll(user, entities) {
 
 async function handleCheckedInOnDate(user, entities) {
   if (!isPrivileged(user)) return 'Bạn không có quyền xem danh sách điểm danh.';
-  
+
   // Tính ngày theo timezone VN
   const now = moment().tz('Asia/Ho_Chi_Minh');
   const dateISO = entities.dateISO || now.format('YYYY-MM-DD');
   const targetDate = moment.tz(dateISO, 'YYYY-MM-DD', 'Asia/Ho_Chi_Minh');
   const start = targetDate.startOf('day').toDate();
   const end = targetDate.endOf('day').toDate();
-  
+
   // Query attendance với timezone VN
-  const attendedIds = await Attendance.distinct('employee', { 
+  const attendedIds = await Attendance.distinct('employee', {
     date: { $gte: start, $lte: end },
     $or: [
       { 'checkIn.time': { $exists: true, $ne: null } },
@@ -376,29 +376,29 @@ async function handleCheckedInOnDate(user, entities) {
   });
   const attended = await Employee.find({ _id: { $in: attendedIds } }, 'name employeeId').lean();
   if (!attended.length) return `Chưa có ai điểm danh ngày ${dateISO}.`;
-  
+
   // Hiển thị danh sách với mã nhân viên
   const list = attended.map(x => {
     const code = x.employeeId || '';
     return code ? `${x.name} (${code})` : x.name;
   }).join(', ');
-  
+
   return `Hôm nay ai đã điểm danh rồi:\n${list}\n\nTổng: ${attended.length} người.`;
 }
 
 async function handleUnattendedToday(user, entities) {
   if (!isPrivileged(user)) return 'Bạn không có quyền xem danh sách điểm danh.';
-  
+
   // Tính ngày theo timezone VN
   const now = moment().tz('Asia/Ho_Chi_Minh');
   const dateISO = entities.dateISO || now.format('YYYY-MM-DD');
   const targetDate = moment.tz(dateISO, 'YYYY-MM-DD', 'Asia/Ho_Chi_Minh');
   const start = targetDate.startOf('day').toDate();
   const end = targetDate.endOf('day').toDate();
-  
+
   const active = await Employee.find({ status: 'active' }, '_id name employeeId').lean();
   // Query attendance với timezone VN
-  const attendedIds = await Attendance.distinct('employee', { 
+  const attendedIds = await Attendance.distinct('employee', {
     date: { $gte: start, $lte: end },
     $or: [
       { 'checkIn.time': { $exists: true, $ne: null } },
@@ -407,13 +407,13 @@ async function handleUnattendedToday(user, entities) {
   });
   const missing = active.filter(e => !attendedIds.find(id => String(id) === String(e._id)));
   if (!missing.length) return `Tất cả nhân viên đều đã điểm danh ngày ${dateISO}`;
-  
+
   // Hiển thị danh sách với mã nhân viên
   const list = missing.map(x => {
     const code = x.employeeId || '';
     return code ? `${x.name} (${code})` : x.name;
   }).join(', ');
-  
+
   return `Hôm nay ai chưa điểm danh:\n${list}\n\nTổng: ${missing.length} người.`;
 }
 
@@ -425,18 +425,18 @@ async function handleMyAttendanceToday(user, entities) {
   const now = moment().tz('Asia/Ho_Chi_Minh');
   const today = now.clone();
   const dateISO = entities.dateISO || today.format('YYYY-MM-DD');
-  
+
   // Query attendance với timezone VN
   const targetDate = moment.tz(dateISO, 'YYYY-MM-DD', 'Asia/Ho_Chi_Minh');
   const start = targetDate.startOf('day').toDate();
   const end = targetDate.endOf('day').toDate();
-  
+
   // Kiểm tra attendance - có thể có checkIn hoặc status = 'present'
-  const attendance = await Attendance.findOne({ 
-    employee: me._id, 
-    date: { $gte: start, $lte: end } 
+  const attendance = await Attendance.findOne({
+    employee: me._id,
+    date: { $gte: start, $lte: end }
   });
-  
+
   if (attendance && (attendance.checkIn?.time || attendance.status === 'present')) {
     return `Bạn ĐÃ điểm danh ngày ${dateISO}.`;
   }
@@ -451,17 +451,17 @@ async function handleMyAttendanceYesterday(user, entities) {
   const now = moment().tz('Asia/Ho_Chi_Minh');
   const yesterday = now.clone().subtract(1, 'day');
   const dateISO = yesterday.format('YYYY-MM-DD');
-  
+
   // Query attendance với timezone VN (giống như getAllAttendance)
   const start = yesterday.startOf('day').toDate();
   const end = yesterday.endOf('day').toDate();
-  
+
   // Kiểm tra attendance - có thể có checkIn hoặc status = 'present'
-  const attendance = await Attendance.findOne({ 
-    employee: me._id, 
-    date: { $gte: start, $lte: end } 
+  const attendance = await Attendance.findOne({
+    employee: me._id,
+    date: { $gte: start, $lte: end }
   });
-  
+
   if (attendance && (attendance.checkIn?.time || attendance.status === 'present')) {
     return `Hôm qua (${dateISO}) bạn ĐÃ điểm danh.`;
   }
@@ -473,7 +473,7 @@ async function handleEmployeeAttendanceByCode(user, entities, rawText) {
   if (!privileged) return 'Bạn không có quyền xem điểm danh của nhân viên khác. Chỉ quản lý/admin mới có thể xem.';
 
   let code = (entities.employeeCode || '').trim();
-  
+
   // Nếu không có trong entities, thử extract từ rawText
   if (!code && rawText) {
     code = pickEmployeeCode(toASCII(rawText), rawText) || '';
@@ -481,15 +481,15 @@ async function handleEmployeeAttendanceByCode(user, entities, rawText) {
 
   if (!code) return 'Vui lòng cung cấp mã nhân viên (ví dụ: EMP004).';
 
-  const emp = await Employee.findOne({ 
+  const emp = await Employee.findOne({
     $or: [
-      { employeeId: code }, 
-      { code }, 
+      { employeeId: code },
+      { code },
       { empCode: code },
       { employeeId: code.toUpperCase() },
       { code: code.toUpperCase() },
       { empCode: code.toUpperCase() }
-    ] 
+    ]
   });
 
   if (!emp) return `Không tìm thấy nhân viên với mã "${code}".`;
@@ -500,13 +500,13 @@ async function handleEmployeeAttendanceByCode(user, entities, rawText) {
   const targetDate = moment.tz(dateISO, 'YYYY-MM-DD', 'Asia/Ho_Chi_Minh');
   const start = targetDate.startOf('day').toDate();
   const end = targetDate.endOf('day').toDate();
-  
+
   // Query attendance với timezone VN
-  const attendance = await Attendance.findOne({ 
-    employee: emp._id, 
-    date: { $gte: start, $lte: end } 
+  const attendance = await Attendance.findOne({
+    employee: emp._id,
+    date: { $gte: start, $lte: end }
   });
-  
+
   if (attendance && (attendance.checkIn?.time || attendance.status === 'present')) {
     return `Nhân viên ${emp.name} (${code}) ĐÃ điểm danh ngày ${dateISO}.`;
   }
@@ -529,7 +529,7 @@ async function handleMyLeaveBalance(user) {
   const me = await resolveMe(user);
   if (!me) return 'Không tìm thấy hồ sơ nhân viên của bạn.';
   const annual = Number(me.annualLeaveDays || 0);   // từ schema Employee  :contentReference[oaicite:4]{index=4}
-  const used   = Number(me.usedLeaveDays   || 0);   // từ schema Employee  :contentReference[oaicite:5]{index=5}
+  const used = Number(me.usedLeaveDays || 0);   // từ schema Employee  :contentReference[oaicite:5]{index=5}
   const remain = Math.max(0, annual - used);
   return `Bạn có ${annual} ngày phép/năm, đã dùng ${used}, còn lại ${remain}.`;
 }
@@ -547,15 +547,15 @@ async function handleIsLateDeducted() {
   const Settings = require('../models/Settings');
   const latePolicy = await Settings.findOne({ type: 'late-policy' });
   const config = latePolicy?.config || {};
-  
+
   const penaltyRate = config.penaltyRate || 20000; // 20k mặc định
   const penaltyInterval = config.penaltyInterval || 15; // 15 phút mặc định
   const lostWorkDayThreshold = config.lateThreshold2Hours || 120; // 2 tiếng mặc định
-  
+
   return [
     'Đi trễ có bị trừ lương theo chính sách công ty:',
     `• Phạt đi trễ: ${fmtVND(penaltyRate)} mỗi ${penaltyInterval} phút`,
-    `• Trễ >= ${lostWorkDayThreshold} phút (${lostWorkDayThreshold/60} giờ): Mất 1 ngày công`,
+    `• Trễ >= ${lostWorkDayThreshold} phút (${lostWorkDayThreshold / 60} giờ): Mất 1 ngày công`,
     `• Phạt được tính: (Số phút trễ / ${penaltyInterval}) × ${fmtVND(penaltyRate)}`,
     '',
     'Ví dụ: Trễ 30 phút = (30/15) × 20.000 = 40.000₫'
@@ -566,15 +566,15 @@ async function handleLatePenaltyRule() {
   const Settings = require('../models/Settings');
   const latePolicy = await Settings.findOne({ type: 'late-policy' });
   const config = latePolicy?.config || {};
-  
+
   const penaltyRate = config.penaltyRate || 20000; // 20k mặc định
   const penaltyInterval = config.penaltyInterval || 15; // 15 phút mặc định
   const lostWorkDayThreshold = config.lateThreshold2Hours || 120; // 2 tiếng mặc định
-  
+
   return [
     'Mức phạt đi muộn:',
     `• Mỗi ${penaltyInterval} phút trễ: ${fmtVND(penaltyRate)}`,
-    `• Trễ >= ${lostWorkDayThreshold} phút (${lostWorkDayThreshold/60} giờ): Mất 1 ngày công (bị trừ lương 1 ngày)`,
+    `• Trễ >= ${lostWorkDayThreshold} phút (${lostWorkDayThreshold / 60} giờ): Mất 1 ngày công (bị trừ lương 1 ngày)`,
     '',
     'Công thức tính phạt:',
     `Phạt = (Số phút trễ / ${penaltyInterval}) × ${fmtVND(penaltyRate)}`,
@@ -626,34 +626,47 @@ exports.postMessage = async (req, res) => {
 
     let reply = '';
     switch (intent) {
-      case 'MY_SALARY':             reply = await handleMySalary(user, entities); break;
-      case 'WHAT_IF_LEAVE':         reply = await handleWhatIfLeave(user, entities); break;
-      case 'EMPLOYEE_SALARY':       reply = await handleEmployeeSalary(user, entities, text); break;
-      case 'EMPLOYEE_INFO':         reply = await handleEmployeeInfo(user, entities); break;
-      case 'TOTAL_PAYROLL':         reply = await handleTotalPayroll(user, entities); break;
-      case 'CHECKED_IN_ON_DATE':    reply = await handleCheckedInOnDate(user, entities); break;
-      case 'UNATTENDED_TODAY':      reply = await handleUnattendedToday(user, entities); break;
-      case 'MY_ATTENDANCE_TODAY':   reply = await handleMyAttendanceToday(user, entities); break;
-      case 'TODAY_DATE':            reply = `Hôm nay là ${new Date().toISOString().slice(0,10)}.`; break;
+      case 'MY_SALARY': reply = await handleMySalary(user, entities); break;
+      case 'WHAT_IF_LEAVE': reply = await handleWhatIfLeave(user, entities); break;
+      case 'EMPLOYEE_SALARY': reply = await handleEmployeeSalary(user, entities, text); break;
+      case 'EMPLOYEE_INFO': reply = await handleEmployeeInfo(user, entities); break;
+      case 'TOTAL_PAYROLL': reply = await handleTotalPayroll(user, entities); break;
+      case 'CHECKED_IN_ON_DATE': reply = await handleCheckedInOnDate(user, entities); break;
+      case 'UNATTENDED_TODAY': reply = await handleUnattendedToday(user, entities); break;
+      case 'MY_ATTENDANCE_TODAY': reply = await handleMyAttendanceToday(user, entities); break;
+      case 'TODAY_DATE': reply = `Hôm nay là ${new Date().toISOString().slice(0, 10)}.`; break;
       case 'EMPLOYEE_ATTENDANCE_BY_CODE': reply = await handleEmployeeAttendanceByCode(user, entities, text); break;
-      case 'MY_PROFILE':            reply = await handleMyProfile(user); break;
-      case 'MY_LEAVE_BALANCE':      reply = await handleMyLeaveBalance(user); break;
-      case 'LEAVE_APPROVER':        reply = handleLeaveApprover(); break;
-      case 'IS_LATE_DEDUCTED':      reply = await handleIsLateDeducted(); break;
-      case 'LATE_PENALTY_RULE':     reply = await handleLatePenaltyRule(); break;
+      case 'MY_PROFILE': reply = await handleMyProfile(user); break;
+      case 'MY_LEAVE_BALANCE': reply = await handleMyLeaveBalance(user); break;
+      case 'LEAVE_APPROVER': reply = handleLeaveApprover(); break;
+      case 'IS_LATE_DEDUCTED': reply = await handleIsLateDeducted(); break;
+      case 'LATE_PENALTY_RULE': reply = await handleLatePenaltyRule(); break;
       case 'MY_ATTENDANCE_YESTERDAY': reply = await handleMyAttendanceYesterday(user, entities); break;
-      case 'HR_POLICY_SUMMARY':     reply = handlePolicySummary(); break;
+      case 'HR_POLICY_SUMMARY': reply = handlePolicySummary(); break;
       default:
         // Fallback: Nếu câu có "hôm qua" và "tui/tôi" và "check in/điểm danh" → MY_ATTENDANCE_YESTERDAY
-        if (/(hom qua|hôm qua|yesterday)/i.test(text) && 
-            /(toi|tui|m[iì]nh|t[ôo]i|em)\b/i.test(text) &&
-            /(da|đã|chưa|chua|check|diem danh|điểm danh|cham cong|chấm công)/i.test(text)) {
+        if (/(hom qua|hôm qua|yesterday)/i.test(text) &&
+          /(toi|tui|m[iì]nh|t[ôo]i|em)\b/i.test(text) &&
+          /(da|đã|chưa|chua|check|diem danh|điểm danh|cham cong|chấm công)/i.test(text)) {
           reply = await handleMyAttendanceYesterday(user, entities);
+        }
+        // PRIORITY FIX: Check attendance FIRST if has employee code + attendance keywords
+        // Fallback: Nếu có mã nhân viên + check-in/điểm danh → EMPLOYEE_ATTENDANCE_BY_CODE
+        else if (/\b(EMP|NV)\s*\d{2,6}\b/i.test(text) &&
+          /(checkin|check\s*in|diem danh|điểm danh|cham cong|chấm công|da|đã|chưa)/i.test(text) &&
+          !/l[ươ]ng|b[ả]ng l[ươ]ng/i.test(text)) {
+          const extractedCode = pickEmployeeCode(toASCII(text), text);
+          if (extractedCode) {
+            entities.employeeCode = extractedCode;
+            reply = await handleEmployeeAttendanceByCode(user, entities, text);
+          } else {
+            reply = helpText();
+          }
         }
         // Fallback: Nếu câu có "lương" và "nhân viên" → thử coi như EMPLOYEE_SALARY
         // NHƯNG không phải nếu có từ khóa check-in/điểm danh
         else if (/l[ươ]ng|b[ả]ng l[ươ]ng/i.test(text) && /nhân\s*viên/i.test(text) && !/(toi|tui|minh|cua toi|của tôi|m[iì]nh|t[ôo]i|em)\b/i.test(text) &&
-                 !/(checkin|check\s*in|diem danh|điểm danh|cham cong|chấm công)/i.test(text)) {
+          !/(checkin|check\s*in|diem danh|điểm danh|cham cong|chấm công)/i.test(text)) {
           // Thử extract lại một lần nữa
           const extractedName = pickEmployeeName(text);
           const extractedCode = pickEmployeeCode(toASCII(text), text);
@@ -665,23 +678,10 @@ exports.postMessage = async (req, res) => {
             reply = helpText();
           }
         }
-        // Nếu câu có "lương ... của ..." hoặc mã NV → thử coi như EMPLOYEE_SALARY
-        // NHƯNG không phải nếu có từ khóa check-in/điểm danh
-        else if ((/l[ươ]ng|b[ả]ng l[ươ]ng/i.test(text) && /c[ủ]a\s+/i.test(text)) || 
-                 (/\b(EMP|NV)\s*\d{2,6}\b/i.test(text) && !/(checkin|check\s*in|diem danh|điểm danh|cham cong|chấm công)/i.test(text))) {
+        // Nếu câu có "lương ... của ..." hoặc mã NV (WITHOUT attendance keywords) → EMPLOYEE_SALARY
+        else if ((/l[ươ]ng|b[ả]ng l[ươ]ng/i.test(text) && /c[ủ]a\s+/i.test(text)) ||
+          (/\b(EMP|NV)\s*\d{2,6}\b/i.test(text) && !/(checkin|check\s*in|diem danh|điểm danh|cham cong|chấm công|da|đã|chưa)/i.test(text))) {
           reply = await handleEmployeeSalary(user, entities, text);
-        }
-        // Fallback: Nếu có mã nhân viên + check-in/điểm danh → EMPLOYEE_ATTENDANCE_BY_CODE
-        else if (/\b(EMP|NV)\s*\d{2,6}\b/i.test(text) && 
-                 /(checkin|check\s*in|diem danh|điểm danh|cham cong|chấm công|da|đã|chưa)/i.test(text) &&
-                 !/l[ươ]ng|b[ả]ng l[ươ]ng/i.test(text)) {
-          const extractedCode = pickEmployeeCode(toASCII(text), text);
-          if (extractedCode) {
-            entities.employeeCode = extractedCode;
-            reply = await handleEmployeeAttendanceByCode(user, entities, text);
-          } else {
-            reply = helpText();
-          }
         }
         else reply = helpText();
     }
