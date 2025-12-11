@@ -23,7 +23,6 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import TimeControl from './TimeControl';
 import { useViewMode } from '../contexts/ViewModeContext';
 import { useSocket } from '../hooks/useSocket';
-import { useUnreadCount } from '../hooks/useUnreadCount';
 
 const { Header, Sider, Content } = AntLayout;
 const { Text } = Typography;
@@ -31,8 +30,8 @@ const { Text } = Typography;
 const MainLayout = ({ children }) => {
   const [collapsed, setCollapsed] = useState(false);
   const [notificationCount, setNotificationCount] = useState(0);
+  const [unreadChatCount, setUnreadChatCount] = useState(0);
   const {
-    viewMode,
     canSwitchMode,
     isPersonalMode,
     isAdminMode,
@@ -57,11 +56,7 @@ const MainLayout = ({ children }) => {
     return null;
   };
 
-
   const user = getUser();
-
-  // Hook for unread message count
-  const { unreadCount } = useUnreadCount(user?._id);
 
   // Redirect to login if no user
   React.useEffect(() => {
@@ -69,7 +64,6 @@ const MainLayout = ({ children }) => {
       navigate('/login');
     }
   }, [user, navigate]);
-
 
   // ✅ Socket listener cho thông báo đơn mới (chỉ cho admin/manager)
   useEffect(() => {
@@ -98,14 +92,64 @@ const MainLayout = ({ children }) => {
       });
     };
 
+    // ✅ Thông báo chấm công real-time (chỉ cho admin)
+    const handleNewAttendance = (data) => {
+      console.log('📢 New attendance notification:', data);
+      const icon = data.type === 'checkin' ? '🟢' : '🔴';
+      const employeeName = data.employee?.name || 'Nhân viên';
+      message.info({
+        content: `${icon} ${employeeName} vừa ${data.type === 'checkin' ? 'check-in' : 'check-out'}`,
+        duration: 4,
+        onClick: () => navigate('/attendance')
+      });
+    };
+
     socket.on('new_leave_request', handleNewLeaveRequest);
     socket.on('new_ot_request', handleNewOTRequest);
+    socket.on('new_attendance', handleNewAttendance);
 
     return () => {
       socket.off('new_leave_request', handleNewLeaveRequest);
       socket.off('new_ot_request', handleNewOTRequest);
+      socket.off('new_attendance', handleNewAttendance);
     };
   }, [socket, connected, user, navigate]);
+
+  // ✅ Socket listener cho tin nhắn mới (tất cả users)
+  useEffect(() => {
+    if (!socket || !connected || !user) return;
+
+    const currentUserId = user._id || user.id;
+
+    const handleNewMessage = (msg) => {
+      // Chỉ tăng badge nếu không đang ở trang chat và tin nhắn gửi tới mình
+      const receiverId = msg.receiver?._id || msg.receiver;
+      if (receiverId === currentUserId && location.pathname !== '/internal-chat') {
+        setUnreadChatCount(prev => prev + 1);
+        message.info({
+          content: `💬 Tin nhắn mới từ ${msg.sender?.username || msg.sender?.email || 'Ai đó'}`,
+          duration: 3,
+          onClick: () => {
+            setUnreadChatCount(0);
+            navigate('/internal-chat');
+          }
+        });
+      }
+    };
+
+    socket.on('new_message', handleNewMessage);
+
+    return () => {
+      socket.off('new_message', handleNewMessage);
+    };
+  }, [socket, connected, user, location.pathname, navigate]);
+
+  // Reset chat badge khi vào trang chat
+  useEffect(() => {
+    if (location.pathname === '/internal-chat') {
+      setUnreadChatCount(0);
+    }
+  }, [location.pathname]);
 
   if (!user) {
     return null;
@@ -158,7 +202,7 @@ const MainLayout = ({ children }) => {
     },
     {
       key: '/internal-chat',
-      icon: <MessageOutlined />,
+      icon: <Badge count={unreadChatCount} size="small" offset={[5, 0]}><MessageOutlined /></Badge>,
       label: 'Chat nội bộ'
     },
     {
@@ -197,7 +241,7 @@ const MainLayout = ({ children }) => {
     },
     {
       key: '/internal-chat',
-      icon: <MessageOutlined />,
+      icon: <Badge count={unreadChatCount} size="small" offset={[5, 0]}><MessageOutlined /></Badge>,
       label: 'Chat nội bộ'
     }
   ];
@@ -237,13 +281,9 @@ const MainLayout = ({ children }) => {
     window.location.href = '/';
   };
 
-  // Use toggleMode from context with immediate feedback
+  // Use toggleMode from context
   const handleToggleMode = () => {
-    console.log('[Layout] Mode toggle clicked, current mode:', viewMode);
     toggleMode();
-    // Force re-render by updating a dummy state
-    setCollapsed(prev => prev); // Trigger re-render
-    console.log('[Layout] Mode toggled, new mode should update automatically');
   };
 
   const getModeButtonStyle = () => {
@@ -353,7 +393,6 @@ const MainLayout = ({ children }) => {
             {canSwitchMode && (
               <Tooltip title={`Chuyển chế độ xem (hiện tại: ${getCurrentModeInfo().label})`}>
                 <Button
-                  key={`mode-btn-${user?.role}-${viewMode}-${canSwitchMode}`}
                   icon={
                     isPersonalMode ? <UserOutlined /> :
                       isAccountantMode ? <DollarOutlined /> :
@@ -380,7 +419,7 @@ const MainLayout = ({ children }) => {
             {/* Time Machine - for Admin only */}
             {isAdmin && <TimeControl />}
 
-            <Badge count={notificationCount + unreadCount} size="small">
+            <Badge count={notificationCount} size="small">
               <Button
                 type="text"
                 icon={<BellOutlined />}

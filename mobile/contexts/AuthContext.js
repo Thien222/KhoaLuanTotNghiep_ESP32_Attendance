@@ -26,12 +26,21 @@ export const AuthProvider = ({ children }) => {
       const token = await AsyncStorage.getItem('token');
       const userData = await AsyncStorage.getItem('user');
       
+      console.log('🔍 Checking auth:', {
+        hasToken: !!token,
+        tokenLength: token?.length,
+        hasUserData: !!userData
+      });
+      
       if (token && userData) {
         setUser(JSON.parse(userData));
         setIsAuthenticated(true);
+        console.log('✅ Auth check passed - user authenticated');
+      } else {
+        console.warn('⚠️ Auth check failed - no token or user data');
       }
     } catch (error) {
-      console.error('Error checking auth:', error);
+      console.error('❌ Error checking auth:', error);
     } finally {
       setLoading(false);
     }
@@ -44,8 +53,26 @@ export const AuthProvider = ({ children }) => {
       if (response.success) {
         const { user: userData, token } = response.data;
         
+        console.log('🔐 Login successful:', {
+          hasToken: !!token,
+          tokenLength: token?.length,
+          hasUser: !!userData
+        });
+        
+        if (!token) {
+          console.error('❌ No token in response!', response);
+          return { success: false, message: 'Không nhận được token từ server' };
+        }
+        
         await AsyncStorage.setItem('token', token);
         await AsyncStorage.setItem('user', JSON.stringify(userData));
+        
+        // Verify token was saved
+        const savedToken = await AsyncStorage.getItem('token');
+        console.log('✅ Token saved to AsyncStorage:', {
+          saved: !!savedToken,
+          length: savedToken?.length
+        });
         
         setUser(userData);
         setIsAuthenticated(true);
@@ -55,7 +82,7 @@ export const AuthProvider = ({ children }) => {
         return { success: false, message: response.message };
       }
     } catch (error) {
-      console.error('Login error:', error);
+      console.error('❌ Login error:', error);
       return {
         success: false,
         message: error.response?.data?.message || 'Đăng nhập thất bại',

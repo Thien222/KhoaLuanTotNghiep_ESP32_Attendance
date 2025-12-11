@@ -108,7 +108,7 @@ async function calculateMonthlySalary(employeeId, year, month) {
   // Dùng để hiển thị "Lương theo ngày công" trên phiếu lương
   const workDaysInMonth = stats.workingDays + (stats.halfDays * 0.5);
   const proratedSalary = Math.round((baseSalaryFull * workDaysInMonth) / STANDARD_WORKING_DAYS);
-  
+
   // baseSalary dùng trong tính toán = proratedSalary
   const baseSalary = proratedSalary;
 
@@ -131,14 +131,39 @@ async function calculateMonthlySalary(employeeId, year, month) {
   );
 
   // 8. TÍNH LƯƠNG OT (UPDATED - Dùng estimatedOTSalary từ attendance records)
+  // CHỈ TÍNH OT NẾU CÓ OT APPROVED (is_ot_approved = true)
   // Vì estimatedOTSalary đã được tính với hệ số đúng (weekday/weekend/holiday) trong attendanceController
-  // Nên chỉ cần cộng lại từ các attendance records
+  // Nên chỉ cần cộng lại từ các attendance records có OT approved
   let overtimePay = 0;
+  const otDetails = [];
   attendances.forEach(att => {
-    if (att.estimatedOTSalary) {
+    // CHỈ TÍNH OT NẾU CÓ OT APPROVED
+    if (att.estimatedOTSalary && att.estimatedOTSalary > 0 && att.is_ot_approved === true) {
       overtimePay += att.estimatedOTSalary;
+      otDetails.push({
+        date: moment(att.date).format('YYYY-MM-DD'),
+        hours: att.overtimeHours || 0,
+        salary: att.estimatedOTSalary,
+        isOTApproved: att.is_ot_approved || false
+      });
     }
   });
+
+  // Log chi tiết OT nếu có
+  if (overtimePay > 0) {
+    console.log(`   📝 [OT DETAILS] ${employee.name}: ${otDetails.length} ngày có OT (APPROVED)`);
+    otDetails.forEach(ot => {
+      console.log(`      - ${ot.date}: ${ot.hours}h = ${ot.salary.toLocaleString()}đ`);
+    });
+  } else {
+    // Kiểm tra xem có OT nhưng chưa approved không
+    const unapprovedOT = attendances.filter(att =>
+      (att.overtimeHours > 0 || att.estimatedOTSalary > 0) && att.is_ot_approved !== true
+    );
+    if (unapprovedOT.length > 0) {
+      console.log(`   ⚠️ [OT NOT APPROVED] ${employee.name}: Có ${unapprovedOT.length} ngày có OT nhưng chưa được duyệt`);
+    }
+  }
 
   // Fallback: Nếu không có estimatedOTSalary, tính theo rate cố định (không có hệ số)
   if (overtimePay === 0 && stats.overtimeHours > 0) {
@@ -214,8 +239,8 @@ async function calculateMonthlySalary(employeeId, year, month) {
   // Tổng phụ cấp
   const totalAllowances = generalAllowance + seniorityAllowance + positionAllowance;
 
-  // Tổng lương OT (bao gồm cả làm lễ, cuối tuần)
-  const totalOTSalary = overtimePay + holidayWorkPay + weekendWorkPay;
+  // Tổng lương OT (BỎ weekendWorkPay - phiếu lương gốc không có khoản này)
+  const totalOTSalary = overtimePay + holidayWorkPay;
 
   // Tổng phạt (chỉ tính latePenalty, không trừ ngày nghỉ vì đã tính trong baseSalary)
   const totalFines = latePenalty;
@@ -235,7 +260,12 @@ async function calculateMonthlySalary(employeeId, year, month) {
   console.log(`📊 [SALARY] ${employee.name}:`);
   console.log(`   Base (${workDaysInMonth} days/${STANDARD_WORKING_DAYS}): ${baseSalary.toLocaleString()}đ`);
   console.log(`   + Allowances: ${totalAllowances.toLocaleString()}đ`);
-  console.log(`   + OT Salary: ${totalOTSalary.toLocaleString()}đ`);
+  if (totalOTSalary > 0) {
+    console.log(`   + OT Salary: ${totalOTSalary.toLocaleString()}đ`);
+    if (overtimePay > 0) console.log(`      (overtimePay: ${overtimePay.toLocaleString()}đ, holiday: ${holidayWorkPay.toLocaleString()}đ, weekend: ${weekendWorkPay.toLocaleString()}đ)`);
+  } else {
+    console.log(`   + OT Salary: 0đ (không có OT)`);
+  }
   console.log(`   - Fines: ${totalFines.toLocaleString()}đ`);
   console.log(`   - Tax (${taxRate}%): ${taxAmount.toLocaleString()}đ`);
   console.log(`   = NET: ${netSalary.toLocaleString()}đ`);

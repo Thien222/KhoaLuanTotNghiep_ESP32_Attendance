@@ -1,10 +1,66 @@
-const { calculateMonthlySalary } = require('../services/salary.service');
+const { calculateMonthlySalary } = require('../utils/salaryCalculator');
 const Employee = require('../models/Employee');
+const mongoose = require('mongoose');
+
+/**
+ * Helper function: Find employee by userId (can be ObjectId or employeeId string)
+ */
+async function findEmployeeByUserId(userId) {
+  if (mongoose.Types.ObjectId.isValid(userId)) {
+    return await Employee.findById(userId);
+  } else {
+    return await Employee.findOne({ employeeId: userId });
+  }
+}
+
+/**
+ * Helper function: Format payroll response to match previous API format
+ */
+function formatSalaryResponse(employee, payroll, calcMonth, calcYear) {
+  return {
+    employee: {
+      _id: employee._id,
+      name: employee.name,
+      employeeId: employee.employeeId
+    },
+    period: {
+      month: calcMonth,
+      year: calcYear,
+      monthString: `${calcYear}-${String(calcMonth).padStart(2, '0')}`
+    },
+    basicSalary: payroll.basicSalaryFull || payroll.baseSalary || 0,
+    calculations: {
+      dailyRate: payroll.dailyRate || 0,
+      totalWorkingDays: payroll.actualWorkingDays || payroll.workingDays || 0,
+      realWorkSalary: payroll.baseSalary || 0,
+      allowance: (payroll.generalAllowance || 0) + (payroll.seniorityAllowance || 0) + (payroll.positionAllowance || 0),
+      totalOTPay: (payroll.overtimePay || 0) + (payroll.holidayWorkPay || 0) + (payroll.weekendWorkPay || 0),
+      totalFines: payroll.latePenalty || 0,
+      grossIncome: payroll.grossSalary || 0,
+      tax: payroll.taxAmount || 0,
+      netSalary: payroll.netSalary || 0
+    },
+    summary: {
+      totalAttendances: 0, // Not available in payroll object
+      totalWorkingDays: payroll.actualWorkingDays || payroll.workingDays || 0,
+      totalOTHours: payroll.overtimeHours || 0,
+      totalFines: payroll.latePenalty || 0,
+      finalSalary: payroll.netSalary || 0
+    },
+    // Include full payroll data for reference
+    payroll: payroll
+  };
+}
 
 /**
  * POST /api/salary/calculate
  * Calculate monthly salary for an employee
  * Body: { userId, month, year }
+ * 
+ * NOTE: Now uses the standardized salaryCalculator.js which calculates:
+ * - Tax on baseSalaryFull (10% default)
+ * - Standard working days: 26 days
+ * - Formula: Net = Base + Allowances + OT - Fines - Tax
  */
 exports.calculateSalary = async (req, res) => {
   try {
@@ -36,8 +92,20 @@ exports.calculateSalary = async (req, res) => {
       });
     }
 
-    // Calculate salary
-    const result = await calculateMonthlySalary(userId, calcMonth, calcYear);
+    // Find employee by userId (can be ObjectId or employeeId string)
+    const employee = await findEmployeeByUserId(userId);
+    if (!employee) {
+      return res.status(404).json({
+        success: false,
+        message: 'Employee not found'
+      });
+    }
+
+    // Calculate salary using standard calculator (employeeId, year, month)
+    const payroll = await calculateMonthlySalary(employee._id, calcYear, calcMonth);
+
+    // Format response to match previous API format for compatibility
+    const result = formatSalaryResponse(employee, payroll, calcMonth, calcYear);
 
     res.status(200).json({
       success: true,
@@ -79,7 +147,21 @@ exports.getSalaryHistory = async (req, res) => {
         });
       }
 
-      const result = await calculateMonthlySalary(userId, calcMonth, calcYear);
+      // Find employee by userId (can be ObjectId or employeeId string)
+      const employee = await findEmployeeByUserId(userId);
+      if (!employee) {
+        return res.status(404).json({
+          success: false,
+          message: 'Employee not found'
+        });
+      }
+
+      // Calculate salary using standard calculator (employeeId, year, month)
+      const payroll = await calculateMonthlySalary(employee._id, calcYear, calcMonth);
+
+      // Format response to match previous API format for compatibility
+      const result = formatSalaryResponse(employee, payroll, calcMonth, calcYear);
+
       return res.status(200).json({
         success: true,
         data: result
