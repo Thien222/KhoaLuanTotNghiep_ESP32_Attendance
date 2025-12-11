@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { Layout as AntLayout, Menu, Button, Avatar, Dropdown, Space, Typography, Badge, Tooltip, Tag, message } from 'antd';
-import { 
-  MenuFoldOutlined, 
-  MenuUnfoldOutlined, 
-  UserOutlined, 
+import {
+  MenuFoldOutlined,
+  MenuUnfoldOutlined,
+  UserOutlined,
   BellOutlined,
   LogoutOutlined,
   DashboardOutlined,
@@ -30,8 +30,9 @@ const { Text } = Typography;
 const MainLayout = ({ children }) => {
   const [collapsed, setCollapsed] = useState(false);
   const [notificationCount, setNotificationCount] = useState(0);
-  const { 
-    canSwitchMode, 
+  const [unreadChatCount, setUnreadChatCount] = useState(0);
+  const {
+    canSwitchMode,
     isPersonalMode,
     isAdminMode,
     isAccountantMode,
@@ -41,7 +42,7 @@ const MainLayout = ({ children }) => {
   const navigate = useNavigate();
   const location = useLocation();
   const { socket, connected } = useSocket();
-  
+
   // Get user from localStorage
   const getUser = () => {
     try {
@@ -56,21 +57,21 @@ const MainLayout = ({ children }) => {
   };
 
   const user = getUser();
-  
+
   // Redirect to login if no user
   React.useEffect(() => {
     if (!user) {
       navigate('/login');
     }
   }, [user, navigate]);
-  
+
   // ✅ Socket listener cho thông báo đơn mới (chỉ cho admin/manager)
   useEffect(() => {
     if (!socket || !connected || !user) return;
-    
+
     const isAdmin = user?.role === 'manager';
     if (!isAdmin) return;
-    
+
     const handleNewLeaveRequest = (data) => {
       console.log('📢 New leave request notification:', data);
       setNotificationCount(prev => prev + 1);
@@ -80,7 +81,7 @@ const MainLayout = ({ children }) => {
         onClick: () => navigate('/requests')
       });
     };
-    
+
     const handleNewOTRequest = (data) => {
       console.log('📢 New OT request notification:', data);
       setNotificationCount(prev => prev + 1);
@@ -90,23 +91,73 @@ const MainLayout = ({ children }) => {
         onClick: () => navigate('/requests')
       });
     };
-    
+
+    // ✅ Thông báo chấm công real-time (chỉ cho admin)
+    const handleNewAttendance = (data) => {
+      console.log('📢 New attendance notification:', data);
+      const icon = data.type === 'checkin' ? '🟢' : '🔴';
+      const employeeName = data.employee?.name || 'Nhân viên';
+      message.info({
+        content: `${icon} ${employeeName} vừa ${data.type === 'checkin' ? 'check-in' : 'check-out'}`,
+        duration: 4,
+        onClick: () => navigate('/attendance')
+      });
+    };
+
     socket.on('new_leave_request', handleNewLeaveRequest);
     socket.on('new_ot_request', handleNewOTRequest);
-    
+    socket.on('new_attendance', handleNewAttendance);
+
     return () => {
       socket.off('new_leave_request', handleNewLeaveRequest);
       socket.off('new_ot_request', handleNewOTRequest);
+      socket.off('new_attendance', handleNewAttendance);
     };
   }, [socket, connected, user, navigate]);
-  
+
+  // ✅ Socket listener cho tin nhắn mới (tất cả users)
+  useEffect(() => {
+    if (!socket || !connected || !user) return;
+
+    const currentUserId = user._id || user.id;
+
+    const handleNewMessage = (msg) => {
+      // Chỉ tăng badge nếu không đang ở trang chat và tin nhắn gửi tới mình
+      const receiverId = msg.receiver?._id || msg.receiver;
+      if (receiverId === currentUserId && location.pathname !== '/internal-chat') {
+        setUnreadChatCount(prev => prev + 1);
+        message.info({
+          content: `💬 Tin nhắn mới từ ${msg.sender?.username || msg.sender?.email || 'Ai đó'}`,
+          duration: 3,
+          onClick: () => {
+            setUnreadChatCount(0);
+            navigate('/internal-chat');
+          }
+        });
+      }
+    };
+
+    socket.on('new_message', handleNewMessage);
+
+    return () => {
+      socket.off('new_message', handleNewMessage);
+    };
+  }, [socket, connected, user, location.pathname, navigate]);
+
+  // Reset chat badge khi vào trang chat
+  useEffect(() => {
+    if (location.pathname === '/internal-chat') {
+      setUnreadChatCount(0);
+    }
+  }, [location.pathname]);
+
   if (!user) {
     return null;
   }
-  
+
   const isAdmin = user?.role === 'manager';
   const isAccountant = user?.role === 'accountant';
-  
+
   // Menu cho mode Admin (quản lý toàn bộ hệ thống)
   const adminMenuItems = [
     {
@@ -151,7 +202,7 @@ const MainLayout = ({ children }) => {
     },
     {
       key: '/internal-chat',
-      icon: <MessageOutlined />,
+      icon: <Badge count={unreadChatCount} size="small" offset={[5, 0]}><MessageOutlined /></Badge>,
       label: 'Chat nội bộ'
     },
     {
@@ -190,7 +241,7 @@ const MainLayout = ({ children }) => {
     },
     {
       key: '/internal-chat',
-      icon: <MessageOutlined />,
+      icon: <Badge count={unreadChatCount} size="small" offset={[5, 0]}><MessageOutlined /></Badge>,
       label: 'Chat nội bộ'
     }
   ];
@@ -210,12 +261,12 @@ const MainLayout = ({ children }) => {
       // Kế toán: mode accountant = xem toàn bộ lương, mode personal = menu cá nhân
       return isAccountantMode ? accountantModeMenuItems : personalMenuItems;
     }
-    
+
     if (isAdmin) {
       // Admin: mode admin = quản lý, mode personal = cá nhân
       return isAdminMode ? adminMenuItems : personalMenuItems;
     }
-    
+
     // Nhân viên: chỉ menu cá nhân
     return personalMenuItems;
   };
@@ -251,9 +302,9 @@ const MainLayout = ({ children }) => {
   return (
     <AntLayout style={{ minHeight: '100vh' }}>
       {/* Fixed Sidebar */}
-      <Sider 
-        trigger={null} 
-        collapsible 
+      <Sider
+        trigger={null}
+        collapsible
         collapsed={collapsed}
         width={200}
         collapsedWidth={80}
@@ -270,17 +321,17 @@ const MainLayout = ({ children }) => {
         }}
         className="fixed-sidebar"
       >
-        <div style={{ 
-          height: '56px', 
-          display: 'flex', 
-          alignItems: 'center', 
+        <div style={{
+          height: '56px',
+          display: 'flex',
+          alignItems: 'center',
           justifyContent: 'center',
           borderBottom: '1px solid #f0f0f0',
           background: '#fafafa',
           padding: '0 8px'
         }}>
-          <Text strong style={{ 
-            fontSize: collapsed ? '20px' : '14px', 
+          <Text strong style={{
+            fontSize: collapsed ? '20px' : '14px',
             color: '#1890ff',
             fontWeight: 600,
             letterSpacing: '-0.5px'
@@ -288,31 +339,31 @@ const MainLayout = ({ children }) => {
             {collapsed ? 'HR' : 'HR Management System'}
           </Text>
         </div>
-        
+
         <Menu
           mode="inline"
           theme="light"
           selectedKeys={[location.pathname]}
           items={getMenuItems()}
           onClick={handleMenuClick}
-          style={{ 
-            borderRight: 0, 
+          style={{
+            borderRight: 0,
             background: 'transparent',
             padding: '4px 0'
           }}
         />
       </Sider>
-      
+
       {/* Main content area with margin for fixed sidebar */}
-      <AntLayout style={{ 
+      <AntLayout style={{
         marginLeft: siderWidth,
         minHeight: '100vh',
         transition: 'margin-left 0.2s ease',
         width: `calc(100% - ${siderWidth}px)`
       }}>
         {/* Fixed Header */}
-        <Header style={{ 
-          padding: '0 12px', 
+        <Header style={{
+          padding: '0 12px',
           background: '#ffffff',
           display: 'flex',
           alignItems: 'center',
@@ -328,7 +379,7 @@ const MainLayout = ({ children }) => {
           zIndex: 99,
           transition: 'left 0.2s ease'
         }}
-        className="fixed-header"
+          className="fixed-header"
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <Button
@@ -337,15 +388,15 @@ const MainLayout = ({ children }) => {
               onClick={() => setCollapsed(!collapsed)}
               style={{ fontSize: '16px' }}
             />
-            
+
             {/* View Mode Toggle - Admin/Accountant can switch modes */}
             {canSwitchMode && (
               <Tooltip title={`Chuyển chế độ xem (hiện tại: ${getCurrentModeInfo().label})`}>
-                <Button 
+                <Button
                   icon={
-                    isPersonalMode ? <UserOutlined /> : 
-                    isAccountantMode ? <DollarOutlined /> : 
-                    <CrownOutlined />
+                    isPersonalMode ? <UserOutlined /> :
+                      isAccountantMode ? <DollarOutlined /> :
+                        <CrownOutlined />
                   }
                   onClick={handleToggleMode}
                   size="small"
@@ -355,7 +406,7 @@ const MainLayout = ({ children }) => {
                 </Button>
               </Tooltip>
             )}
-            
+
             {/* Show current mode badge */}
             {!canSwitchMode && (
               <Tag color="blue" icon={<UserOutlined />}>
@@ -363,23 +414,23 @@ const MainLayout = ({ children }) => {
               </Tag>
             )}
           </div>
-          
+
           <Space size="middle">
             {/* Time Machine - for Admin only */}
             {isAdmin && <TimeControl />}
-            
+
             <Badge count={notificationCount} size="small">
-              <Button 
-                type="text" 
-                icon={<BellOutlined />} 
+              <Button
+                type="text"
+                icon={<BellOutlined />}
                 onClick={() => {
                   setNotificationCount(0);
                   navigate('/requests');
                 }}
               />
             </Badge>
-            
-            <Dropdown menu={{ 
+
+            <Dropdown menu={{
               items: [
                 {
                   key: 'profile',
@@ -399,8 +450,8 @@ const MainLayout = ({ children }) => {
                 }
               ]
             }} trigger={['click']}>
-              <Button type="text" style={{ 
-                height: 'auto', 
+              <Button type="text" style={{
+                height: 'auto',
                 padding: '4px 12px',
                 borderRadius: 8,
                 border: '1px solid #f0f0f0'
@@ -416,9 +467,9 @@ const MainLayout = ({ children }) => {
             </Dropdown>
           </Space>
         </Header>
-        
+
         {/* Content area with margin-top for fixed header - Modern scrolling approach */}
-        <Content style={{ 
+        <Content style={{
           marginTop: 56,
           padding: '16px 12px 16px 8px',
           background: '#f5f7fa',
@@ -427,7 +478,7 @@ const MainLayout = ({ children }) => {
           overflowX: 'hidden'
           /* Removed overflow:auto - let browser handle scrolling naturally */
         }}
-        className="main-content-area"
+          className="main-content-area"
         >
           {/* Removed white wrapper div - content now uses full width */}
           {children}

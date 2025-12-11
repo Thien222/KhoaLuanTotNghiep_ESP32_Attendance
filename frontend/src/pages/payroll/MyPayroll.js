@@ -56,8 +56,8 @@ const MyPayroll = () => {
       if (response.data.success) {
         const data = response.data.data || [];
         // Find my payroll (filter by employee)
-        const myPayroll = data.find(p => 
-          p.employee?._id === user?.employee?._id || 
+        const myPayroll = data.find(p =>
+          p.employee?._id === user?.employee?._id ||
           p.employee === user?.employee?._id
         );
         setPayrollData(myPayroll || null);
@@ -80,7 +80,7 @@ const MyPayroll = () => {
   const renderPayrollDetails = () => {
     if (!payrollData) {
       return (
-        <Empty 
+        <Empty
           description={`Chưa có dữ liệu lương tháng ${selectedMonth.format('MM/YYYY')}`}
           image={Empty.PRESENTED_IMAGE_SIMPLE}
         />
@@ -90,19 +90,22 @@ const MyPayroll = () => {
     // FIX: Đồng bộ với mobile - hiển thị đầy đủ thông tin
     const basicSalaryFull = payrollData.basicSalaryFull || payrollData.employee?.baseSalary || payrollData.employee?.salary || 0;
     const proratedSalary = payrollData.baseSalary || payrollData.basicSalary || 0;
-    const totalAllowances = (payrollData.generalAllowance || 0) + 
-                           (payrollData.seniorityAllowance || 0) + 
-                           (payrollData.positionAllowance || 0) +
-                           (payrollData.otherAllowances || 0);
-    const totalOTPay = (payrollData.overtimePay || 0) + 
-                      (payrollData.holidayWorkPay || 0);
-                      // Bỏ weekendWorkPay - không có công thức tính lương liên quan
+    const totalAllowances = (payrollData.generalAllowance || 0) +
+      (payrollData.seniorityAllowance || 0) +
+      (payrollData.positionAllowance || 0) +
+      (payrollData.otherAllowances || 0);
+    // FIX: BỎ weekendWorkPay - phiếu lương gốc không có khoản này
+    const totalOTPay = (payrollData.overtimePay || 0) +
+      (payrollData.holidayWorkPay || 0);
     const totalBonus = (payrollData.bonus || 0) + (payrollData.performanceBonus || 0);
     // FIX: Tính tổng khấu trừ bao gồm cả taxAmount (bảo hiểm + thuế) từ backend
     const taxAmount = payrollData.taxAmount || payrollData.fixedDeduction || 0;
-    // Tổng khấu trừ = Bảo hiểm + Thuế + Tiền phạt (bỏ các khoản khác)
+    // Tổng khấu trừ = Bảo hiểm + Thuế + Tiền phạt - đồng bộ với salaryCalculator.js
     const totalDeductions = taxAmount + (payrollData.latePenalty || 0);
     const totalIncome = proratedSalary + totalAllowances + totalOTPay + totalBonus;
+    // FIX: Tính lại netSalary theo đúng công thức từ salaryCalculator.js
+    // Net = Base + Allowances + OT - Fines - Tax
+    const calculatedNetSalary = totalIncome - totalDeductions;
 
     const items = [
       {
@@ -154,19 +157,22 @@ const MyPayroll = () => {
         type: 'positive',
         icon: <RiseOutlined />
       }] : []),
-      ...(totalOTPay > 0 ? [{
+      // FIX: Hiển thị riêng từng khoản OT (như phiếu lương) để tránh gấp đôi
+      // overtimePay: Lương làm thêm giờ ngày thường
+      ...((payrollData.overtimePay || 0) > 0 ? [{
         label: `Lương OT (${(payrollData.overtimeHours || 0).toFixed(2)}h)`,
-        value: totalOTPay,
+        value: payrollData.overtimePay,
         type: 'positive',
         icon: <ClockCircleOutlined />
       }] : []),
-      ...(payrollData.holidayWorkPay > 0 ? [{
+      // holidayWorkPay: Làm ngày lễ (hiển thị riêng)
+      ...((payrollData.holidayWorkPay || 0) > 0 ? [{
         label: 'Làm ngày lễ',
         value: payrollData.holidayWorkPay,
         type: 'positive',
         icon: <ClockCircleOutlined />
       }] : []),
-      // Bỏ "Làm cuối tuần" - không có công thức tính lương liên quan
+      // BỎ weekendWorkPay - phiếu lương gốc không có khoản này
       {
         label: 'Tổng thu nhập',
         value: totalIncome,
@@ -253,14 +259,14 @@ const MyPayroll = () => {
             </Card>
           </Col>
           <Col xs={24} sm={12} md={6}>
-            <Card style={{ 
-              background: (payrollData?.netSalary || 0) < 0 
-                ? 'linear-gradient(135deg, #ff4d4f 0%, #cf1322 100%)' 
-                : 'linear-gradient(135deg, #52c41a 0%, #389e0d 100%)' 
+            <Card style={{
+              background: calculatedNetSalary < 0
+                ? 'linear-gradient(135deg, #ff4d4f 0%, #cf1322 100%)'
+                : 'linear-gradient(135deg, #52c41a 0%, #389e0d 100%)'
             }}>
               <Statistic
                 title={<span style={{ color: 'rgba(255,255,255,0.85)' }}>Thực lãnh</span>}
-                value={payrollData?.netSalary || payrollData?.totalSalary || 0}
+                value={calculatedNetSalary}
                 formatter={(val) => formatCurrency(val)}
                 valueStyle={{ color: '#fff', fontSize: 22, fontWeight: 'bold' }}
               />
@@ -274,57 +280,57 @@ const MyPayroll = () => {
             {items
               .filter(item => item.alwaysShow || item.value > 0 || item.isTotal) // Chỉ hiển thị nếu có giá trị hoặc alwaysShow
               .map((item, index, filteredItems) => (
-              <Col span={24} key={index}>
-                <div style={{ 
-                  display: 'flex', 
-                  justifyContent: 'space-between', 
-                  alignItems: 'center',
-                  padding: item.isTotal ? '12px' : '8px 0',
-                  borderBottom: index < filteredItems.length - 1 ? '1px solid #f0f0f0' : 'none',
-                  background: item.isTotal ? (item.type === 'positive' ? '#f6ffed' : '#fff2f0') : 'transparent',
-                  borderRadius: item.isTotal ? 8 : 0,
-                  marginTop: item.isTotal ? 8 : 0,
-                  marginBottom: item.isTotal ? 8 : 0
-                }}>
-                  <Space>
-                    {item.icon}
-                    <Text strong={item.isTotal} style={{ fontSize: item.isTotal ? 15 : 14 }}>
-                      {item.label}
+                <Col span={24} key={index}>
+                  <div style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    padding: item.isTotal ? '12px' : '8px 0',
+                    borderBottom: index < filteredItems.length - 1 ? '1px solid #f0f0f0' : 'none',
+                    background: item.isTotal ? (item.type === 'positive' ? '#f6ffed' : '#fff2f0') : 'transparent',
+                    borderRadius: item.isTotal ? 8 : 0,
+                    marginTop: item.isTotal ? 8 : 0,
+                    marginBottom: item.isTotal ? 8 : 0
+                  }}>
+                    <Space>
+                      {item.icon}
+                      <Text strong={item.isTotal} style={{ fontSize: item.isTotal ? 15 : 14 }}>
+                        {item.label}
+                      </Text>
+                    </Space>
+                    <Text
+                      strong={item.isTotal}
+                      style={{
+                        color: item.type === 'positive' ? '#52c41a' :
+                          item.type === 'negative' ? '#ff4d4f' : '#333',
+                        fontSize: item.isTotal ? 16 : 14
+                      }}
+                    >
+                      {item.type === 'positive' ? '+' : item.type === 'negative' ? '-' : ''}
+                      {formatCurrency(item.value)}
                     </Text>
-                  </Space>
-                  <Text 
-                    strong={item.isTotal}
-                    style={{ 
-                      color: item.type === 'positive' ? '#52c41a' : 
-                             item.type === 'negative' ? '#ff4d4f' : '#333',
-                      fontSize: item.isTotal ? 16 : 14
-                    }}
-                  >
-                    {item.type === 'positive' ? '+' : item.type === 'negative' ? '-' : ''}
-                    {formatCurrency(item.value)}
-                  </Text>
-                </div>
-              </Col>
-            ))}
+                  </div>
+                </Col>
+              ))}
           </Row>
 
           <Divider />
 
-          <div style={{ 
-            display: 'flex', 
-            justifyContent: 'space-between', 
+          <div style={{
+            display: 'flex',
+            justifyContent: 'space-between',
             alignItems: 'center',
             padding: '12px',
-            background: (payrollData?.netSalary || 0) < 0 ? '#fff2f0' : '#f6ffed',
+            background: calculatedNetSalary < 0 ? '#fff2f0' : '#f6ffed',
             borderRadius: 8,
-            border: `2px solid ${(payrollData?.netSalary || 0) < 0 ? '#ff4d4f' : '#52c41a'}`
+            border: `2px solid ${calculatedNetSalary < 0 ? '#ff4d4f' : '#52c41a'}`
           }}>
             <Text strong style={{ fontSize: 16 }}>TỔNG THỰC LÃNH</Text>
-            <Text strong style={{ 
-              fontSize: 20, 
-              color: (payrollData?.netSalary || 0) < 0 ? '#ff4d4f' : '#52c41a' 
+            <Text strong style={{
+              fontSize: 20,
+              color: calculatedNetSalary < 0 ? '#ff4d4f' : '#52c41a'
             }}>
-              {formatCurrency(payrollData?.netSalary || payrollData?.totalSalary || 0)}
+              {formatCurrency(calculatedNetSalary)}
             </Text>
           </div>
 
@@ -342,12 +348,12 @@ const MyPayroll = () => {
             <div style={{ marginTop: 12, textAlign: 'center' }}>
               <Tag color={
                 payrollData.status === 'paid' ? 'green' :
-                payrollData.status === 'approved' ? 'blue' :
-                payrollData.status === 'calculated' ? 'orange' : 'default'
+                  payrollData.status === 'approved' ? 'blue' :
+                    payrollData.status === 'calculated' ? 'orange' : 'default'
               }>
                 {payrollData.status === 'paid' ? 'Đã thanh toán' :
-                 payrollData.status === 'approved' ? 'Đã duyệt' :
-                 payrollData.status === 'calculated' ? 'Đã tính' : payrollData.status}
+                  payrollData.status === 'approved' ? 'Đã duyệt' :
+                    payrollData.status === 'calculated' ? 'Đã tính' : payrollData.status}
               </Tag>
             </div>
           )}

@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  Table, 
-  Button, 
-  Space, 
-  DatePicker, 
-  Card, 
+import {
+  Table,
+  Button,
+  Space,
+  DatePicker,
+  Card,
   Typography,
   Tag,
   message,
@@ -24,8 +24,8 @@ import {
   Select,
   Alert
 } from 'antd';
-import { 
-  DollarOutlined, 
+import {
+  DollarOutlined,
   EyeOutlined,
   CalculatorOutlined,
   EditOutlined,
@@ -44,7 +44,9 @@ import {
   ClockCircleOutlined,
   CloseCircleOutlined,
   MoreOutlined,
-  DeleteOutlined
+  DeleteOutlined,
+  LeftOutlined,
+  RightOutlined
 } from '@ant-design/icons';
 import { TableActionDropdown } from '../../components/ActionDropdown';
 import axios from 'axios';
@@ -72,6 +74,18 @@ const PayrollManagement = () => {
   const [userRole, setUserRole] = useState(null);
   const [viewMode, setViewMode] = useState('month'); // 'day' or 'month'
   const [selectedDate, setSelectedDate] = useState(moment()); // For day view
+  const [currentCalendarDate, setCurrentCalendarDate] = useState(moment());
+  // ==== ATTENDANCE CALENDAR (MOBILE-LIKE) ====
+  const [attendanceCalendarVisible, setAttendanceCalendarVisible] = useState(false);
+  const [attendanceCalendarData, setAttendanceCalendarData] = useState([]);
+  const [attendanceCalendarDate, setAttendanceCalendarDate] = useState(moment()); // For late calendar modal
+
+  // Reset calendar date when opening modal with new payroll
+  useEffect(() => {
+    if (selectedPayroll) {
+      setCurrentCalendarDate(moment(`${selectedPayroll.year}-${String(selectedPayroll.month).padStart(2, '0')}-01`));
+    }
+  }, [selectedPayroll]);
 
   // Get user role
   useEffect(() => {
@@ -100,22 +114,22 @@ const PayrollManagement = () => {
     try {
       const API_URL = getAPIUrl();
       const token = localStorage.getItem('token');
-      
+
       if (!token) {
         message.error('Chưa đăng nhập');
         return;
       }
-      
+
       const month = selectedMonth.month() + 1;
       const year = selectedMonth.year();
-      
+
       const response = await axios.get(`${API_URL}/payroll`, {
         params: { month, year },
         headers: {
           Authorization: `Bearer ${token}`
         }
       });
-      
+
       if (response.data.success) {
         // Enhanced data with fixed 10% deduction
         const enhancedData = (response.data.data || []).map(p => {
@@ -126,26 +140,26 @@ const PayrollManagement = () => {
           const proratedSalary = p.baseSalary || Math.round((basicSalaryFull * (p.workingDays || 0)) / STANDARD_WORKING_DAYS);
           // Lương 1 ngày công
           const dailyRate = p.dailyRate || Math.round(basicSalaryFull / STANDARD_WORKING_DAYS);
-          
+
           // FIX: Ưu tiên dùng giá trị từ backend, nếu không có mới tính lại
           // Phụ cấp chung (5%) - Ưu tiên dùng từ backend
           const generalAllowance = p.generalAllowance || Math.round(basicSalaryFull * 0.05);
-          
+
           // Tổng phụ cấp (bao gồm thâm niên, chức vụ, khác)
-          const totalAllowances = generalAllowance + 
-                           (p.seniorityAllowance || 0) + 
-                           (p.positionAllowance || 0) + 
-                           (p.otherAllowances || 0);
-          
+          const totalAllowances = generalAllowance +
+            (p.seniorityAllowance || 0) +
+            (p.positionAllowance || 0) +
+            (p.otherAllowances || 0);
+
           // Thuế (10%) - Ưu tiên dùng taxAmount từ backend
           const taxAmount = p.taxAmount || Math.round((proratedSalary + totalAllowances + (p.overtimePay || 0) - (p.latePenalty || 0)) * 0.1);
-          
+
           // Net Salary = Prorated + Allowances + OT - Late Penalties - Tax
-          // Bỏ weekendWorkPay - không có công thức tính lương liên quan
+          // FIX: BỎ weekendWorkPay - phiếu lương gốc không có khoản này
           const grossIncome = proratedSalary + totalAllowances + (p.overtimePay || 0) + (p.holidayWorkPay || 0);
-          // Bỏ otherDeductions - không tính vào khấu trừ
+          // Đồng bộ với phiếu lương
           const netSalary = grossIncome - (p.latePenalty || 0) - taxAmount;
-          
+
           return {
             ...p,
             department: p.employee?.department || 'Chưa phân loại',
@@ -180,12 +194,12 @@ const PayrollManagement = () => {
     try {
       const API_URL = getAPIUrl();
       const token = localStorage.getItem('token');
-      
+
       if (!token) {
         message.error('Chưa đăng nhập');
         return;
       }
-      
+
       // Get current user info
       let currentEmployeeId = null;
       try {
@@ -199,12 +213,12 @@ const PayrollManagement = () => {
       } catch (e) {
         console.error('Error parsing user data:', e);
       }
-      
+
       const dateStr = selectedDate.format('YYYY-MM-DD');
-      
+
       // Fetch attendance for the selected date
       const response = await axios.get(`${API_URL}/attendance`, {
-        params: { 
+        params: {
           startDate: dateStr,
           endDate: dateStr
         },
@@ -212,10 +226,10 @@ const PayrollManagement = () => {
           Authorization: `Bearer ${token}`
         }
       });
-      
+
       if (response.data.success) {
         let attendances = response.data.data || [];
-        
+
         // Nếu là employee, chỉ lấy attendance của chính mình
         if (currentEmployeeId) {
           attendances = attendances.filter(att => {
@@ -223,13 +237,13 @@ const PayrollManagement = () => {
             return String(empId) === String(currentEmployeeId);
           });
         }
-        
+
         // Transform attendance data to daily payroll format
         const dailyPayrolls = attendances.map(att => {
           const employee = att.employee;
           const basicSalary = employee?.baseSalary || employee?.salary || 0;
           const dailyRate = basicSalary > 0 ? basicSalary / 26 : 0;
-          
+
           return {
             _id: att._id,
             employee: employee,
@@ -245,7 +259,7 @@ const PayrollManagement = () => {
             status: att.status
           };
         });
-        
+
         setPayrolls(dailyPayrolls);
       } else {
         message.error(response.data.message || 'Lỗi khi tải dữ liệu');
@@ -259,28 +273,62 @@ const PayrollManagement = () => {
     }
   };
 
+  // ==== DAILY DETAILS (FULL MONTH) ====
   const fetchDailyDetails = async (employeeId, year, month) => {
     setLoadingDetails(true);
     try {
       const API_URL = getAPIUrl();
       const token = localStorage.getItem('token');
-      
-      const startDate = moment(`${year}-${String(month).padStart(2, '0')}-01`).format('YYYY-MM-DD');
-      const endDate = moment(startDate).endOf('month').format('YYYY-MM-DD');
-      
+
+      const startDate = moment(`${year}-${String(month).padStart(2, '0')}-01`);
+      const endDate = startDate.clone().endOf('month');
+
       const response = await axios.get(`${API_URL}/attendance`, {
-        params: { startDate, endDate },
+        params: {
+          startDate: startDate.format('YYYY-MM-DD'),
+          endDate: endDate.format('YYYY-MM-DD')
+        },
         headers: {
           Authorization: `Bearer ${token}`
         }
       });
-      
+
       if (response.data.success) {
-        // Filter by employee
-        const employeeAttendances = (response.data.data || []).filter(
+        // 1) Lọc attendance của đúng employee
+        const allAttendance = (response.data.data || []).filter(
           att => att.employee?._id === employeeId || att.employee === employeeId
         );
-        setSelectedEmployeeAttendances(employeeAttendances);
+
+        // 2) Map nhanh theo ngày
+        const attMap = {};
+        allAttendance.forEach(att => {
+          const key = moment(att.date).format('YYYY-MM-DD');
+          attMap[key] = att;
+        });
+
+        // 3) Build đủ ngày trong tháng
+        const fullMonth = [];
+        let cur = startDate.clone();
+        while (cur.isSameOrBefore(endDate, 'day')) {
+          const key = cur.format('YYYY-MM-DD');
+          const att = attMap[key];
+
+          if (att) {
+            fullMonth.push(att);
+          } else {
+            fullMonth.push({
+              _id: `empty-${key}`,
+              date: cur.toISOString(),
+              status: 'none',
+              overtimeHours: 0,
+              lateMinutes: 0,
+              actualPenalty: 0
+            });
+          }
+          cur.add(1, 'day');
+        }
+
+        setSelectedEmployeeAttendances(fullMonth);
       }
     } catch (error) {
       console.error('Error fetching daily details:', error);
@@ -301,29 +349,66 @@ const PayrollManagement = () => {
     setDailyDetailVisible(true);
   };
 
-  const handleViewLateDays = async (payroll) => {
+  const handleViewAttendanceCalendar = async (payroll) => {
     setSelectedPayroll(payroll);
     setLoadingDetails(true);
-    
+
     try {
       const API_URL = getAPIUrl();
       const token = localStorage.getItem('token');
-      
+
+      const startDate = moment(`${payroll.year}-${String(payroll.month).padStart(2, '0')}-01`);
+      const endDate = startDate.clone().endOf('month');
+
+      const response = await axios.get(`${API_URL}/attendance`, {
+        params: {
+          startDate: startDate.format('YYYY-MM-DD'),
+          endDate: endDate.format('YYYY-MM-DD')
+        },
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      });
+
+      if (response.data.success) {
+        const data = (response.data.data || []).filter(
+          att => (att.employee?._id === payroll.employee._id || att.employee === payroll.employee._id)
+        );
+        setAttendanceCalendarData(data);
+        setAttendanceCalendarDate(startDate);
+        setAttendanceCalendarVisible(true);
+      }
+    } catch (error) {
+      console.error('Error fetching attendance calendar:', error);
+      message.error('Lỗi khi tải lịch chấm công');
+    } finally {
+      setLoadingDetails(false);
+    }
+  };
+
+  const handleViewLateDays = async (payroll) => {
+    setSelectedPayroll(payroll);
+    setLoadingDetails(true);
+
+    try {
+      const API_URL = getAPIUrl();
+      const token = localStorage.getItem('token');
+
       const startDate = moment(`${payroll.year}-${String(payroll.month).padStart(2, '0')}-01`).format('YYYY-MM-DD');
       const endDate = moment(startDate).endOf('month').format('YYYY-MM-DD');
-      
+
       const response = await axios.get(`${API_URL}/attendance`, {
         params: { startDate, endDate },
         headers: {
           Authorization: `Bearer ${token}`
         }
       });
-      
+
       if (response.data.success) {
         // Filter late days for this employee
         const lateDays = (response.data.data || []).filter(
           att => (att.employee?._id === payroll.employee._id || att.employee === payroll.employee._id) &&
-                 att.lateMinutes > 0
+            att.lateMinutes > 0
         );
         setLateDaysData(lateDays);
         setLateCalendarVisible(true);
@@ -346,10 +431,10 @@ const PayrollManagement = () => {
     try {
       const API_URL = getAPIUrl();
       const token = localStorage.getItem('token');
-      
+
       const month = selectedMonth.month() + 1;
       const year = selectedMonth.year();
-      
+
       const response = await axios.post(
         `${API_URL}/payroll/calculate`,
         { month, year },
@@ -359,7 +444,7 @@ const PayrollManagement = () => {
           }
         }
       );
-      
+
       if (response.data.success) {
         message.success('Tính lương thành công');
         fetchPayrolls();
@@ -377,16 +462,16 @@ const PayrollManagement = () => {
       message.warning('Không có dữ liệu lương để gửi');
       return;
     }
-    
+
     setSending(true);
     message.loading({ content: 'Đang tạo và gửi phiếu lương qua email...', key: 'sending', duration: 0 });
-    
+
     setTimeout(() => {
       setSending(false);
-      message.success({ 
-        content: `Đã gửi thành công ${payrolls.length} phiếu lương đến nhân viên!`, 
-        key: 'sending', 
-        duration: 4 
+      message.success({
+        content: `Đã gửi thành công ${payrolls.length} phiếu lương đến nhân viên!`,
+        key: 'sending',
+        duration: 4
       });
     }, 2000);
   };
@@ -395,7 +480,7 @@ const PayrollManagement = () => {
     try {
       const API_URL = getAPIUrl();
       const token = localStorage.getItem('token');
-      
+
       const response = await axios.post(
         `${API_URL}/payroll/${selectedPayroll._id}/adjust`,
         {
@@ -409,7 +494,7 @@ const PayrollManagement = () => {
           }
         }
       );
-      
+
       if (response.data.success) {
         message.success('Điều chỉnh lương thành công');
         setAdjustModalVisible(false);
@@ -428,7 +513,7 @@ const PayrollManagement = () => {
     try {
       const API_URL = getAPIUrl();
       const token = localStorage.getItem('token');
-      
+
       const response = await axios.delete(
         `${API_URL}/payroll/${payrollId}`,
         {
@@ -437,7 +522,7 @@ const PayrollManagement = () => {
           }
         }
       );
-      
+
       if (response.data.success) {
         message.success('Xóa bảng lương thành công');
         fetchPayrolls();
@@ -513,14 +598,14 @@ const PayrollManagement = () => {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-    
+
     message.success('Đã xuất file Excel thành công!');
   };
 
   // Currency formatter
-  const currency = (value) => new Intl.NumberFormat('vi-VN', { 
-    style: 'currency', 
-    currency: 'VND' 
+  const currency = (value) => new Intl.NumberFormat('vi-VN', {
+    style: 'currency',
+    currency: 'VND'
   }).format(value || 0);
 
   // Number to text helper (simplified for demo) - FIX: Xử lý số âm
@@ -531,7 +616,7 @@ const PayrollManagement = () => {
     const millions = Math.floor(absAmount / 1000000);
     const thousands = Math.floor((absAmount % 1000000) / 1000);
     const remainder = absAmount % 1000;
-    
+
     let text = isNegative ? 'Âm ' : '';
     if (millions > 0) text += `${millions} triệu `;
     if (thousands > 0) text += `${thousands} nghìn `;
@@ -543,7 +628,7 @@ const PayrollManagement = () => {
   const dateCellRender = (value) => {
     const dateStr = value.format('YYYY-MM-DD');
     const lateDay = lateDaysData.find(day => moment(day.date).format('YYYY-MM-DD') === dateStr);
-    
+
     if (lateDay) {
       return (
         <div style={{ position: 'relative' }}>
@@ -556,6 +641,45 @@ const PayrollManagement = () => {
       );
     }
     return null;
+  };
+
+  const attendanceDateCellRender = (value) => {
+    const dateStr = value.format('YYYY-MM-DD');
+    const att = attendanceCalendarData.find(
+      d => moment(d.date).format('YYYY-MM-DD') === dateStr
+    );
+
+    if (!att) return null;
+
+    // màu theo trạng thái
+    let bg = '#d4d4d8';                          // xám: default
+    if (att.status === 'present') bg = '#22c55e'; // xanh lá: có mặt
+    if (att.status === 'absent') bg = '#ef4444';  // đỏ: vắng
+    if (att.leaveType === 'annual') bg = '#facc15'; // vàng: nghỉ phép
+    if (att.leaveType === 'sick') bg = '#fb923c';   // cam: nghỉ ốm
+
+    const hasOT = (att.overtimeHours || 0) > 0;   // có OT thì viền tím
+
+    return (
+      <div style={{ display: 'flex', justifyContent: 'center', marginTop: 4 }}>
+        <div
+          style={{
+            width: 26,
+            height: 26,
+            borderRadius: '50%',
+            backgroundColor: bg,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            color: '#fff',
+            fontSize: 13,
+            boxShadow: hasOT ? '0 0 0 2px #8b5cf6' : 'none'
+          }}
+        >
+          {value.date()}
+        </div>
+      </div>
+    );
   };
 
   // Day View Columns
@@ -632,18 +756,18 @@ const PayrollManagement = () => {
       width: 80,
       align: 'center',
       render: (_, record) => (
-        <TableActionDropdown 
+        <TableActionDropdown
           items={[
-            { 
-              key: 'view', 
-              label: 'Xem chi tiết', 
+            {
+              key: 'view',
+              label: 'Xem chi tiết',
               icon: <EyeOutlined />,
               onClick: () => {
                 setSelectedPayroll(record);
                 setDetailModalVisible(true);
               }
             }
-          ]} 
+          ]}
         />
       )
     }
@@ -711,8 +835,8 @@ const PayrollManagement = () => {
         if (record.lateCount > 0) {
           return (
             <Tooltip title="Click để xem chi tiết lịch đi trễ">
-              <Button 
-                type="link" 
+              <Button
+                type="link"
                 danger
                 icon={<CalendarOutlined />}
                 onClick={() => handleViewLateDays(record)}
@@ -768,9 +892,9 @@ const PayrollManagement = () => {
       render: (val) => {
         const netSalary = val || 0;
         return (
-          <Text 
-            strong 
-            style={{ 
+          <Text
+            strong
+            style={{
               color: netSalary < 0 ? '#ff4d4f' : '#1890ff',
               fontSize: netSalary < 0 ? 14 : 15
             }}
@@ -789,20 +913,26 @@ const PayrollManagement = () => {
       align: 'center',
       render: (_, record) => {
         const actionItems = [
-          { 
-            key: 'view', 
-            label: 'Xem phiếu lương', 
+          {
+            key: 'view',
+            label: 'Xem phiếu lương',
             icon: <EyeOutlined />,
             onClick: () => handleViewDetails(record)
           },
-          { 
-            key: 'daily', 
-            label: 'Chi tiết ngày', 
+          {
+            key: 'daily',
+            label: 'Chi tiết ngày',
             icon: <CalendarOutlined />,
             onClick: () => handleViewDailyDetails(record)
+          },
+          {
+            key: 'calendar',
+            label: 'Lịch chấm công (tháng)',
+            icon: <CalendarOutlined />,
+            onClick: () => handleViewAttendanceCalendar(record)
           }
         ];
-        
+
         if (record.lateCount > 0) {
           actionItems.push({
             key: 'late',
@@ -811,19 +941,19 @@ const PayrollManagement = () => {
             onClick: () => handleViewLateDays(record)
           });
         }
-        
+
         if (isAdmin) {
           actionItems.push(
             { type: 'divider' },
-            { 
-              key: 'adjust', 
-              label: 'Điều chỉnh lương', 
+            {
+              key: 'adjust',
+              label: 'Điều chỉnh lương',
               icon: <EditOutlined />,
               onClick: () => handleAdjustSalary(record)
             },
-            { 
-              key: 'delete', 
-              label: 'Xóa bảng lương', 
+            {
+              key: 'delete',
+              label: 'Xóa bảng lương',
               icon: <DeleteOutlined />,
               danger: true,
               onClick: () => {
@@ -839,7 +969,7 @@ const PayrollManagement = () => {
             }
           );
         }
-        
+
         return <TableActionDropdown items={actionItems} />;
       }
     }
@@ -864,7 +994,8 @@ const PayrollManagement = () => {
           present: { text: 'Có mặt', color: 'green' },
           late: { text: 'Muộn', color: 'orange' },
           absent: { text: 'Vắng', color: 'red' },
-          'half-day': { text: 'Nửa công', color: 'orange' }
+          'half-day': { text: 'Nửa công', color: 'orange' },
+          none: { text: 'Không dữ liệu', color: 'default' }
         };
         const s = statusMap[status] || { text: status, color: 'default' };
         return <Tag color={s.color}>{s.text}</Tag>;
@@ -917,31 +1048,31 @@ const PayrollManagement = () => {
     <div style={{ width: '100%', maxWidth: '100%', overflowX: 'hidden' }}>
       <Card bodyStyle={{ padding: '12px' }}>
         {/* Header - ALIGNED */}
-        <div style={{ 
-          display: 'flex', 
-          justifyContent: 'space-between', 
-          alignItems: 'center', 
+        <div style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
           marginBottom: 8,
           flexWrap: 'wrap',
           gap: 8
         }}>
           <Space align="center" size={12}>
             <Title level={3} style={{ margin: 0 }}>
-              <BankOutlined style={{ marginRight: 8, color: '#1890ff' }} /> 
+              <BankOutlined style={{ marginRight: 8, color: '#1890ff' }} />
               Quản lý Bảng lương
             </Title>
             <Tag color="blue" style={{ fontSize: 14, padding: '4px 12px', borderRadius: 6 }}>
-              {viewMode === 'month' 
+              {viewMode === 'month'
                 ? `Tháng ${selectedMonth.format('MM/YYYY')}`
                 : `Ngày ${selectedDate.format('DD/MM/YYYY')}`
               }
             </Tag>
           </Space>
-          
+
           <Space size={8} wrap>
             {isAdmin && (
-              <Button 
-                icon={<CalculatorOutlined />} 
+              <Button
+                icon={<CalculatorOutlined />}
                 onClick={handleCalculatePayroll}
                 loading={loading}
                 style={{ borderRadius: 6 }}
@@ -949,7 +1080,7 @@ const PayrollManagement = () => {
                 Tính lương
               </Button>
             )}
-            <Button 
+            <Button
               icon={<ReloadOutlined />}
               onClick={fetchPayrolls}
               style={{ borderRadius: 6 }}
@@ -957,9 +1088,9 @@ const PayrollManagement = () => {
               Tải lại
             </Button>
             {isAdmin && (
-              <Button 
-                type="primary" 
-                icon={<SendOutlined />} 
+              <Button
+                type="primary"
+                icon={<SendOutlined />}
                 onClick={handleSendPayslips}
                 loading={sending}
                 disabled={payrolls.length === 0}
@@ -976,33 +1107,33 @@ const PayrollManagement = () => {
           {viewMode === 'month' ? (
             <Row gutter={[24, 16]}>
               <Col xs={24} sm={12} lg={6}>
-                <Statistic 
+                <Statistic
                   title={<Text type="secondary"><UserOutlined /> Tổng nhân viên</Text>}
-                  value={payrolls.length} 
+                  value={payrolls.length}
                   valueStyle={{ fontSize: 20, fontWeight: 'bold' }}
                 />
               </Col>
               <Col xs={24} sm={12} lg={6}>
-                <Statistic 
+                <Statistic
                   title={<Text type="secondary"><DollarOutlined /> Tổng lương ngày công</Text>}
-                  value={totalBasicSalary} 
+                  value={totalBasicSalary}
                   prefix={<PlusOutlined />}
                   valueStyle={{ color: '#1890ff', fontSize: 18 }}
                   formatter={(value) => new Intl.NumberFormat('vi-VN').format(value)}
                 />
               </Col>
               <Col xs={24} sm={12} lg={6}>
-                <Statistic 
+                <Statistic
                   title={<Text type="secondary"><MinusOutlined /> Tổng khấu trừ</Text>}
-                  value={totalDeductions} 
+                  value={totalDeductions}
                   valueStyle={{ color: '#ff4d4f', fontSize: 18 }}
                   formatter={(value) => new Intl.NumberFormat('vi-VN').format(value)}
                 />
               </Col>
               <Col xs={24} sm={12} lg={6}>
-                <Statistic 
+                <Statistic
                   title={<Text type="secondary"><DollarOutlined /> Tổng thực chi</Text>}
-                  value={totalNetSalary} 
+                  value={totalNetSalary}
                   valueStyle={{ color: '#52c41a', fontSize: 20, fontWeight: 'bold' }}
                   formatter={(value) => new Intl.NumberFormat('vi-VN').format(value)}
                 />
@@ -1011,32 +1142,32 @@ const PayrollManagement = () => {
           ) : (
             <Row gutter={[24, 16]}>
               <Col xs={24} sm={12} lg={6}>
-                <Statistic 
+                <Statistic
                   title={<Text type="secondary"><UserOutlined /> Tổng nhân viên</Text>}
-                  value={payrolls.length} 
+                  value={payrolls.length}
                   valueStyle={{ fontSize: 20, fontWeight: 'bold' }}
                 />
               </Col>
               <Col xs={24} sm={12} lg={6}>
-                <Statistic 
+                <Statistic
                   title={<Text type="secondary"><ClockCircleOutlined /> Tổng giờ OT</Text>}
-                  value={payrolls.reduce((sum, p) => sum + (p.overtimeHours || 0), 0)} 
+                  value={payrolls.reduce((sum, p) => sum + (p.overtimeHours || 0), 0)}
                   suffix="h"
                   valueStyle={{ color: '#1890ff', fontSize: 18 }}
                 />
               </Col>
               <Col xs={24} sm={12} lg={6}>
-                <Statistic 
+                <Statistic
                   title={<Text type="secondary"><DollarOutlined /> Tổng lương ngày</Text>}
-                  value={payrolls.reduce((sum, p) => sum + (p.dailySalary || 0), 0)} 
+                  value={payrolls.reduce((sum, p) => sum + (p.dailySalary || 0), 0)}
                   valueStyle={{ color: '#1890ff', fontSize: 18 }}
                   formatter={(value) => new Intl.NumberFormat('vi-VN').format(value)}
                 />
               </Col>
               <Col xs={24} sm={12} lg={6}>
-                <Statistic 
+                <Statistic
                   title={<Text type="secondary"><CloseCircleOutlined /> Đi trễ</Text>}
-                  value={payrolls.filter(p => p.isLate).length} 
+                  value={payrolls.filter(p => p.isLate).length}
                   suffix={`/${payrolls.length}`}
                   valueStyle={{ color: '#ff4d4f', fontSize: 18 }}
                 />
@@ -1046,12 +1177,12 @@ const PayrollManagement = () => {
         </Card>
 
         {/* Toolbar with View Toggle - ALIGNED */}
-        <div style={{ 
-          marginBottom: 8, 
-          display: 'flex', 
-          justifyContent: 'space-between', 
-          alignItems: 'center', 
-          flexWrap: 'wrap', 
+        <div style={{
+          marginBottom: 8,
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          flexWrap: 'wrap',
           gap: 12,
           padding: '8px 12px',
           background: '#fafafa',
@@ -1067,7 +1198,7 @@ const PayrollManagement = () => {
               <Option value="month">📅 Theo tháng</Option>
               <Option value="day">📆 Theo ngày</Option>
             </Select>
-            
+
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               {viewMode === 'month' ? (
                 <DatePicker
@@ -1091,9 +1222,9 @@ const PayrollManagement = () => {
               )}
             </div>
           </Space>
-          
-          <Button 
-            icon={<ExportOutlined />} 
+
+          <Button
+            icon={<ExportOutlined />}
             onClick={handleExportExcel}
             style={{ borderRadius: 6 }}
           >
@@ -1148,13 +1279,13 @@ const PayrollManagement = () => {
       >
         {selectedPayroll && (
           <div style={{ padding: 12 }}>
-          <div style={{ 
-            background: 'white', 
-            padding: 12, 
-            borderRadius: 8, 
-            boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
-            border: '1px solid #e8e8e8'
-          }}>
+            <div style={{
+              background: 'white',
+              padding: 12,
+              borderRadius: 8,
+              boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+              border: '1px solid #e8e8e8'
+            }}>
               {/* Payslip Header */}
               <div style={{ textAlign: 'center', marginBottom: 8, borderBottom: '2px solid #1890ff', paddingBottom: 8 }}>
                 <SafetyCertificateOutlined style={{ fontSize: 32, color: '#1890ff', marginBottom: 8 }} />
@@ -1235,8 +1366,8 @@ const PayrollManagement = () => {
                   <Title level={5} style={{ color: '#52c41a', marginBottom: 8 }}>
                     <PlusOutlined /> Thu nhập
                   </Title>
-                  <List 
-                    size="small" 
+                  <List
+                    size="small"
                     split={false}
                     dataSource={[
                       { label: 'Lương cơ bản (tháng)', value: selectedPayroll.basicSalaryFull, isReference: true },
@@ -1249,10 +1380,10 @@ const PayrollManagement = () => {
                       // Bỏ "Làm cuối tuần" - không có công thức tính lương liên quan
                     ]}
                     renderItem={item => (
-                      <List.Item style={{ 
-                        border: 'none', 
-                        padding: '8px 0', 
-                        display: 'flex', 
+                      <List.Item style={{
+                        border: 'none',
+                        padding: '8px 0',
+                        display: 'flex',
                         justifyContent: 'space-between',
                         opacity: item.isReference ? 0.7 : 1
                       }}>
@@ -1265,11 +1396,11 @@ const PayrollManagement = () => {
                       </List.Item>
                     )}
                   />
-                  <div style={{ 
-                    marginTop: 8, 
-                    borderTop: '2px solid #52c41a', 
-                    paddingTop: 12, 
-                    display: 'flex', 
+                  <div style={{
+                    marginTop: 8,
+                    borderTop: '2px solid #52c41a',
+                    paddingTop: 12,
+                    display: 'flex',
                     justifyContent: 'space-between',
                     background: '#f6ffed',
                     padding: '8px 12px',
@@ -1298,8 +1429,8 @@ const PayrollManagement = () => {
                   <Title level={5} style={{ color: '#ff4d4f', marginBottom: 8 }}>
                     <MinusOutlined /> Khấu trừ
                   </Title>
-                  <List 
-                    size="small" 
+                  <List
+                    size="small"
                     split={false}
                     dataSource={[
                       { label: `Bảo hiểm + Thuế (${selectedPayroll.taxRate || 10}%)`, value: selectedPayroll.taxAmount || selectedPayroll.fixedDeduction || 0 },
@@ -1315,11 +1446,11 @@ const PayrollManagement = () => {
                       </List.Item>
                     )}
                   />
-                  <div style={{ 
-                    marginTop: 8, 
-                    borderTop: '2px solid #ff4d4f', 
-                    paddingTop: 12, 
-                    display: 'flex', 
+                  <div style={{
+                    marginTop: 8,
+                    borderTop: '2px solid #ff4d4f',
+                    paddingTop: 12,
+                    display: 'flex',
                     justifyContent: 'space-between',
                     background: '#fff1f0',
                     padding: '8px 12px',
@@ -1342,7 +1473,7 @@ const PayrollManagement = () => {
               {/* Net Pay Footer - FIX: Tính lại từ Tổng thu nhập - Tổng khấu trừ */}
               {(() => {
                 // Tính lại tổng thu nhập (giống như trên)
-                const totalIncome = 
+                const totalIncome =
                   (selectedPayroll.proratedSalary || selectedPayroll.baseSalary || 0) +
                   (selectedPayroll.generalAllowance || selectedPayroll.allowance || 0) +
                   (selectedPayroll.seniorityAllowance || 0) +
@@ -1352,50 +1483,50 @@ const PayrollManagement = () => {
                   (selectedPayroll.bonus || 0) +
                   (selectedPayroll.performanceBonus || 0) +
                   (selectedPayroll.otherAllowances || 0);
-                
+
                 // Tính lại tổng khấu trừ (chỉ Bảo hiểm + Thuế và Tiền phạt)
-                const totalDeductions = 
+                const totalDeductions =
                   (selectedPayroll.taxAmount || selectedPayroll.fixedDeduction || 0) +
                   (selectedPayroll.latePenalty || 0);
-                
+
                 // Thực lãnh = Tổng thu nhập - Tổng khấu trừ
                 const netPay = totalIncome - totalDeductions;
-                
+
                 return (
                   <>
-              <div style={{ 
-                      backgroundColor: netPay < 0 ? '#fff2f0' : '#e6f7ff', 
-                      border: `2px solid ${netPay < 0 ? '#ff4d4f' : '#1890ff'}`, 
-                padding: 12, 
-                borderRadius: 8, 
-                display: 'flex', 
-                justifyContent: 'space-between', 
-                alignItems: 'center',
-                marginBottom: 8
-              }}>
-                      <Text strong style={{ 
-                        fontSize: 18, 
-                        color: netPay < 0 ? '#ff4d4f' : '#1890ff' 
+                    <div style={{
+                      backgroundColor: netPay < 0 ? '#fff2f0' : '#e6f7ff',
+                      border: `2px solid ${netPay < 0 ? '#ff4d4f' : '#1890ff'}`,
+                      padding: 12,
+                      borderRadius: 8,
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      marginBottom: 8
+                    }}>
+                      <Text strong style={{
+                        fontSize: 18,
+                        color: netPay < 0 ? '#ff4d4f' : '#1890ff'
                       }}>
-                  THỰC LÃNH (NET PAY):
-                </Text>
-                      <Title level={2} style={{ 
-                        margin: 0, 
-                        color: netPay < 0 ? '#ff4d4f' : '#1890ff' 
+                        THỰC LÃNH (NET PAY):
+                      </Text>
+                      <Title level={2} style={{
+                        margin: 0,
+                        color: netPay < 0 ? '#ff4d4f' : '#1890ff'
                       }}>
                         {currency(netPay)}
-                </Title>
-              </div>
-              
-              <div style={{ textAlign: 'center', marginBottom: 12 }}>
-                <Text type="secondary" italic>
-                        Số tiền bằng chữ: <Text strong style={{ 
-                          color: netPay < 0 ? '#ff4d4f' : '#333' 
+                      </Title>
+                    </div>
+
+                    <div style={{ textAlign: 'center', marginBottom: 12 }}>
+                      <Text type="secondary" italic>
+                        Số tiền bằng chữ: <Text strong style={{
+                          color: netPay < 0 ? '#ff4d4f' : '#333'
                         }}>
                           {convertNumberToText(netPay)} đồng
                         </Text>
-                </Text>
-              </div>
+                      </Text>
+                    </div>
                   </>
                 );
               })()}
@@ -1477,12 +1608,10 @@ const PayrollManagement = () => {
           dataSource={selectedEmployeeAttendances}
           loading={loadingDetails}
           rowKey="_id"
-          pagination={{
-            pageSize: 15,
-            showTotal: (total) => `Tổng ${total} ngày`
-          }}
+          pagination={false}           // ❌ không phân trang
           bordered
           size="small"
+          scroll={{ y: 400 }}          // ✅ kéo để xem hết tháng
         />
       </Modal>
 
@@ -1511,12 +1640,34 @@ const PayrollManagement = () => {
             showIcon
           />
         </div>
+        <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 16 }}>
+          <Space>
+            <Button
+              icon={<LeftOutlined />}
+              onClick={() => {
+                const prev = moment(currentCalendarDate).subtract(1, 'month');
+                setCurrentCalendarDate(prev);
+              }}
+            />
+            <span style={{ fontSize: 16, fontWeight: 'bold' }}>
+              Tháng {currentCalendarDate.format('MM/YYYY')}
+            </span>
+            <Button
+              icon={<RightOutlined />}
+              onClick={() => {
+                const next = moment(currentCalendarDate).add(1, 'month');
+                setCurrentCalendarDate(next);
+              }}
+            />
+          </Space>
+        </div>
         <Calendar
           fullscreen={false}
+          value={currentCalendarDate}
+          headerRender={() => null}
           dateCellRender={dateCellRender}
-          defaultValue={moment(`${selectedPayroll?.year}-${String(selectedPayroll?.month).padStart(2, '0')}-01`)}
         />
-        
+
         <Divider>Chi tiết các ngày đi trễ</Divider>
         <List
           size="small"
@@ -1597,9 +1748,9 @@ const PayrollManagement = () => {
             label="Lý do"
             rules={[{ required: true, message: 'Vui lòng nhập lý do' }]}
           >
-            <TextArea 
-              rows={3} 
-              placeholder="Nhập lý do điều chỉnh (ví dụ: Hoàn thành xuất sắc dự án X, Đi trễ nhiều lần, ...)" 
+            <TextArea
+              rows={3}
+              placeholder="Nhập lý do điều chỉnh (ví dụ: Hoàn thành xuất sắc dự án X, Đi trễ nhiều lần, ...)"
             />
           </Form.Item>
 
@@ -1617,6 +1768,69 @@ const PayrollManagement = () => {
             </Space>
           </Form.Item>
         </Form>
+      </Modal>
+
+      {/* Attendance Calendar Modal (Mobile-like) */}
+      <Modal
+        title={
+          <Space>
+            <CalendarOutlined />
+            <span>Lịch chấm công - {selectedPayroll?.employee?.name || ''}</span>
+            <Tag color="blue">Tháng {attendanceCalendarDate.format('MM/YYYY')}</Tag>
+          </Space>
+        }
+        open={attendanceCalendarVisible}
+        onCancel={() => setAttendanceCalendarVisible(false)}
+        footer={[
+          <Button
+            key="close"
+            icon={<CloseOutlined />}
+            onClick={() => setAttendanceCalendarVisible(false)}
+          >
+            Đóng
+          </Button>
+        ]}
+        width={800}
+      >
+        <Row gutter={[16, 16]}>
+          <Col span={24}>
+            <Calendar
+              fullscreen={false}
+              value={attendanceCalendarDate}
+              headerRender={() => null}          // ẩn header mặc định => gọn như mobile
+              dateCellRender={attendanceDateCellRender}
+            />
+          </Col>
+
+          <Col span={24}>
+            <Card size="small">
+              <Row gutter={[16, 16]}>
+                <Col xs={24} sm={8}>
+                  <Statistic
+                    title="Ngày có mặt"
+                    value={attendanceCalendarData.filter(a => a.status === 'present').length}
+                    valueStyle={{ color: '#22c55e', fontWeight: 'bold' }}
+                  />
+                </Col>
+                <Col xs={24} sm={8}>
+                  <Statistic
+                    title="Lần đi trễ"
+                    value={attendanceCalendarData.filter(a => (a.lateMinutes || 0) > 0).length}
+                    valueStyle={{ color: '#f97316', fontWeight: 'bold' }}
+                  />
+                </Col>
+                <Col xs={24} sm={8}>
+                  <Statistic
+                    title="Giờ OT"
+                    value={attendanceCalendarData.reduce((s, a) => s + (a.overtimeHours || 0), 0)}
+                    suffix="h"
+                    valueStyle={{ color: '#8b5cf6', fontWeight: 'bold' }}
+                  />
+                </Col>
+              </Row>
+            </Card>
+          </Col>
+        </Row>
       </Modal>
     </div>
   );

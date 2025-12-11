@@ -1,3 +1,15 @@
+/**
+ * @deprecated This service is deprecated and uses a different calculation formula.
+ * Please use ../utils/salaryCalculator.js instead for consistent salary calculations.
+ * 
+ * Differences:
+ * - This service: Tax calculated on grossIncome, uses 28 standard days, 5% tax rate default
+ * - Standard calculator: Tax calculated on baseSalaryFull, uses 26 standard days, 10% tax rate default
+ * 
+ * The standard calculator is used in payroll management and should be used everywhere
+ * for consistency.
+ */
+
 const mongoose = require('mongoose');
 const moment = require('moment-timezone');
 const Employee = require('../models/Employee');

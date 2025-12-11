@@ -4,7 +4,7 @@ const salaryConfigSchema = new mongoose.Schema({
   // Standard working days per month
   standard_days: {
     type: Number,
-    default: 28,
+    default: 26,  // Updated: Changed from 28 to 26 days
     required: true
   },
   // Overtime rate per hour (VND)

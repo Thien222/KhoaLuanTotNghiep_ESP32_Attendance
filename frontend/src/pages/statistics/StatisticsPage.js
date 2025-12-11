@@ -13,7 +13,9 @@ import {
   Tag,
   Progress,
   Empty,
-  Spin
+  Spin,
+  Button,
+  message
 } from 'antd';
 import {
   BarChartOutlined,
@@ -22,7 +24,8 @@ import {
   TeamOutlined,
   RiseOutlined,
   FallOutlined,
-  CalendarOutlined
+  CalendarOutlined,
+  ReloadOutlined
 } from '@ant-design/icons';
 import axios from 'axios';
 import moment from 'moment';
@@ -34,6 +37,7 @@ const { Option } = Select;
 
 const StatisticsPage = () => {
   const [loading, setLoading] = useState(false);
+  const [recalculating, setRecalculating] = useState(false);
   const [activeTab, setActiveTab] = useState('attendance');
   const [dateRange, setDateRange] = useState([moment().startOf('month'), moment().endOf('month')]);
   const [selectedMonth, setSelectedMonth] = useState(moment());
@@ -85,8 +89,50 @@ const StatisticsPage = () => {
       }
     } catch (error) {
       console.error('Error fetching statistics:', error);
+      message.error('Lỗi khi tải dữ liệu thống kê');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const recalculatePayroll = async () => {
+    setRecalculating(true);
+    try {
+      const API_URL = getAPIUrl();
+      const token = localStorage.getItem('token');
+      const headers = { Authorization: `Bearer ${token}` };
+
+      const month = selectedMonth.month() + 1;
+      const year = selectedMonth.year();
+
+      const response = await axios.post(
+        `${API_URL}/payroll/calculate`,
+        { month, year },
+        { headers }
+      );
+
+      if (response.data.success) {
+        const employeeCount = response.data.data?.length || 0;
+        message.success(
+          response.data.message || 
+          `Đã tính lại lương tháng ${month}/${year} cho ${employeeCount} nhân viên`
+        );
+        
+        // Đợi một chút để đảm bảo database đã cập nhật
+        await new Promise(resolve => setTimeout(resolve, 500));
+        
+        // Refresh data after recalculation
+        await fetchData();
+        
+        console.log('✅ Payroll recalculated and data refreshed');
+      } else {
+        message.error(response.data.message || 'Lỗi khi tính lại lương');
+      }
+    } catch (error) {
+      console.error('Error recalculating payroll:', error);
+      message.error(error.response?.data?.message || 'Lỗi khi tính lại lương');
+    } finally {
+      setRecalculating(false);
     }
   };
 
@@ -427,6 +473,15 @@ const StatisticsPage = () => {
                 format="MM/YYYY"
                 size="small"
               />
+              <Button
+                type="primary"
+                icon={<ReloadOutlined />}
+                loading={recalculating}
+                onClick={recalculatePayroll}
+                size="small"
+              >
+                Tính lại lương
+              </Button>
             </Space>
           </div>
 
