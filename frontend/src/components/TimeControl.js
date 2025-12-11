@@ -1,27 +1,27 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  Card, 
-  Typography, 
-  Space, 
-  Tag, 
-  Button, 
-  Popover, 
-  DatePicker, 
+import {
+  Card,
+  Typography,
+  Space,
+  Tag,
+  Button,
+  Popover,
+  DatePicker,
   message,
   Divider,
   Row,
   Col,
   Tooltip
 } from 'antd';
-import { 
-  ClockCircleOutlined, 
+import {
+  ClockCircleOutlined,
   ReloadOutlined,
   FastForwardOutlined,
   ThunderboltOutlined,
   ExperimentOutlined
 } from '@ant-design/icons';
 import axios from 'axios';
-import { getAPIUrl } from '../utils/configManager';
+import { getAPIUrl, getLocalAPIUrl } from '../utils/configManager';
 import moment from 'moment';
 
 const { Text, Title } = Typography;
@@ -29,6 +29,7 @@ const { Text, Title } = Typography;
 const TimeControl = () => {
   const [currentTime, setCurrentTime] = useState(new Date());
   const [timeMachineStatus, setTimeMachineStatus] = useState(null);
+  const [timeOffset, setTimeOffset] = useState(0); // Thời gian lệch (ms) giữa ảo và thực
   const [loading, setLoading] = useState(false);
   const [userRole, setUserRole] = useState('employee');
 
@@ -40,17 +41,17 @@ const TimeControl = () => {
         const user = JSON.parse(userData);
         setUserRole(user.role || 'employee');
       }
-    } catch (e) {}
+    } catch (e) { }
 
-    // Update time every second
+    // Update time every second - tính cả thời gian ảo dựa trên offset
     const interval = setInterval(() => {
       setCurrentTime(new Date());
     }, 1000);
 
     // Check time machine status
     checkTimeMachineStatus();
-    
-    // Check status every 10 seconds
+
+    // Check status every 10 seconds để đồng bộ offset
     const statusInterval = setInterval(checkTimeMachineStatus, 10000);
 
     return () => {
@@ -63,7 +64,7 @@ const TimeControl = () => {
     try {
       const API_URL = getAPIUrl();
       const token = localStorage.getItem('token');
-      
+
       if (!token) return;
 
       const response = await axios.get(`${API_URL}/timemachine/status`, {
@@ -73,19 +74,61 @@ const TimeControl = () => {
       });
 
       if (response.data.success) {
-        setTimeMachineStatus(response.data.data);
+        const data = response.data.data;
+        setTimeMachineStatus(data);
+
+        // Tính offset để đồng hồ chạy liên tục với thời gian ảo
+        if (data.active && data.currentTime && data.realTime) {
+          const virtualTime = new Date(data.currentTime).getTime();
+          const realTime = new Date(data.realTime).getTime();
+          const calculatedOffset = virtualTime - realTime;
+          setTimeOffset(calculatedOffset);
+        } else {
+          setTimeOffset(0);
+        }
       }
     } catch (error) {
       // Time machine might not be available, ignore error
+      setTimeOffset(0);
     }
   };
+
+  // 🔧 Sync Time Machine với Local Server (cho ESP32)
+  // Khi deploy lên web, cần sync với local server để ESP32 dùng đúng thời gian ảo
+  const syncLocalTimeMachine = async (action, payload = {}) => {
+    try {
+      const LOCAL_API = getLocalAPIUrl();
+      const token = localStorage.getItem('token');
+
+      if (!token) return;
+
+      // Kiểm tra xem local server có accessible không
+      const endpoint = action === 'set' ? 'set'
+        : action === 'reset' ? 'reset'
+          : action === 'scenario' ? 'scenario'
+            : action === 'fastforward' ? 'fastforward' : null;
+
+      if (!endpoint) return;
+
+      await axios.post(`${LOCAL_API}/timemachine/${endpoint}`, payload, {
+        headers: { Authorization: `Bearer ${token}` },
+        timeout: 3000 // 3 seconds timeout for local server
+      });
+
+      console.log(`📡 [TimeControl] Synced Time Machine with local server: ${endpoint}`);
+    } catch (error) {
+      // Local server might not be accessible, ignore silently
+      console.log(`⚠️ [TimeControl] Could not sync with local server (${error.message})`);
+    }
+  };
+
 
   const handleResetTime = async () => {
     setLoading(true);
     try {
       const API_URL = getAPIUrl();
       const token = localStorage.getItem('token');
-      
+
       if (!token) {
         message.error('Chưa đăng nhập');
         return;
@@ -99,6 +142,9 @@ const TimeControl = () => {
 
       if (response.data.success) {
         message.success('✓ Đã reset về thời gian thực');
+        setTimeOffset(0); // Reset offset ngay lập tức
+        // Sync với local server để ESP32 cũng dùng thời gian thực
+        syncLocalTimeMachine('reset', {});
         checkTimeMachineStatus();
       }
     } catch (error) {
@@ -111,12 +157,12 @@ const TimeControl = () => {
 
   const handleSetTime = async (datetime) => {
     if (!datetime) return;
-    
+
     setLoading(true);
     try {
       const API_URL = getAPIUrl();
       const token = localStorage.getItem('token');
-      
+
       if (!token) {
         message.error('Chưa đăng nhập');
         return;
@@ -125,7 +171,7 @@ const TimeControl = () => {
       // Gửi datetime string không có timezone (YYYY-MM-DDTHH:mm:ss)
       // Backend sẽ parse như Asia/Ho_Chi_Minh timezone
       const datetimeStr = datetime.format('YYYY-MM-DDTHH:mm:ss');
-      
+
       const response = await axios.post(`${API_URL}/timemachine/set`, {
         datetime: datetimeStr
       }, {
@@ -136,6 +182,8 @@ const TimeControl = () => {
 
       if (response.data.success) {
         message.success(`⏰ Đã đặt thời gian ảo: ${datetime.format('HH:mm DD/MM/YYYY')}`);
+        // Sync với local server để ESP32 cũng dùng thời gian ảo
+        syncLocalTimeMachine('set', { datetime: datetimeStr });
         checkTimeMachineStatus();
       }
     } catch (error) {
@@ -151,7 +199,7 @@ const TimeControl = () => {
     try {
       const API_URL = getAPIUrl();
       const token = localStorage.getItem('token');
-      
+
       if (!token) {
         message.error('Chưa đăng nhập');
         return;
@@ -167,6 +215,8 @@ const TimeControl = () => {
 
       if (response.data.success) {
         message.success(`🎯 ${response.data.data.description}`);
+        // Sync với local server để ESP32 cũng dùng scenario
+        syncLocalTimeMachine('scenario', { scenario });
         checkTimeMachineStatus();
       }
     } catch (error) {
@@ -182,7 +232,7 @@ const TimeControl = () => {
     try {
       const API_URL = getAPIUrl();
       const token = localStorage.getItem('token');
-      
+
       if (!token) {
         message.error('Chưa đăng nhập');
         return;
@@ -199,6 +249,8 @@ const TimeControl = () => {
 
       if (response.data.success) {
         message.success(`⏩ Đã tua nhanh ${amount} ${unit}`);
+        // Sync với local server để ESP32 cũng dùng thời gian mới
+        syncLocalTimeMachine('fastforward', { amount, unit });
         checkTimeMachineStatus();
       }
     } catch (error) {
@@ -214,11 +266,12 @@ const TimeControl = () => {
     return null;
   }
 
-  const displayTime = timeMachineStatus?.active && timeMachineStatus?.currentTime
-    ? moment(timeMachineStatus.currentTime)
+  // Tính thời gian hiển thị: nếu Time Machine active, dùng currentTime + offset
+  // để đồng hồ chạy trôi liên tục (không đứng yên chờ API)
+  const isVirtual = timeMachineStatus?.active && timeOffset !== 0;
+  const displayTime = isVirtual
+    ? moment(currentTime.getTime() + timeOffset)
     : moment(currentTime);
-
-  const isVirtual = timeMachineStatus?.active;
 
   const scenarios = [
     { key: 'on-time', label: 'Đúng giờ (7:50)', color: 'green' },
@@ -234,14 +287,14 @@ const TimeControl = () => {
       <Title level={5} style={{ margin: '0 0 12px 0' }}>
         <ExperimentOutlined /> Time Machine - Demo Mode
       </Title>
-      
+
       {isVirtual && (
-        <div style={{ 
-          background: '#fff7e6', 
-          border: '1px solid #ffd591', 
-          borderRadius: 8, 
-          padding: 12, 
-          marginBottom: 16 
+        <div style={{
+          background: '#fff7e6',
+          border: '1px solid #ffd591',
+          borderRadius: 8,
+          padding: 12,
+          marginBottom: 16
         }}>
           <Text strong style={{ color: '#d46b08' }}>⚠️ Đang dùng thời gian ảo</Text>
           <br />
@@ -249,10 +302,10 @@ const TimeControl = () => {
             Thực tế: {moment(timeMachineStatus?.realTime).format('HH:mm:ss DD/MM/YYYY')}
           </Text>
           <br />
-          <Button 
-            type="primary" 
-            danger 
-            size="small" 
+          <Button
+            type="primary"
+            danger
+            size="small"
             icon={<ReloadOutlined />}
             onClick={handleResetTime}
             loading={loading}
@@ -265,13 +318,13 @@ const TimeControl = () => {
       )}
 
       <Divider style={{ margin: '12px 0' }}>Kịch bản test nhanh</Divider>
-      
+
       <Row gutter={[8, 8]}>
         {scenarios.map(s => (
           <Col span={12} key={s.key}>
             <Tooltip title={`Nhảy đến ${s.label}`}>
-              <Button 
-                size="small" 
+              <Button
+                size="small"
                 block
                 onClick={() => handleScenario(s.key)}
                 loading={loading}
@@ -285,26 +338,26 @@ const TimeControl = () => {
       </Row>
 
       <Divider style={{ margin: '12px 0' }}>Tua nhanh thời gian</Divider>
-      
+
       <Space wrap>
-        <Button 
-          size="small" 
+        <Button
+          size="small"
           icon={<FastForwardOutlined />}
           onClick={() => handleFastForward(1, 'hours')}
           loading={loading}
         >
           +1 giờ
         </Button>
-        <Button 
-          size="small" 
+        <Button
+          size="small"
           icon={<FastForwardOutlined />}
           onClick={() => handleFastForward(4, 'hours')}
           loading={loading}
         >
           +4 giờ
         </Button>
-        <Button 
-          size="small" 
+        <Button
+          size="small"
           icon={<FastForwardOutlined />}
           onClick={() => handleFastForward(1, 'days')}
           loading={loading}
@@ -314,7 +367,7 @@ const TimeControl = () => {
       </Space>
 
       <Divider style={{ margin: '12px 0' }}>Đặt thời gian cụ thể</Divider>
-      
+
       <DatePicker
         showTime
         format="YYYY-MM-DD HH:mm:ss"
@@ -323,12 +376,12 @@ const TimeControl = () => {
         style={{ width: '100%' }}
         showNow
       />
-      
+
       <div style={{ marginTop: 12, padding: 8, background: '#f5f5f5', borderRadius: 4 }}>
         <Text type="secondary" style={{ fontSize: 11 }}>
-          💡 <strong>Hướng dẫn test OT:</strong><br/>
-          1. Đặt thời gian = 7:50, scan vân tay (Check-in)<br/>
-          2. Đặt thời gian = 20:00, scan lại (Check-out)<br/>
+          💡 <strong>Hướng dẫn test OT:</strong><br />
+          1. Đặt thời gian = 7:50, scan vân tay (Check-in)<br />
+          2. Đặt thời gian = 20:00, scan lại (Check-out)<br />
           3. Hệ thống tự tính OT nếu có đơn OT đã duyệt
         </Text>
       </div>
@@ -336,14 +389,14 @@ const TimeControl = () => {
   );
 
   return (
-    <Popover 
-      content={timeControlContent} 
+    <Popover
+      content={timeControlContent}
       title={null}
       trigger="click"
       placement="bottomRight"
     >
-      <Button 
-        type="text" 
+      <Button
+        type="text"
         icon={isVirtual ? (
           <ThunderboltOutlined style={{ color: '#fa8c16' }} />
         ) : (
@@ -356,9 +409,9 @@ const TimeControl = () => {
         }}
       >
         <Space size={4}>
-          <Text strong style={{ 
+          <Text strong style={{
             fontSize: 14,
-            color: isVirtual ? '#d46b08' : undefined 
+            color: isVirtual ? '#d46b08' : undefined
           }}>
             {displayTime.format('HH:mm')}
           </Text>

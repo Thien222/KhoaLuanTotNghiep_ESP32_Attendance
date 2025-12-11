@@ -64,6 +64,27 @@ export const getESP32Url = () => {
   return `http://${config.esp32IP}`;
 };
 
+// Get Local API URL (always from localStorage config, regardless of production/development)
+// Used for Time Machine sync with local ESP32
+// Priority: 1. Environment variable, 2. localStorage config, 3. Default localhost
+export const getLocalAPIUrl = () => {
+  // Check environment variable first (for deployed frontend)
+  if (process.env.REACT_APP_LOCAL_API_URL) {
+    return process.env.REACT_APP_LOCAL_API_URL;
+  }
+
+  // Use localStorage config
+  const config = getConfig();
+
+  // If serverIP is not localhost and exists, use it
+  if (config.serverIP && config.serverIP !== 'localhost') {
+    return `http://${config.serverIP}:${config.serverPort}/api`;
+  }
+
+  // Default to localhost
+  return `http://localhost:${config.serverPort || '3000'}/api`;
+};
+
 // Get Frontend URL
 export const getFrontendUrl = () => {
   const config = getConfig();

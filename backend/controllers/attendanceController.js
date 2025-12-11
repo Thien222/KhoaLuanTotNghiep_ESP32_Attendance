@@ -31,12 +31,12 @@
 //   const timeStr = moment(customTime).format('HH:mm');
 //   const [shiftStartHour, shiftStartMin] = shift.startTime.split(':').map(Number);
 //   const [shiftEndHour, shiftEndMin] = shift.endTime.split(':').map(Number);
-  
+
 //   const shiftStartMinutes = shiftStartHour * 60 + shiftStartMin;
 //   const shiftEndMinutes = shiftEndHour * 60 + shiftEndMin;
 //   const [timeHour, timeMin] = timeStr.split(':').map(Number);
 //   const timeMinutes = timeHour * 60 + timeMin;
-  
+
 //   const gracePeriod = shift.gracePeriod || 15;
 
 //   if (actionType === 'checkin') {
@@ -61,7 +61,7 @@
 // exports.addAttendance = async (req, res) => {
 //   try {
 //     const { employeeId, fingerprintId, type, fingerId, action } = req.body;
-    
+
 //     console.log('=== ATTENDANCE REQUEST ===');
 //     console.log('Time:', getSystemTime().toISOString());
 //     console.log('Request body:', req.body);
@@ -78,7 +78,7 @@
 //     } else if (fingerId) {
 //       console.log('Looking for employee with fingerprintId:', fingerId);
 //       employee = await Employee.findOne({ fingerprintId: fingerId });
-      
+
 //       if (!employee) {
 //         console.log('Employee not found with fingerprintId:', fingerId);
 //         return res.status(404).json({
@@ -87,7 +87,7 @@
 //           fingerId: fingerId
 //         });
 //       }
-      
+
 //       // SECURITY CHECK: Verify fingerprint enrollment
 //       if (!employee.fingerprintEnrolled) {
 //         console.log('SECURITY ALERT: Employee not enrolled but trying to check-in:', employee.name);
@@ -101,7 +101,7 @@
 //           action: 'enroll-first'
 //         });
 //       }
-      
+
 //       console.log('Found employee:', employee.name, 'ID:', employee.employeeId, 'Enrolled:', employee.fingerprintEnrolled);
 //     } else {
 //       return res.status(400).json({
@@ -124,7 +124,7 @@
 //       const diffMinutes = moment(now).diff(moment(lastRecord.updatedAt), 'minutes');
 //       // Chỉ chặn nếu < 5 phút và cùng một ngày làm việc (tránh chặn nếu checkout hôm qua rồi checkin hôm nay)
 //       const isSameDay = moment(lastRecord.date).isSame(moment(now), 'day');
-      
+
 //       if (diffMinutes < 5 && isSameDay) {
 //         console.log(`Spam prevention: blocked ${employee.name}`);
 //         // Trả về 200 để ESP32 không báo lỗi, nhưng kèm what='ignored'
@@ -140,13 +140,13 @@
 //     const now = getSystemTime();
 //     const today = moment(now).startOf('day').toDate();
 //     const currentHour = now.getHours();
-    
+
 //     // Lấy Settings
 //     const allSettings = await attendanceHelper.getAllSettings();
 //     const latePolicy = allSettings['late-policy'] || {};
 //     const otSettings = allSettings['overtime'] || {};
 //     const workSettings = allSettings['working-hours'] || { endTime: '17:00' };
-    
+
 //     // Lương
 //     const baseSalary = employee.baseSalary || employee.salary || 0;
 //     const dailyRate = baseSalary > 0 ? (baseSalary / 26) : 0;
@@ -154,7 +154,7 @@
 
 //     // Tìm bản ghi hôm nay
 //     let attendance = await Attendance.findOne({ employee: employee._id, date: today });
-    
+
 //     // Logic Auto xác định Action
 //     let actionType = type || action;
 //     if (actionType === 'auto') {
@@ -229,7 +229,7 @@
 //         attendance.isHoliday = isHoliday;
 //         attendance.holidayRate = holidayRate;
 //       }
-      
+
 //       await attendance.save();
 
 //       console.log('Check-in successful - returning what: in');
@@ -240,7 +240,7 @@
 //         what: 'in' 
 //       });
 //     } 
-    
+
 //     // === XỬ LÝ CHECK-OUT ===
 //     else if (actionType === 'checkout') {
 //       // [QUAN TRỌNG] Kiểm tra bắt buộc Check-in
@@ -258,7 +258,7 @@
 //       const endTimeParts = workSettings.endTime.split(':');
 //       const standardEndHour = parseInt(endTimeParts[0]);
 //       const standardEndMin = parseInt(endTimeParts[1]);
-      
+
 //       let checkOutStatus = 'on-time';
 //       if (now.getHours() < standardEndHour) {
 //         checkOutStatus = 'early';
@@ -269,11 +269,11 @@
 //       // 2. Tính giờ làm việc & OT
 //       const workingHours = attendanceHelper.calculateWorkingHours(attendance.checkIn.time, now);
 //       const overtimeHours = attendanceHelper.calculateOvertimeHours(attendance.checkIn.time, now, 8); // Giả sử chuẩn 8h
-      
+
 //       // 3. Tính tiền OT
 //       let estimatedOTSalary = 0;
 //       let otRate = 1.0;
-      
+
 //       if (overtimeHours > 0) {
 //         otRate = await attendanceHelper.getOvertimeRate(today, attendance.isHoliday || false, otSettings);
 //         estimatedOTSalary = Math.round(overtimeHours * hourlyRate * otRate);
@@ -343,7 +343,7 @@
 //     if (!attendance) {
 //       // Create new attendance record (Check-in)
 //       const checkInStatus = currentHour > WORK_START_HOUR ? 'late' : 'on-time';
-      
+
 //       attendance = new Attendance({
 //         employee: employee._id,
 //         fingerprintId,
@@ -414,7 +414,7 @@
 //     const { startDate, endDate } = req.query;
 
 //     const query = { employee: employeeId };
-    
+
 //     if (startDate && endDate) {
 //       query.date = {
 //         $gte: new Date(startDate),
@@ -473,22 +473,22 @@
 // exports.getAllAttendance = async (req, res) => {
 //   try {
 //     const { startDate, endDate, limit = 100 } = req.query;
-    
+
 //     console.log('getAllAttendance - Query params:', { startDate, endDate, limit });
-    
+
 //     const query = {};
-    
+
 //     if (startDate && endDate) {
 //       // Parse dates - Dates in DB are stored as UTC (e.g., "2025-11-10T00:00:00.000Z")
 //       // Frontend sends "YYYY-MM-DD" format, convert to UTC date range
 //       const start = moment.utc(startDate).startOf('day').toDate();
 //       const end = moment.utc(endDate).endOf('day').toDate();
-      
+
 //       query.date = {
 //         $gte: start,
 //         $lte: end
 //       };
-      
+
 //       console.log('getAllAttendance - Date range:', { 
 //         startDate, 
 //         endDate,
@@ -579,11 +579,11 @@
 // exports.manualCheckIn = async (req, res) => {
 //   try {
 //     const { userId, date, checkInTime, checkOutTime, preview = false } = req.body;
-    
+
 //     console.log('=== MANUAL ATTENDANCE REQUEST ===');
 //     console.log('Request body:', req.body);
 //     console.log('Preview mode:', preview);
-    
+
 //     // Validation cơ bản
 //     if (!userId) {
 //       return res.status(400).json({
@@ -591,14 +591,14 @@
 //         message: 'userId is required'
 //       });
 //     }
-    
+
 //     if (!date || !checkInTime || !checkOutTime) {
 //       return res.status(400).json({
 //         success: false,
 //         message: 'date, checkInTime, and checkOutTime are required'
 //       });
 //     }
-    
+
 //     // Find employee
 //     const employee = await Employee.findById(userId);
 //     if (!employee) {
@@ -607,55 +607,55 @@
 //         message: 'Employee not found'
 //       });
 //     }
-    
+
 //     // --- FIX LOGIC NGÀY GIỜ ---
 //     // Sử dụng moment để parse chuỗi chuẩn xác hơn cách split thủ công
 //     const checkInDateTime = moment(`${date} ${checkInTime}`, 'YYYY-MM-DD HH:mm').toDate();
 //     let checkOutDateTime = moment(`${date} ${checkOutTime}`, 'YYYY-MM-DD HH:mm').toDate();
-    
+
 //     // LOGIC CA QUA ĐÊM (Overnight Shift):
 //     // Nếu Giờ ra <= Giờ vào (ví dụ Vào 22:00, Ra 06:00), tự động hiểu là ra vào ngày hôm sau
 //     if (checkOutDateTime <= checkInDateTime) {
 //       console.log('Detected overnight shift (Check-out <= Check-in). Adding 1 day to Check-out.');
 //       checkOutDateTime = moment(checkOutDateTime).add(1, 'days').toDate();
 //     }
-    
+
 //     // Get settings
 //     const allSettings = await attendanceHelper.getAllSettings();
 //     const latePolicy = allSettings['late-policy'] || {};
 //     const otSettings = allSettings['overtime'] || {};
 //     const workSettings = allSettings['working-hours'] || { startTime: '08:00', endTime: '17:00' };
-    
+
 //     // Salary info
 //     const baseSalary = employee.baseSalary || employee.salary || 0;
 //     const dailyRate = baseSalary > 0 ? (baseSalary / 26) : 0;
 //     const hourlyRate = dailyRate / 8;
-    
+
 //     // Calculate late minutes
 //     const workStartTime = workSettings.startTime || '08:00';
 //     const lateMinutes = attendanceHelper.calculateLateMinutes(checkInDateTime, workStartTime, latePolicy.graceMinutes || 15);
 //     const checkInStatus = lateMinutes > 0 ? 'late' : 'on-time';
-    
+
 //     // Calculate penalty
 //     let actualPenalty = 0;
 //     let status = 'present';
-    
+
 //     if (lateMinutes > 0) {
 //       actualPenalty += attendanceHelper.calculateLatePenalty(lateMinutes, latePolicy);
 //     }
-    
+
 //     const halfDayThreshold = latePolicy.halfDayThreshold || 60;
 //     if (lateMinutes > halfDayThreshold) {
 //       status = 'half-day';
 //       actualPenalty += (dailyRate * 0.5);
 //     }
-    
+
 //     // Check holiday
 //     const attendanceDate = moment(date, 'YYYY-MM-DD').startOf('day').toDate();
 //     const holiday = await attendanceHelper.isHoliday(attendanceDate);
 //     const isHoliday = !!holiday;
 //     const holidayRate = holiday ? holiday.workRate : 1.0;
-    
+
 //     // Calculate check-out status
 //     const endTimeParts = workSettings.endTime.split(':');
 //     const standardEndHour = parseInt(endTimeParts[0]);
@@ -663,25 +663,25 @@
 //     // Nếu làm qua đêm thì thường không tính early theo giờ hành chính, nhưng ở đây tạm tính theo giờ thực tế
 //     let checkOutStatus = 'on-time';
 //     // Logic này có thể cần tùy chỉnh thêm nếu làm ca đêm
-    
+
 //     // === LOGIC TÍNH TOÁN MỚI: Tự động phân biệt giờ công chuẩn và OT ===
 //     // Giờ làm việc chuẩn: từ startTime (08:00) đến endTime (17:00) = 8 giờ
 //     // OT: từ endTime (17:00) đến checkOutTime, trừ 1 giờ nghỉ (17:00-18:00)
-    
+
 //     const [startHour, startMin] = workStartTime.split(':').map(Number);
 //     const [endHour, endMin] = workSettings.endTime.split(':').map(Number);
-    
+
 //     const actualCheckIn = moment(checkInDateTime);
 //     const actualCheckOut = moment(checkOutDateTime);
-    
+
 //     // Tạo thời gian chuẩn (ngày check-in)
 //     const standardStartTime = actualCheckIn.clone().set({ hour: startHour, minute: startMin, second: 0, millisecond: 0 });
 //     const standardEndTime = actualCheckIn.clone().set({ hour: endHour, minute: endMin, second: 0, millisecond: 0 });
 //     const breakEndTime = standardEndTime.clone().add(1, 'hour'); // 18:00 (hết giờ nghỉ)
-    
+
 //     let standardWorkingHours = 0;
 //     let overtimeHours = 0;
-    
+
 //     // Trường hợp 1: Check-in trong giờ làm việc chuẩn (08:00 - 17:00)
 //     if (actualCheckIn.isSameOrAfter(standardStartTime) && actualCheckIn.isBefore(standardEndTime)) {
 //       // Giờ làm việc chuẩn: từ checkIn đến endTime (hoặc checkOut nếu sớm hơn)
@@ -690,7 +690,7 @@
 //         effectiveEndTime.diff(actualCheckIn, 'hours', true),
 //         8.0
 //       );
-      
+
 //       // Tính OT nếu checkOut sau endTime
 //       if (actualCheckOut.isAfter(standardEndTime)) {
 //         // Nếu checkOut sau 18:00 (hết giờ nghỉ), tính OT từ 18:00
@@ -709,7 +709,7 @@
 //         effectiveEndTime.diff(effectiveStartTime, 'hours', true),
 //         8.0
 //       );
-      
+
 //       // Tính OT nếu checkOut sau endTime
 //       if (actualCheckOut.isAfter(standardEndTime)) {
 //         if (actualCheckOut.isAfter(breakEndTime)) {
@@ -731,15 +731,15 @@
 //         overtimeHours = 0;
 //       }
 //     }
-    
+
 //     // Tổng giờ làm việc = giờ chuẩn + OT
 //     const workingHours = Math.max(0, standardWorkingHours) + Math.max(0, overtimeHours);
-    
+
 //     // Làm tròn để tránh lỗi số thập phân
 //     const roundedStandardHours = Math.round(standardWorkingHours * 100) / 100;
 //     const roundedOvertimeHours = Math.round(overtimeHours * 100) / 100;
 //     const roundedWorkingHours = Math.round(workingHours * 100) / 100;
-    
+
 //     console.log('📊 [MANUAL ATTENDANCE CALCULATION]', {
 //       employee: employee.name,
 //       checkIn: moment(checkInDateTime).format('YYYY-MM-DD HH:mm'),
@@ -748,14 +748,14 @@
 //       overtimeHours: roundedOvertimeHours,
 //       totalWorkingHours: roundedWorkingHours
 //     });
-    
+
 //     let estimatedOTSalary = 0;
 //     let otRate = 1.0;
 //     if (roundedOvertimeHours > 0) {
 //       otRate = await attendanceHelper.getOvertimeRate(attendanceDate, isHoliday, otSettings);
 //       estimatedOTSalary = Math.round(roundedOvertimeHours * hourlyRate * otRate);
 //     }
-    
+
 //     // Calculate daily work credit
 //     let dailyWorkCredit = 1.0;
 //     if (status === 'half-day') {
@@ -763,7 +763,7 @@
 //     } else if (status === 'absent') {
 //       dailyWorkCredit = 0;
 //     }
-    
+
 //     // If preview mode, return calculation only
 //     if (preview) {
 //       return res.status(200).json({
@@ -795,12 +795,12 @@
 //         }
 //       });
 //     }
-    
+
 //     // Save to database
 //     // Logic tìm record cũ: Tìm theo Employee và Date gốc (ngày bắt đầu ca)
 //     const today = moment(attendanceDate).startOf('day').toDate();
 //     let attendance = await Attendance.findOne({ employee: employee._id, date: today });
-    
+
 //     const attendanceData = {
 //       employee: employee._id,
 //       fingerprintId: employee.fingerprintId || 0,
@@ -818,17 +818,17 @@
 //       holidayRate,
 //       isManual: true
 //     };
-    
+
 //     if (!attendance) {
 //       attendance = new Attendance(attendanceData);
 //     } else {
 //       Object.assign(attendance, attendanceData);
 //     }
-    
+
 //     await attendance.save();
-    
+
 //     console.log(`✅ [MANUAL ATTENDANCE] ${employee.name} - Check-in: ${moment(checkInDateTime).format('HH:mm')}, Check-out: ${moment(checkOutDateTime).format('HH:mm')}`);
-    
+
 //     return res.status(200).json({
 //       success: true,
 //       message: 'Chấm công thủ công thành công',
@@ -853,7 +853,7 @@ const Employee = require('../models/Employee');
 const Holiday = require('../models/Holiday');
 const EmployeeShift = require('../models/EmployeeShift');
 const attendanceHelper = require('../utils/attendanceHelper');
-const { getSystemTime } = require('../utils/timeMachine');
+const { getSystemTime, refreshCache } = require('../utils/timeMachine');
 const moment = require('moment-timezone');
 
 moment.tz.setDefault('Asia/Ho_Chi_Minh');
@@ -919,7 +919,11 @@ exports.addAttendance = async (req, res) => {
     const { employeeId, fingerprintId, type, fingerId, action } = req.body;
 
     console.log('=== ATTENDANCE REQUEST ===');
-    const now = getSystemTime();
+
+    // Refresh time machine cache từ MongoDB (đảm bảo đồng bộ với deployed server)
+    await refreshCache();
+
+    const now = await getSystemTime();
     const realNow = new Date();
     console.log('🕒 Virtual Time:', moment(now).tz('Asia/Ho_Chi_Minh').format('YYYY-MM-DD HH:mm:ss'));
     console.log('🕒 Real Time:', moment(realNow).tz('Asia/Ho_Chi_Minh').format('YYYY-MM-DD HH:mm:ss'));
@@ -978,11 +982,11 @@ exports.addAttendance = async (req, res) => {
     const employeeName = employee.name.split(' ').pop(); // Lấy tên cuối
 
     // 2. Chống spam 3 phút
-    const lastRecord = await Attendance.findOne({ 
+    const lastRecord = await Attendance.findOne({
       employee: employee._id,
       date: today
     }).sort({ updatedAt: -1 });
-    
+
     if (lastRecord) {
       const lastActionTime = lastRecord.checkOut?.time || lastRecord.checkIn?.time || lastRecord.updatedAt;
       const diffMinutes = moment(now).diff(moment(lastActionTime), 'minutes');
@@ -1028,10 +1032,10 @@ exports.addAttendance = async (req, res) => {
     if (actionType === 'checkin') {
       // Lấy settings trước khi validate
       const allSettings = await attendanceHelper.getAllSettings();
-      
+
       // Validate thời gian check-in với settings
       const checkinValidation = attendanceHelper.validateCheckinTime(now, allSettings);
-      
+
       if (checkinValidation.blocked) {
         const { removeVietnameseAccents } = require('../utils/attendanceHelper');
         return res.status(200).json({
@@ -1045,7 +1049,7 @@ exports.addAttendance = async (req, res) => {
       const lateMinutes = checkinValidation.lateMinutes || 0;
       // Lấy late policy từ settings
       const latePolicy = allSettings['late-policy'] || {};
-      
+
       // Debug log để kiểm tra Settings và lateMinutes
       // HARDCODED: Giờ làm việc cố định 08:00-17:00
       const workStart = '08:00';
@@ -1059,12 +1063,12 @@ exports.addAttendance = async (req, res) => {
           lateThreshold2Hours: latePolicy.lateThreshold2Hours
         }
       });
-      
+
       const penaltyResult = attendanceHelper.calculateLatePenalty(lateMinutes, latePolicy, dailyRate);
-      
+
       let checkInStatus = lateMinutes > 0 ? 'late' : 'on-time';
       let status = penaltyResult.lostWorkDay ? 'absent' : 'present';
-      
+
       const holiday = await attendanceHelper.isHoliday(today);
       const isHoliday = !!holiday;
       const holidayRate = holiday ? holiday.workRate : 1.0;
@@ -1146,14 +1150,14 @@ exports.addAttendance = async (req, res) => {
 
       // Kiểm tra OT approved
       const hasOTApproved = await attendanceHelper.hasOvertimeShiftForDate(employee._id, today);
-      
+
       // Lấy settings (chỉ gọi 1 lần)
       const allSettings = await attendanceHelper.getAllSettings();
       const latePolicy = allSettings['late-policy'] || {};
-      
+
       // Validate thời gian check-out với settings
       const checkoutValidation = attendanceHelper.validateCheckoutTime(now, hasOTApproved, allSettings);
-      
+
       if (checkoutValidation.blocked) {
         const { removeVietnameseAccents } = require('../utils/attendanceHelper');
         return res.status(200).json({
@@ -1173,10 +1177,10 @@ exports.addAttendance = async (req, res) => {
 
       // Tính về sớm với settings
       const earlyResult = attendanceHelper.calculateEarlyPenalty(actualCheckOutTime, dailyRate, allSettings);
-      
+
       let checkOutStatus = 'on-time';
       let totalPenalty = Number(attendance.actualPenalty) || 0;
-      
+
       if (earlyResult.earlyMinutes > 0) {
         checkOutStatus = 'early';
         totalPenalty += Number(earlyResult.penalty) || 0;
@@ -1192,57 +1196,57 @@ exports.addAttendance = async (req, res) => {
       const checkInMoment = moment(attendance.checkIn.time);
       const checkOutMoment = moment(actualCheckOutTime);
       const baseDate = moment(today).startOf('day');
-      
+
       const [wsHour, wsMin] = workStartTime.split(':').map(Number);
       const [weHour, weMin] = workEndTime.split(':').map(Number);
-      
+
       const workDayStart = baseDate.clone().hour(wsHour).minute(wsMin).second(0).millisecond(0);
       const workDayEnd = baseDate.clone().hour(weHour).minute(weMin).second(0).millisecond(0);
-      
+
       // Tính standardHours = overlap giữa [checkIn, checkOut] và [08:00, 17:00]
       const overlapStart = moment.max(checkInMoment, workDayStart);
       const overlapEnd = moment.min(checkOutMoment, workDayEnd);
-      
+
       let standardHours = 0;
       if (overlapEnd.isAfter(overlapStart)) {
         standardHours = overlapEnd.diff(overlapStart, 'minutes') / 60;
       }
       if (standardHours > 8) standardHours = 8;
-      
+
       // Tính OT từ sau 18:00 với số lẻ chính xác (không làm tròn xuống)
       let overtimeHours = 0;
       let estimatedOTSalary = 0;
-      
+
       const otStartTime = baseDate.clone().hour(18).minute(0).second(0).millisecond(0);
-      
+
       if (checkOutMoment.isAfter(otStartTime)) {
         // Tính OT từ sau 18:00 với số lẻ chính xác (tính bằng phút rồi chia 60)
         // Ví dụ: 18:00-21:41 = 3h41p = 221 phút = 3.6833...h
         const otMinutes = checkOutMoment.diff(otStartTime, 'minutes');
         overtimeHours = otMinutes / 60; // Giữ số lẻ, không làm tròn xuống
       }
-      
+
       // Chỉ tính tiền OT nếu có OT approved và có giờ OT
       if (checkoutValidation.isOTTime && overtimeHours > 0) {
-        
+
         // Kiểm tra ngày lễ
         const holiday = await attendanceHelper.isHoliday(today);
         const isHoliday = !!holiday;
-        
+
         // Merge cả ot-rate và overtime configs (ot-rate có base rate, overtime có multipliers)
         const otRateConfig = allSettings['ot-rate'] || {};
         const overtimeConfig = allSettings['overtime'] || {};
         const otRatePerHour = otRateConfig.ratePerHour || overtimeConfig.otRate || 100000;
-        
+
         const mergedOTSettings = {
           ratePerHour: otRatePerHour,  // ratePerHour từ ot-rate
           ...overtimeConfig  // weekdayRate, weekendRate, holidayRate từ overtime
         };
-        
+
         // Tính lương OT với hệ số (weekday/weekend/holiday)
         estimatedOTSalary = await attendanceHelper.calculateOTSalary(
-          overtimeHours, 
-          mergedOTSettings, 
+          overtimeHours,
+          mergedOTSettings,
           today,  // date
           isHoliday  // isHoliday flag
         );
@@ -1252,13 +1256,13 @@ exports.addAttendance = async (req, res) => {
       // Tính tổng giờ làm (không bao gồm thời gian nghỉ 17:00-18:00)
       // workingHours = standardHours (08:00-17:00) + overtimeHours (từ 18:00)
       const workingHours = standardHours + overtimeHours;
-      
+
       // Làm tròn với 2 chữ số thập phân để hiển thị số lẻ chính xác
       const roundedWorkingHours = Math.round(workingHours * 100) / 100;
       // Giờ OT hiển thị: giữ số lẻ chính xác (2 chữ số thập phân)
       // Giờ OT tính tiền: sẽ được làm tròn trong calculateOTSalary (>= 30 phút → +0.5h, < 30 phút → làm tròn xuống)
       const roundedOvertimeHours = Math.round(overtimeHours * 100) / 100;
-      
+
       // Update attendance
       attendance.checkOut = { time: actualCheckOutTime, status: checkOutStatus };
       attendance.workingHours = roundedWorkingHours;
@@ -1344,7 +1348,7 @@ exports.handleAttendance = async (req, res) => {
       });
     }
 
-    const now = getSystemTime();
+    const now = await getSystemTime();
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
 
     let attendance = await Attendance.findOne({
@@ -1381,7 +1385,7 @@ exports.handleAttendance = async (req, res) => {
     } else if (!attendance.checkOut.time) {
       const checkOutStatus =
         currentHour < WORK_END_HOUR ? 'early' :
-        currentHour > WORK_END_HOUR ? 'overtime' : 'on-time';
+          currentHour > WORK_END_HOUR ? 'overtime' : 'on-time';
 
       const checkInTime = attendance.checkIn.time;
       const workingHours = (now - checkInTime) / (1000 * 60 * 60);
@@ -1455,7 +1459,7 @@ exports.getEmployeeAttendance = async (req, res) => {
 
 exports.getTodayAttendance = async (req, res) => {
   try {
-    const now = getSystemTime();
+    const now = await getSystemTime();
     // Dùng moment với timezone để tính "today" đúng
     const today = moment(now).tz('Asia/Ho_Chi_Minh').startOf('day').toDate();
 
@@ -1527,7 +1531,7 @@ exports.getAllAttendance = async (req, res) => {
 
 exports.deleteTodayAttendance = async (req, res) => {
   try {
-    const today = getSystemTime();
+    const today = await getSystemTime();
     today.setHours(0, 0, 0, 0);
 
     const result = await Attendance.deleteMany({
@@ -1641,28 +1645,28 @@ exports.manualCheckIn = async (req, res) => {
 
     const totalMinutes = checkOutMoment.diff(checkInMoment, 'minutes');
 
-// Không cho ca <= 0 phút (giờ ra phải sau giờ vào, kể cả ca qua đêm)
-if (totalMinutes <= 0) {
-  return res.status(400).json({
-    success: false,
-    message: 'Giờ ra phải sau giờ vào (tổng thời gian làm phải > 0 phút)',
-  });
-}
+    // Không cho ca <= 0 phút (giờ ra phải sau giờ vào, kể cả ca qua đêm)
+    if (totalMinutes <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Giờ ra phải sau giờ vào (tổng thời gian làm phải > 0 phút)',
+      });
+    }
 
-// Log để debug
-console.log('📊 [MANUAL] Check-in:', checkInMoment.format('YYYY-MM-DD HH:mm'));
-console.log('📊 [MANUAL] Check-out:', checkOutMoment.format('YYYY-MM-DD HH:mm'));
-console.log('📊 [MANUAL] Total minutes:', totalMinutes, '=', (totalMinutes / 60).toFixed(1), 'hours');
+    // Log để debug
+    console.log('📊 [MANUAL] Check-in:', checkInMoment.format('YYYY-MM-DD HH:mm'));
+    console.log('📊 [MANUAL] Check-out:', checkOutMoment.format('YYYY-MM-DD HH:mm'));
+    console.log('📊 [MANUAL] Total minutes:', totalMinutes, '=', (totalMinutes / 60).toFixed(1), 'hours');
 
-// Không cho ca tay > 20 tiếng (cho phép ca qua đêm dài nhưng tránh lỗi 24h)
-if (totalMinutes > 20 * 60) {
-  return res.status(400).json({
-    success: false,
-    message: `Ca làm ${(totalMinutes / 60).toFixed(1)} giờ quá dài. Vui lòng kiểm tra lại giờ vào/ra.`,
-  });
-}
+    // Không cho ca tay > 20 tiếng (cho phép ca qua đêm dài nhưng tránh lỗi 24h)
+    if (totalMinutes > 20 * 60) {
+      return res.status(400).json({
+        success: false,
+        message: `Ca làm ${(totalMinutes / 60).toFixed(1)} giờ quá dài. Vui lòng kiểm tra lại giờ vào/ra.`,
+      });
+    }
 
-const totalHours = totalMinutes / 60;
+    const totalHours = totalMinutes / 60;
 
     const checkInDateTime = checkInMoment.toDate();
     const checkOutDateTime = checkOutMoment.toDate();
@@ -1701,7 +1705,7 @@ const totalHours = totalMinutes / 60;
         dailyRate
       );
       actualPenalty = penaltyResult.penalty;
-      
+
       // Nếu muộn >= 2h, mất 1 ngày công
       if (penaltyResult.lostWorkDay) {
         status = 'absent';
@@ -1749,7 +1753,7 @@ const totalHours = totalMinutes / 60;
     // Nếu checkout trước 18:00 → không có OT
     let overtimeHours = 0;
     const otStartTime = baseDate.clone().hour(18).minute(0).second(0).millisecond(0);
-    
+
     if (checkOutMoment.isAfter(otStartTime)) {
       // Tính OT từ sau 18:00 với số lẻ chính xác (không làm tròn xuống)
       // Ví dụ: checkout 18:30 → OT = 0.5h
@@ -1763,7 +1767,7 @@ const totalHours = totalMinutes / 60;
     let checkOutStatus = 'on-time';
     let earlyPenalty = 0;
     let earlyMinutes = 0;
-    
+
     if (checkOutMoment.isBefore(workDayEnd)) {
       checkOutStatus = 'early';
       // Tính phạt về sớm với settings
@@ -1774,10 +1778,10 @@ const totalHours = totalMinutes / 60;
       );
       earlyPenalty = Number(earlyPenaltyResult.penalty || 0);
       earlyMinutes = Number(earlyPenaltyResult.earlyMinutes || 0);
-      
+
       // Cộng phạt về sớm vào actualPenalty
       actualPenalty = Number(actualPenalty) + earlyPenalty;
-      
+
       // Nếu về sớm >= 2h, mất ngày công
       if (earlyPenaltyResult.lostWorkDay) {
         status = 'absent';
@@ -1790,7 +1794,7 @@ const totalHours = totalMinutes / 60;
     // workingHours = standardHours (08:00-17:00) + overtimeHours (từ 18:00)
     // Ví dụ: 08:00-21:41 → standardHours = 9h, overtimeHours = 3.683h → workingHours = 12.683h
     const workingHours = standardHours + overtimeHours;
-    
+
     // Làm tròn với 2 chữ số thập phân để hiển thị số lẻ chính xác
     const roundedWorkingHours = Math.round(workingHours * 100) / 100;
     const roundedStandardHours = Math.round(standardHours * 100) / 100;
@@ -1807,65 +1811,65 @@ const totalHours = totalMinutes / 60;
       actualPenalty: Number(actualPenalty),
     });
 
-      // 10. Tiền OT - CHỈ TÍNH NẾU CÓ OT SHIFT ĐƯỢC GÁN
-      let otRate = 1.0;
-      let estimatedOTSalary = 0;
-      let isOTApproved = false;
-      
-      // Kiểm tra xem employee có OT shift được gán cho ngày này không
-      const hasOTShift = await attendanceHelper.hasOvertimeShiftForDate(employee._id, attendanceDate);
-      
-      if (roundedOvertimeHours > 0) {
-        if (!hasOTShift) {
-          // KHÔNG CÓ OT SHIFT → KHÔNG TÍNH OT
-          console.log(`⚠️ OT Blocked for ${employee.name} on ${moment(attendanceDate).format('YYYY-MM-DD')}: No OT shift assigned`);
-          roundedOvertimeHours = 0; // Reset OT hours
+    // 10. Tiền OT - CHỈ TÍNH NẾU CÓ OT SHIFT ĐƯỢC GÁN
+    let otRate = 1.0;
+    let estimatedOTSalary = 0;
+    let isOTApproved = false;
+
+    // Kiểm tra xem employee có OT shift được gán cho ngày này không
+    const hasOTShift = await attendanceHelper.hasOvertimeShiftForDate(employee._id, attendanceDate);
+
+    if (roundedOvertimeHours > 0) {
+      if (!hasOTShift) {
+        // KHÔNG CÓ OT SHIFT → KHÔNG TÍNH OT
+        console.log(`⚠️ OT Blocked for ${employee.name} on ${moment(attendanceDate).format('YYYY-MM-DD')}: No OT shift assigned`);
+        roundedOvertimeHours = 0; // Reset OT hours
+        estimatedOTSalary = 0;
+        isOTApproved = false;
+      } else {
+        // CÓ OT SHIFT → TÍNH OT BÌNH THƯỜNG
+        try {
+          const otRateResult = await attendanceHelper.getOvertimeRate(
+            attendanceDate,
+            isHoliday,
+            otSettings
+          );
+          // Đảm bảo otRate là số
+          otRate = typeof otRateResult === 'number' ? otRateResult : Number(otRateResult) || 1.0;
+
+          // Tính tiền OT: dùng hàm calculateOTSalary với settings và hệ số
+          // Merge cả ot-rate và overtime configs
+          const otRateConfig = allSettings['ot-rate'] || {};
+          const overtimeConfig = allSettings['overtime'] || {};
+          const otRatePerHour = otRateConfig.ratePerHour || otSettings?.otRate || 100000;
+
+          // Merge: ot-rate có base rate, overtime có multipliers
+          const otSettingsForCalc = {
+            ratePerHour: otRatePerHour,
+            ...otSettings,
+            ...overtimeConfig  // weekdayRate, weekendRate, holidayRate
+          };
+
+          // Tính lương OT với hệ số (weekday/weekend/holiday)
+          estimatedOTSalary = await attendanceHelper.calculateOTSalary(
+            roundedOvertimeHours,
+            otSettingsForCalc,
+            attendanceDate,  // date
+            isHoliday  // isHoliday flag
+          );
+
+          // Auto-approve OT vì đã có OT shift
+          isOTApproved = true;
+          console.log(`✅ OT Approved for ${employee.name} on ${moment(attendanceDate).format('YYYY-MM-DD')}: Has OT shift, ${roundedOvertimeHours}h = ${estimatedOTSalary} VND`);
+        } catch (otError) {
+          console.error('Error calculating OT:', otError);
+          // Fallback values
+          otRate = 1.0;
           estimatedOTSalary = 0;
           isOTApproved = false;
-        } else {
-          // CÓ OT SHIFT → TÍNH OT BÌNH THƯỜNG
-          try {
-            const otRateResult = await attendanceHelper.getOvertimeRate(
-              attendanceDate,
-              isHoliday,
-              otSettings
-            );
-            // Đảm bảo otRate là số
-            otRate = typeof otRateResult === 'number' ? otRateResult : Number(otRateResult) || 1.0;
-            
-            // Tính tiền OT: dùng hàm calculateOTSalary với settings và hệ số
-            // Merge cả ot-rate và overtime configs
-            const otRateConfig = allSettings['ot-rate'] || {};
-            const overtimeConfig = allSettings['overtime'] || {};
-            const otRatePerHour = otRateConfig.ratePerHour || otSettings?.otRate || 100000;
-            
-            // Merge: ot-rate có base rate, overtime có multipliers
-            const otSettingsForCalc = { 
-              ratePerHour: otRatePerHour, 
-              ...otSettings,
-              ...overtimeConfig  // weekdayRate, weekendRate, holidayRate
-            };
-            
-            // Tính lương OT với hệ số (weekday/weekend/holiday)
-            estimatedOTSalary = await attendanceHelper.calculateOTSalary(
-              roundedOvertimeHours, 
-              otSettingsForCalc,
-              attendanceDate,  // date
-              isHoliday  // isHoliday flag
-            );
-            
-            // Auto-approve OT vì đã có OT shift
-            isOTApproved = true;
-            console.log(`✅ OT Approved for ${employee.name} on ${moment(attendanceDate).format('YYYY-MM-DD')}: Has OT shift, ${roundedOvertimeHours}h = ${estimatedOTSalary} VND`);
-          } catch (otError) {
-            console.error('Error calculating OT:', otError);
-            // Fallback values
-            otRate = 1.0;
-            estimatedOTSalary = 0;
-            isOTApproved = false;
-          }
         }
       }
+    }
 
     // 11. Công quy đổi
     let dailyWorkCredit = 1.0;
@@ -1916,7 +1920,7 @@ const totalHours = totalMinutes / 60;
     // Chỉ include các fields có trong schema
     const actualPenaltyNum = Number(actualPenalty);
     const estimatedOTSalaryNum = Number(estimatedOTSalary);
-    
+
     console.log('🔍 [BEFORE SAVE] Values check:', {
       actualPenalty: actualPenalty,
       actualPenaltyType: typeof actualPenalty,
@@ -1970,10 +1974,10 @@ const totalHours = totalMinutes / 60;
 
     try {
       await attendance.save();
-      
+
       // Populate employee để trả về đầy đủ thông tin
       await attendance.populate('employee', 'name employeeId position email');
-      
+
       // ✅ Emit socket event để frontend cập nhật ngay lập tức
       try {
         const { getIO } = require('../socket/socketServer');
@@ -1992,12 +1996,12 @@ const totalHours = totalMinutes / 60;
         console.error('Error emitting socket event for manual attendance:', socketError);
         // Continue even if socket emit fails
       }
-      
+
       console.log(
         `✅ [MANUAL ATTENDANCE SAVED] ${employee.name} ` +
-          `${checkInMoment.format('DD/MM/YYYY HH:mm')} → ${checkOutMoment.format(
-            'HH:mm'
-          )} | Penalty: ${attendanceData.actualPenalty} | OT: ${attendanceData.estimatedOTSalary}`
+        `${checkInMoment.format('DD/MM/YYYY HH:mm')} → ${checkOutMoment.format(
+          'HH:mm'
+        )} | Penalty: ${attendanceData.actualPenalty} | OT: ${attendanceData.estimatedOTSalary}`
       );
 
       return res.status(200).json({
@@ -2014,14 +2018,14 @@ const totalHours = totalMinutes / 60;
         message: saveError.message,
         errors: saveError.errors
       });
-      
+
       // Nếu là validation error, trả về thông tin chi tiết
       if (saveError.name === 'ValidationError') {
         const validationErrors = Object.keys(saveError.errors || {}).map(key => ({
           field: key,
           message: saveError.errors[key].message
         }));
-        
+
         return res.status(400).json({
           success: false,
           message: 'Lỗi validation khi lưu dữ liệu',
@@ -2029,7 +2033,7 @@ const totalHours = totalMinutes / 60;
           details: saveError.message
         });
       }
-      
+
       throw saveError; // Re-throw để catch block xử lý
     }
   } catch (error) {
@@ -2037,12 +2041,12 @@ const totalHours = totalMinutes / 60;
     console.error('Error name:', error.name);
     console.error('Error message:', error.message);
     console.error('Error stack:', error.stack);
-    
+
     // Log thêm thông tin nếu là validation error
     if (error.name === 'ValidationError') {
       console.error('Validation errors:', error.errors);
     }
-    
+
     res.status(500).json({
       success: false,
       message: error.message || 'Error processing manual attendance',
@@ -2060,22 +2064,22 @@ exports.updateAttendance = async (req, res) => {
   try {
     const { id } = req.params;
     const { checkInTime, checkOutTime } = req.body;
-    
+
     console.log('=== UPDATE ATTENDANCE REQUEST ===');
     console.log('Attendance ID:', id);
     console.log('Check-in time:', checkInTime);
     console.log('Check-out time:', checkOutTime);
-    
+
     // Find the attendance record
     const attendance = await Attendance.findById(id).populate('employee');
-    
+
     if (!attendance) {
       return res.status(404).json({
         success: false,
         message: 'Không tìm thấy bản ghi chấm công'
       });
     }
-    
+
     const employee = attendance.employee;
     if (!employee) {
       return res.status(404).json({
@@ -2083,48 +2087,48 @@ exports.updateAttendance = async (req, res) => {
         message: 'Không tìm thấy thông tin nhân viên'
       });
     }
-    
+
     // Parse times
     const [ciHour, ciMin] = checkInTime.split(':').map(Number);
     const [coHour, coMin] = checkOutTime.split(':').map(Number);
-    
+
     const baseDate = moment(attendance.date);
     let checkInMoment = baseDate.clone().hour(ciHour).minute(ciMin).second(0);
     let checkOutMoment = baseDate.clone().hour(coHour).minute(coMin).second(0);
-    
+
     // Support overnight shifts
     if (coHour < ciHour || (coHour === ciHour && coMin <= ciMin)) {
       checkOutMoment = checkOutMoment.add(1, 'day');
     }
-    
+
     const checkInDateTime = checkInMoment.toDate();
     const checkOutDateTime = checkOutMoment.toDate();
     const totalMinutes = checkOutMoment.diff(checkInMoment, 'minutes');
     const totalHours = totalMinutes / 60;
-    
+
     if (totalMinutes <= 0) {
       return res.status(400).json({
         success: false,
         message: 'Giờ ra phải sau giờ vào'
       });
     }
-    
+
     // Get settings
     const allSettings = await attendanceHelper.getAllSettings();
     const latePolicy = allSettings['late-policy'] || {};
     const otSettings = allSettings['overtime'] || {};
     const otRateSettings = allSettings['ot-rate'] || {};
     // HARDCODED: Giờ làm việc cố định 08:00-17:00
-    
+
     const STANDARD_WORKING_DAYS = 26; // Ngày công chuẩn (Cách 1)
     const baseSalary = employee.baseSalary || employee.salary || 0;
     const dailyRate = baseSalary > 0 ? baseSalary / STANDARD_WORKING_DAYS : 0;
-    
+
     // Calculate late minutes
     // HARDCODED: Giờ làm việc cố định 08:00-17:00
     const workStartTime = '08:00';
     const workEndTime = '17:00';
-    
+
     // ============================================================
     // NEW: VALIDATION - Kiểm tra OT approval trước khi cho phép sửa
     // ============================================================
@@ -2132,10 +2136,10 @@ exports.updateAttendance = async (req, res) => {
     const checkinGateTimes = attendanceHelper.getCheckinGateTimes(allSettings);
     const checkoutGateTimes = attendanceHelper.getCheckoutGateTimes(allSettings);
     const otTimes = attendanceHelper.getOTTimes(allSettings);
-    
+
     const [checkinGateOpenHour] = checkinGateTimes.gateOpen.split(':').map(Number);
     const [otStartHour] = otTimes.otStart.split(':').map(Number);
-    
+
     // Check-in không được trước giờ mở cổng check-in
     if (ciHour < checkinGateOpenHour) {
       return res.status(400).json({
@@ -2143,11 +2147,11 @@ exports.updateAttendance = async (req, res) => {
         message: `Giờ vào không được trước ${checkinGateTimes.gateOpen}. Vui lòng chọn giờ từ ${checkinGateTimes.gateOpen} trở đi.`
       });
     }
-    
+
     // Check-out sau giờ bắt đầu OT yêu cầu có OT duyệt
     if (coHour >= otStartHour) {
       const hasApprovedOT = await attendanceHelper.hasOvertimeShiftForDate(employee._id, attendance.date);
-      
+
       if (!hasApprovedOT) {
         return res.status(400).json({
           success: false,
@@ -2157,7 +2161,7 @@ exports.updateAttendance = async (req, res) => {
       }
     }
     // ============================================================
-    
+
     const lateMinutes = attendanceHelper.calculateLateMinutes(
       checkInDateTime,
       null,
@@ -2165,25 +2169,25 @@ exports.updateAttendance = async (req, res) => {
       allSettings
     );
     const checkInStatus = lateMinutes > 0 ? 'late' : 'on-time';
-    
+
     // Calculate penalty
     let actualPenalty = 0;
     let status = 'present';
-    
+
     if (lateMinutes > 0) {
       const penaltyResult = attendanceHelper.calculateLatePenalty(lateMinutes, latePolicy, dailyRate);
       actualPenalty = Number(penaltyResult.penalty) || 0;
-      
+
       if (penaltyResult.lostWorkDay) {
         status = 'absent';
       }
       // BỎ LOGIC HALF-DAY: Chỉ có absent hoặc present
     }
-    
+
     // Calculate early penalty
     const [weHour, weMin] = workEndTime.split(':').map(Number);
     const workDayEnd = baseDate.clone().hour(weHour).minute(weMin).second(0);
-    
+
     let checkOutStatus = 'on-time';
     if (checkOutMoment.isBefore(workDayEnd)) {
       checkOutStatus = 'early';
@@ -2197,25 +2201,25 @@ exports.updateAttendance = async (req, res) => {
         status = 'absent';
       }
     }
-    
+
     // Calculate working hours and overtime
     const [wsHour, wsMin] = workStartTime.split(':').map(Number);
     const workDayStart = baseDate.clone().hour(wsHour).minute(wsMin).second(0);
-    
+
     const overlapStart = moment.max(checkInMoment, workDayStart);
     const overlapEnd = moment.min(checkOutMoment, workDayEnd);
-    
+
     let standardHours = 0;
     if (overlapEnd.isAfter(overlapStart)) {
       standardHours = overlapEnd.diff(overlapStart, 'minutes') / 60;
     }
     if (standardHours > 8) standardHours = 8;
-    
+
     // Tính OT: 17:00-18:00 là thời gian nghỉ, OT chỉ tính từ sau 18:00
     // Nếu checkout trước 18:00 → không có OT
     let overtimeHours = 0;
     const otStartTime = moment(attendance.date).hour(18).minute(0).second(0).millisecond(0);
-    
+
     if (checkOutMoment.isAfter(otStartTime)) {
       // Tính OT từ sau 18:00 với số lẻ chính xác (không làm tròn xuống)
       // Ví dụ: 18:00-21:41 = 3h41p = 221 phút = 3.6833...h
@@ -2225,26 +2229,26 @@ exports.updateAttendance = async (req, res) => {
     if (overtimeHours > 0) {
       checkOutStatus = 'overtime';
     }
-    
+
     // Tính tổng giờ làm (không bao gồm thời gian nghỉ 17:00-18:00)
     // workingHours = standardHours (08:00-17:00) + overtimeHours (từ 18:00)
     const workingHours = standardHours + overtimeHours;
-    
+
     // Làm tròn với 2 chữ số thập phân để hiển thị số lẻ chính xác
     const roundedWorkingHours = Math.round(workingHours * 100) / 100;
     // Giờ OT hiển thị: giữ số lẻ chính xác (2 chữ số thập phân)
     // Giờ OT tính tiền: sẽ được làm tròn trong calculateOTSalary (>= 30 phút → +0.5h, < 30 phút → làm tròn xuống)
     const roundedOvertimeHours = Math.round(overtimeHours * 100) / 100;
-    
+
     // Calculate OT salary (chỉ tính nếu có OT duyệt)
     let otRate = 1.0;
     let estimatedOTSalary = 0;
     let isOTApproved = false;
-    
+
     if (roundedOvertimeHours > 0) {
       // Kiểm tra có OT duyệt không
       isOTApproved = await attendanceHelper.hasOvertimeShiftForDate(employee._id, attendance.date);
-      
+
       if (isOTApproved) {
         // Chỉ tính tiền OT nếu có đơn OT duyệt
         const otRateResult = await attendanceHelper.getOvertimeRate(
@@ -2253,26 +2257,26 @@ exports.updateAttendance = async (req, res) => {
           otSettings
         );
         otRate = Number(otRateResult) || 1.0;
-        
+
         // Lấy rate từ settings - Ưu tiên: ot-rate config > overtime config > default
         const otRatePerHour = Number(otRateSettings?.ratePerHour || otSettings?.otRate || 100000);
-        
+
         // Merge cả ot-rate và overtime configs (ot-rate có base rate, overtime có multipliers)
         const overtimeConfig = allSettings['overtime'] || {};
-        const otSettingsForCalc = { 
-          ratePerHour: otRatePerHour, 
+        const otSettingsForCalc = {
+          ratePerHour: otRatePerHour,
           ...otSettings,
           ...overtimeConfig  // weekdayRate, weekendRate, holidayRate
         };
-        
+
         // Dùng hàm calculateOTSalary với hệ số (weekday/weekend/holiday)
         estimatedOTSalary = await attendanceHelper.calculateOTSalary(
-          roundedOvertimeHours, 
+          roundedOvertimeHours,
           otSettingsForCalc,
           attendance.date,  // date
           attendance.isHoliday || false  // isHoliday flag
         );
-        
+
         // Log với giờ OT đã làm tròn (từ calculateOTSalary)
         const roundedOTForSalary = attendanceHelper.roundOvertimeHours(roundedOvertimeHours);
         console.log(`✅ [OT APPROVED] ${employee.name}: ${roundedOvertimeHours}h -> ${roundedOTForSalary}h (đã làm tròn) = ${estimatedOTSalary}đ`);
@@ -2281,7 +2285,7 @@ exports.updateAttendance = async (req, res) => {
         console.log(`⚠️ [NO OT APPROVAL] ${employee.name}: ${roundedOvertimeHours}h OT but no approval`);
       }
     }
-    
+
     // Update the attendance record directly
     attendance.checkIn = { time: checkInDateTime, status: checkInStatus };
     attendance.checkOut = { time: checkOutDateTime, status: checkOutStatus };
@@ -2294,14 +2298,14 @@ exports.updateAttendance = async (req, res) => {
     attendance.estimatedOTSalary = Number(estimatedOTSalary) || 0;
     attendance.is_ot_approved = Boolean(isOTApproved);
     attendance.isManual = true;
-    
+
     await attendance.save();
-    
+
     // Populate employee for response
     await attendance.populate('employee', 'name employeeId position');
-    
+
     console.log(`✅ [ATTENDANCE UPDATED] ${employee.name} - Penalty: ${actualPenalty}, OT: ${estimatedOTSalary}`);
-    
+
     res.status(200).json({
       success: true,
       message: 'Cập nhật giờ làm thành công',
@@ -2321,12 +2325,12 @@ exports.updateAttendance = async (req, res) => {
 exports.deleteAttendance = async (req, res) => {
   try {
     const { id } = req.params;
-    
+
     console.log('=== DELETE ATTENDANCE REQUEST ===');
     console.log('Attendance ID:', id);
-    
+
     const attendance = await Attendance.findById(id);
-    
+
     if (!attendance) {
       console.log('❌ Attendance not found:', id);
       return res.status(404).json({
@@ -2334,11 +2338,11 @@ exports.deleteAttendance = async (req, res) => {
         message: 'Không tìm thấy bản ghi chấm công'
       });
     }
-    
+
     await Attendance.findByIdAndDelete(id);
-    
+
     console.log('✅ Attendance deleted:', id);
-    
+
     res.status(200).json({
       success: true,
       message: 'Đã xóa bản ghi chấm công thành công'
