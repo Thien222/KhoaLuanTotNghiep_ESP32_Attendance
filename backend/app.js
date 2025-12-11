@@ -594,7 +594,7 @@ app.get('/api/enroll', async (req, res) => {
         error: healthError.message,
         esp32Info: {
           ip: esp32Ip,
-          configuredIp: configuredIp,
+          configuredIp: process.env.IP_ESP32 || '192.168.1.101',
           registered: !!esp32Info.ip
         },
         healthCheckUrl: healthCheckUrl
