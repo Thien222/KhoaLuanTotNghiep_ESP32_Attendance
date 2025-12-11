@@ -34,7 +34,7 @@ import {
 } from '@ant-design/icons';
 import axios from 'axios';
 import moment from 'moment';
-import { getAPIUrl, getESP32Url } from '../../utils/configManager';
+import { getAPIUrl, getESP32Url, getLocalAPIUrl } from '../../utils/configManager';
 import { useNavigate } from 'react-router-dom';
 
 const { Title, Text, Paragraph } = Typography;
@@ -43,26 +43,26 @@ const { Step } = Steps;
 
 const DemoMode = () => {
   const navigate = useNavigate();
-  
+
   // Step 1: Chọn nhân viên & ngày
   const [employees, setEmployees] = useState([]);
   const [selectedEmployee, setSelectedEmployee] = useState(null);
   const [selectedDate, setSelectedDate] = useState(moment().subtract(1, 'days'));
-  
+
   // Step 2: Timeline scenarios
   const [currentStep, setCurrentStep] = useState(0);
   const [selectedTimeline, setSelectedTimeline] = useState(null);
-  
+
   // Step 3: ESP32 connection
   const [esp32Connected, setEsp32Connected] = useState(false);
   const [lastAttendance, setLastAttendance] = useState(null);
   const [checkingESP32, setCheckingESP32] = useState(false);
-  
+
   // Loading states
   const [loading, setLoading] = useState(false);
   const [timeMachineActive, setTimeMachineActive] = useState(false);
   const [errorMessage, setErrorMessage] = useState(null);
-  
+
   // Settings state
   const [settings, setSettings] = useState(null);
 
@@ -71,12 +71,12 @@ const DemoMode = () => {
     checkESP32Connection();
     checkTimeMachineStatus();
     fetchSettings();
-    
+
     // Auto-check ESP32 every 10 seconds
     const interval = setInterval(() => {
       checkESP32Connection();
     }, 10000);
-    
+
     return () => clearInterval(interval);
   }, []);
 
@@ -87,7 +87,7 @@ const DemoMode = () => {
       const response = await axios.get(`${API_URL}/employees`, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      
+
       if (response.data.success) {
         setEmployees(response.data.data || []);
       }
@@ -117,7 +117,7 @@ const DemoMode = () => {
       const response = await axios.get(`${API_URL}/timemachine/status`, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      
+
       if (response.data.success) {
         setTimeMachineActive(response.data.data.active);
       }
@@ -130,7 +130,7 @@ const DemoMode = () => {
     try {
       const API_URL = getAPIUrl();
       const token = localStorage.getItem('token');
-      
+
       // Fetch required settings types
       const types = ['working-hours', 'late-policy', 'ot-rate', 'early-checkin'];
       const promises = types.map(type =>
@@ -150,7 +150,7 @@ const DemoMode = () => {
           // Backend returns: { success: true, data: { type, value: config, ... } }
           const config = response.data.data.value || response.data.data.config || response.data.data;
           settingsData[types[index]] = config;
-          
+
           // Debug log
           if (types[index] === 'working-hours') {
             console.log('📊 [DemoMode] Fetched working-hours:', config);
@@ -219,7 +219,7 @@ const DemoMode = () => {
     const gateClose = calculateGateClose(startTime); // e.g., 08:15 if startTime is 08:00
     const otStart = otRate.startTime || '19:00';
     const bufferMinutes = earlyCheckin.bufferMinutes || 60;
-    
+
     // Calculate gate open (startTime - bufferMinutes)
     const gateOpen = addMinutesToTime(startTime, -bufferMinutes); // e.g., 07:00 if startTime is 08:00 and buffer is 60
 
@@ -276,7 +276,7 @@ const DemoMode = () => {
         color: 'error',
         scenario: 'late-2h'
       },
-      
+
       // Checkout scenarios
       {
         id: 'checkout-ontime',
@@ -409,37 +409,51 @@ const DemoMode = () => {
   const handleSelectTimeline = async (timeline) => {
     setSelectedTimeline(timeline);
     setLoading(true);
-    
+
     try {
       // Combine selected date with timeline time
       const targetDateTime = selectedDate.clone()
         .hour(parseInt(timeline.time.split(':')[0]))
         .minute(parseInt(timeline.time.split(':')[1]))
         .second(0);
-      
-      // Set Time Machine
+
+      // Set Time Machine on production server
       const API_URL = getAPIUrl();
       const token = localStorage.getItem('token');
-      
+
       // Option 1: Use scenario endpoint
       const response = await axios.post(
         `${API_URL}/timemachine/scenario`,
         { scenario: timeline.scenario },
         { headers: { Authorization: `Bearer ${token}` } }
       );
-      
+
       if (response.data.success) {
         // Override with custom date
+        const datetimeStr = targetDateTime.format('YYYY-MM-DDTHH:mm:ss');
         await axios.post(
           `${API_URL}/timemachine/set`,
-          { datetime: targetDateTime.toISOString() },
+          { datetime: datetimeStr },
           { headers: { Authorization: `Bearer ${token}` } }
         );
-        
+
+        // 🔧 Sync với local server để ESP32 cũng dùng thời gian ảo
+        try {
+          const LOCAL_API = getLocalAPIUrl();
+          await axios.post(
+            `${LOCAL_API}/timemachine/set`,
+            { datetime: datetimeStr },
+            { headers: { Authorization: `Bearer ${token}` }, timeout: 3000 }
+          );
+          console.log('📡 [DemoMode] Synced Time Machine with local server');
+        } catch (localError) {
+          console.log('⚠️ [DemoMode] Could not sync with local server:', localError.message);
+        }
+
         setTimeMachineActive(true);
         message.success(`✅ Đã set thời gian: ${targetDateTime.format('DD/MM/YYYY HH:mm')}`);
         setCurrentStep(2);
-        
+
         // Check if employee has attendance for this date
         await fetchLastAttendance();
       }
@@ -453,16 +467,16 @@ const DemoMode = () => {
 
   const fetchLastAttendance = async () => {
     if (!selectedEmployee || !selectedDate) return;
-    
+
     try {
       const API_URL = getAPIUrl();
       const token = localStorage.getItem('token');
-      
+
       const response = await axios.get(
         `${API_URL}/attendance?startDate=${selectedDate.format('YYYY-MM-DD')}&endDate=${selectedDate.format('YYYY-MM-DD')}&employeeId=${selectedEmployee._id}`,
         { headers: { Authorization: `Bearer ${token}` } }
       );
-      
+
       if (response.data.success && response.data.data.length > 0) {
         setLastAttendance(response.data.data[0]);
       }
@@ -475,13 +489,26 @@ const DemoMode = () => {
     try {
       const API_URL = getAPIUrl();
       const token = localStorage.getItem('token');
-      
+
       await axios.post(
         `${API_URL}/timemachine/reset`,
         {},
         { headers: { Authorization: `Bearer ${token}` } }
       );
-      
+
+      // 🔧 Sync với local server để ESP32 cũng dùng thời gian thực
+      try {
+        const LOCAL_API = getLocalAPIUrl();
+        await axios.post(
+          `${LOCAL_API}/timemachine/reset`,
+          {},
+          { headers: { Authorization: `Bearer ${token}` }, timeout: 3000 }
+        );
+        console.log('📡 [DemoMode] Synced Time Machine reset with local server');
+      } catch (localError) {
+        console.log('⚠️ [DemoMode] Could not sync reset with local server:', localError.message);
+      }
+
       setTimeMachineActive(false);
       message.success('Đã reset về thời gian thật');
       setSelectedTimeline(null);
@@ -536,7 +563,7 @@ const DemoMode = () => {
 
         {/* Step 0: Select Employee & Date */}
         {currentStep >= 0 && (
-          <Card 
+          <Card
             title={<span><UserOutlined /> Bước 1: Chọn Nhân Viên & Ngày</span>}
             style={{ marginBottom: 24 }}
             extra={selectedEmp && <Tag color="green">{selectedEmp.name}</Tag>}
@@ -564,7 +591,7 @@ const DemoMode = () => {
                   ))}
                 </Select>
               </Col>
-              
+
               <Col span={12}>
                 <div style={{ marginBottom: 8 }}>
                   <Text strong>Chọn Ngày</Text>
@@ -591,8 +618,8 @@ const DemoMode = () => {
                       <Text strong>{selectedEmp.name}</Text>
                       <br />
                       <Text type="secondary">
-                        Mã NV: {selectedEmp.employeeId} | 
-                        Chức vụ: {selectedEmp.position} | 
+                        Mã NV: {selectedEmp.employeeId} |
+                        Chức vụ: {selectedEmp.position} |
                         Lương CB: {selectedEmp.baseSalary?.toLocaleString('vi-VN')} VND
                         {selectedEmp.fingerprintEnrolled && <Tag color="green" style={{ marginLeft: 8 }}>Đã Enroll</Tag>}
                         {!selectedEmp.fingerprintEnrolled && <Tag color="red" style={{ marginLeft: 8 }}>Chưa Enroll</Tag>}
@@ -602,7 +629,7 @@ const DemoMode = () => {
                   type={selectedEmp.fingerprintEnrolled ? "success" : "warning"}
                   style={{ marginTop: 16 }}
                 />
-                
+
                 {!selectedEmp.fingerprintEnrolled && (
                   <Alert
                     message="⚠️ Nhân viên chưa enroll vân tay!"
@@ -633,7 +660,7 @@ const DemoMode = () => {
                     style={{ marginTop: 16 }}
                   />
                 )}
-                
+
                 <Button
                   type="primary"
                   size="large"
@@ -651,7 +678,7 @@ const DemoMode = () => {
 
         {/* Step 1: Select Timeline */}
         {currentStep >= 1 && selectedEmp && (
-          <Card 
+          <Card
             title={<span><ClockCircleOutlined /> Bước 2: Chọn Timeline</span>}
             style={{ marginBottom: 24 }}
             extra={
@@ -671,17 +698,17 @@ const DemoMode = () => {
                   {settings && (
                     <div style={{ marginTop: 8 }}>
                       <Text type="secondary" style={{ fontSize: 12 }}>
-                        ⚙️ Giờ test được tính từ Settings: 
-                        Bắt đầu: <Text strong>{settings['working-hours']?.startTime || '08:00'}</Text>, 
+                        ⚙️ Giờ test được tính từ Settings:
+                        Bắt đầu: <Text strong>{settings['working-hours']?.startTime || '08:00'}</Text>,
                         Kết thúc: <Text strong>{settings['working-hours']?.endTime || '17:00'}</Text>
                       </Text>
                     </div>
                   )}
                 </Col>
                 <Col>
-                  <Button 
-                    size="small" 
-                    icon={<ReloadOutlined />} 
+                  <Button
+                    size="small"
+                    icon={<ReloadOutlined />}
                     onClick={fetchSettings}
                     title="Làm mới Settings"
                   >
@@ -782,7 +809,7 @@ const DemoMode = () => {
 
         {/* Step 2: ESP32 Interaction */}
         {currentStep >= 2 && selectedEmp && selectedTimeline && (
-          <Card 
+          <Card
             title={<span><ThunderboltOutlined /> Bước 3: Tương Tác ESP32</span>}
             style={{ marginBottom: 24 }}
             extra={
@@ -919,8 +946,8 @@ const DemoMode = () => {
                       title="Check-in"
                       value={lastAttendance.checkIn?.time ? moment(lastAttendance.checkIn.time).format('HH:mm') : '--:--'}
                       suffix={
-                        lastAttendance.checkIn?.status === 'on-time' ? 
-                          <Tag color="success">Đúng giờ</Tag> : 
+                        lastAttendance.checkIn?.status === 'on-time' ?
+                          <Tag color="success">Đúng giờ</Tag> :
                           <Tag color="error">Trễ</Tag>
                       }
                     />
@@ -930,11 +957,11 @@ const DemoMode = () => {
                       title="Check-out"
                       value={lastAttendance.checkOut?.time ? moment(lastAttendance.checkOut.time).format('HH:mm') : '--:--'}
                       suffix={
-                        lastAttendance.checkOut?.status === 'overtime' ? 
-                          <Tag color="cyan">OT</Tag> : 
+                        lastAttendance.checkOut?.status === 'overtime' ?
+                          <Tag color="cyan">OT</Tag> :
                           lastAttendance.checkOut?.status === 'early' ?
-                          <Tag color="warning">Sớm</Tag> :
-                          <Tag color="success">Đúng giờ</Tag>
+                            <Tag color="warning">Sớm</Tag> :
+                            <Tag color="success">Đúng giờ</Tag>
                       }
                     />
                   </Col>

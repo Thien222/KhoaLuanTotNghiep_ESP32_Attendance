@@ -2,9 +2,18 @@
  * TIME MACHINE CONTROLLER
  * Cho phép admin set thời gian ảo để test hệ thống
  * ⚠️ CHỈ SỬ DỤNG TRONG MÔI TRƯỜNG TEST!
+ * 
+ * Now uses MongoDB for persistence - changes sync across all server instances
  */
 
-const { getSystemTime, setVirtualTime, resetTime, isTimeMachineActive } = require('../utils/timeMachine');
+const {
+  getSystemTime,
+  setVirtualTime,
+  resetTime,
+  isTimeMachineActive,
+  getTimeStatus,
+  refreshCache
+} = require('../utils/timeMachine');
 const attendanceHelper = require('../utils/attendanceHelper');
 const moment = require('moment-timezone');
 
@@ -16,17 +25,19 @@ moment.tz.setDefault('Asia/Ho_Chi_Minh');
  */
 exports.getStatus = async (req, res) => {
   try {
-    const isActive = isTimeMachineActive();
-    const currentTime = getSystemTime();
+    // Refresh cache để đảm bảo dữ liệu mới nhất
+    await refreshCache();
+
+    const status = await getTimeStatus();
     const realTime = new Date();
 
     res.status(200).json({
       success: true,
       data: {
-        active: isActive,
-        currentTime: currentTime.toISOString(),
-        realTime: realTime.toISOString(),
-        difference: isActive ? moment(currentTime).diff(moment(realTime), 'seconds') : 0,
+        active: status.isActive,
+        currentTime: status.currentTime,
+        realTime: status.realTime,
+        difference: status.isActive ? status.offsetMinutes * 60 : 0,
         timezone: 'Asia/Ho_Chi_Minh'
       }
     });
@@ -66,7 +77,7 @@ exports.setTime = async (req, res) => {
     // Parse datetime - Frontend gửi ISO string (ví dụ: "2025-11-19T10:00:00.000Z")
     // Cần parse và convert về timezone Asia/Ho_Chi_Minh
     let targetTime;
-    
+
     if (typeof datetime === 'string') {
       // Nếu có 'Z' hoặc timezone offset -> parse như UTC rồi convert
       if (datetime.includes('Z') || datetime.match(/[+-]\d{2}:\d{2}$/)) {
@@ -81,7 +92,7 @@ exports.setTime = async (req, res) => {
         message: 'datetime must be a string'
       });
     }
-    
+
     if (!targetTime.isValid()) {
       return res.status(400).json({
         success: false,
@@ -92,14 +103,16 @@ exports.setTime = async (req, res) => {
     // Convert về Date object (UTC internally, nhưng giữ nguyên giá trị thời gian)
     // Ví dụ: 10:00 Asia/Ho_Chi_Minh -> Date object tương ứng
     const targetDate = targetTime.toDate();
-    
+
     console.log(`🕒 [TIME MACHINE] Parsed datetime: ${datetime}`);
     console.log(`🕒 [TIME MACHINE] Target time (Asia/Ho_Chi_Minh): ${targetTime.format('YYYY-MM-DD HH:mm:ss')}`);
     console.log(`🕒 [TIME MACHINE] Target Date object: ${targetDate.toISOString()}`);
-    
-    setVirtualTime(targetDate);
 
     const userIdentifier = req.user.email || req.user.username || req.user.userId || 'Unknown';
+
+    // Set virtual time and persist to MongoDB
+    await setVirtualTime(targetDate, userIdentifier);
+
     console.log(`⏰ [TIME MACHINE] Manager ${userIdentifier} set time to: ${targetTime.format('YYYY-MM-DD HH:mm:ss')}`);
 
     res.status(200).json({
@@ -134,9 +147,11 @@ exports.resetToRealTime = async (req, res) => {
       });
     }
 
-    resetTime();
-
     const userIdentifier = req.user.email || req.user.username || req.user.userId || 'Unknown';
+
+    // Reset time and persist to MongoDB
+    await resetTime();
+
     console.log(`⏰ [TIME MACHINE] Manager ${userIdentifier} reset to real time`);
 
     res.status(200).json({
@@ -183,12 +198,14 @@ exports.fastForward = async (req, res) => {
       });
     }
 
-    const currentTime = getSystemTime();
+    const currentTime = await getSystemTime();
     const newTime = moment(currentTime).add(amount, unit).toDate();
 
-    setVirtualTime(newTime);
-
     const userIdentifier = req.user.email || req.user.username || req.user.userId || 'Unknown';
+
+    // Set virtual time and persist to MongoDB
+    await setVirtualTime(newTime, userIdentifier);
+
     console.log(`⏰ [TIME MACHINE] Manager ${userIdentifier} fast forward ${amount} ${unit}`);
 
     res.status(200).json({
@@ -232,7 +249,7 @@ exports.jumpToScenario = async (req, res) => {
     const checkinGateTimes = attendanceHelper.getCheckinGateTimes(allSettings);
     const checkoutGateTimes = attendanceHelper.getCheckoutGateTimes(allSettings);
     const otTimes = attendanceHelper.getOTTimes(allSettings);
-    
+
     // Parse các giờ từ settings
     const [workStartHour, workStartMin] = workingHours.startTime.split(':').map(Number);
     const [workEndHour, workEndMin] = workingHours.endTime.split(':').map(Number);
@@ -241,7 +258,7 @@ exports.jumpToScenario = async (req, res) => {
     const [checkoutOpenHour, checkoutOpenMin] = checkoutGateTimes.gateOpen.split(':').map(Number);
     const [otStartHour, otStartMin] = otTimes.otStart.split(':').map(Number);
     const [otMinThresholdHour, otMinThresholdMin] = otTimes.otMinThreshold.split(':').map(Number);
-    
+
     // Tính toán các scenario dựa trên settings
     // on-time: 10 phút trước giờ mở cổng check-in
     const onTimeMoment = moment().hour(checkinOpenHour).minute(checkinOpenMin).subtract(10, 'minutes');
@@ -266,55 +283,55 @@ exports.jumpToScenario = async (req, res) => {
 
     const { scenario } = req.body;
     const scenarios = {
-      'on-time': { 
-        hour: onTimeMoment.hour(), 
-        minute: onTimeMoment.minute(), 
-        description: `Đúng giờ (${onTimeMoment.format('HH:mm')})` 
+      'on-time': {
+        hour: onTimeMoment.hour(),
+        minute: onTimeMoment.minute(),
+        description: `Đúng giờ (${onTimeMoment.format('HH:mm')})`
       },
-      'grace-period': { 
-        hour: gracePeriodMoment.hour(), 
-        minute: gracePeriodMoment.minute(), 
-        description: `Trong grace period (${gracePeriodMoment.format('HH:mm')})` 
+      'grace-period': {
+        hour: gracePeriodMoment.hour(),
+        minute: gracePeriodMoment.minute(),
+        description: `Trong grace period (${gracePeriodMoment.format('HH:mm')})`
       },
-      'late-15min': { 
-        hour: late15MinMoment.hour(), 
-        minute: late15MinMoment.minute(), 
-        description: `Muộn 15 phút (${late15MinMoment.format('HH:mm')})` 
+      'late-15min': {
+        hour: late15MinMoment.hour(),
+        minute: late15MinMoment.minute(),
+        description: `Muộn 15 phút (${late15MinMoment.format('HH:mm')})`
       },
-      'late-1h': { 
-        hour: late1hMoment.hour(), 
-        minute: late1hMoment.minute(), 
-        description: `Muộn 1 giờ (${late1hMoment.format('HH:mm')})` 
+      'late-1h': {
+        hour: late1hMoment.hour(),
+        minute: late1hMoment.minute(),
+        description: `Muộn 1 giờ (${late1hMoment.format('HH:mm')})`
       },
-      'late-2h': { 
-        hour: late2hMoment.hour(), 
-        minute: late2hMoment.minute(), 
-        description: `Muộn >= 2h (${late2hMoment.format('HH:mm')})` 
+      'late-2h': {
+        hour: late2hMoment.hour(),
+        minute: late2hMoment.minute(),
+        description: `Muộn >= 2h (${late2hMoment.format('HH:mm')})`
       },
-      'checkout-ontime': { 
-        hour: checkoutOnTimeMoment.hour(), 
-        minute: checkoutOnTimeMoment.minute(), 
-        description: `Checkout đúng giờ (${checkoutOnTimeMoment.format('HH:mm')})` 
+      'checkout-ontime': {
+        hour: checkoutOnTimeMoment.hour(),
+        minute: checkoutOnTimeMoment.minute(),
+        description: `Checkout đúng giờ (${checkoutOnTimeMoment.format('HH:mm')})`
       },
-      'checkout-early': { 
-        hour: checkoutEarlyMoment.hour(), 
-        minute: checkoutEarlyMoment.minute(), 
-        description: `Về sớm (${checkoutEarlyMoment.format('HH:mm')})` 
+      'checkout-early': {
+        hour: checkoutEarlyMoment.hour(),
+        minute: checkoutEarlyMoment.minute(),
+        description: `Về sớm (${checkoutEarlyMoment.format('HH:mm')})`
       },
-      'checkout-no-ot': { 
-        hour: checkoutNoOTMoment.hour(), 
-        minute: checkoutNoOTMoment.minute(), 
-        description: `Checkout ${checkoutNoOTMoment.format('HH:mm')} (không OT)` 
+      'checkout-no-ot': {
+        hour: checkoutNoOTMoment.hour(),
+        minute: checkoutNoOTMoment.minute(),
+        description: `Checkout ${checkoutNoOTMoment.format('HH:mm')} (không OT)`
       },
-      'checkout-ot-1h': { 
-        hour: checkoutOT1hMoment.hour(), 
-        minute: checkoutOT1hMoment.minute(), 
-        description: `Checkout ${checkoutOT1hMoment.format('HH:mm')} (OT 1h)` 
+      'checkout-ot-1h': {
+        hour: checkoutOT1hMoment.hour(),
+        minute: checkoutOT1hMoment.minute(),
+        description: `Checkout ${checkoutOT1hMoment.format('HH:mm')} (OT 1h)`
       },
-      'checkout-ot-3h': { 
-        hour: checkoutOT3hMoment.hour(), 
-        minute: checkoutOT3hMoment.minute(), 
-        description: `Checkout ${checkoutOT3hMoment.format('HH:mm')} (OT 3h)` 
+      'checkout-ot-3h': {
+        hour: checkoutOT3hMoment.hour(),
+        minute: checkoutOT3hMoment.minute(),
+        description: `Checkout ${checkoutOT3hMoment.format('HH:mm')} (OT 3h)`
       }
     };
 
@@ -333,12 +350,14 @@ exports.jumpToScenario = async (req, res) => {
       .minute(config.minute)
       .second(0)
       .millisecond(0);
-    
+
     console.log(`🕒 [TIME MACHINE] Scenario: ${scenario} -> ${now.format('YYYY-MM-DD HH:mm:ss')} (Asia/Ho_Chi_Minh)`);
-    
-    setVirtualTime(now.toDate());
 
     const userIdentifier = req.user.email || req.user.username || req.user.userId || 'Unknown';
+
+    // Set virtual time and persist to MongoDB
+    await setVirtualTime(now.toDate(), userIdentifier);
+
     console.log(`⏰ [TIME MACHINE] Manager ${userIdentifier} jumped to scenario: ${scenario}`);
 
     res.status(200).json({

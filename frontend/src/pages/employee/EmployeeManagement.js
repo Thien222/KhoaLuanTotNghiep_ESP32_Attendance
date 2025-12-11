@@ -1,13 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  Table, 
-  Button, 
-  Space, 
-  Modal, 
-  Form, 
-  Input, 
+import {
+  Table,
+  Button,
+  Space,
+  Modal,
+  Form,
+  Input,
   InputNumber,
-  Select, 
+  Select,
   Popconfirm,
   Typography,
   Card,
@@ -20,10 +20,10 @@ import {
   Switch,
   Divider
 } from 'antd';
-import { 
-  PlusOutlined, 
-  EditOutlined, 
-  DeleteOutlined, 
+import {
+  PlusOutlined,
+  EditOutlined,
+  DeleteOutlined,
   SafetyCertificateOutlined,
   UserOutlined,
   CheckCircleOutlined,
@@ -35,7 +35,7 @@ import {
 } from '@ant-design/icons';
 import { TableActionDropdown } from '../../components/ActionDropdown';
 import axios from 'axios';
-import { getAPIUrl, getConfig } from '../../utils/configManager';
+import { getAPIUrl, getConfig, getLocalAPIUrl } from '../../utils/configManager';
 
 const { Title } = Typography;
 const { Option } = Select;
@@ -102,11 +102,11 @@ const EmployeeManagement = () => {
 
   const handleTerminateSubmit = async (values) => {
     if (!terminatingEmployee) return;
-    
+
     try {
       const API_URL = getAPIUrl();
       const token = localStorage.getItem('token');
-      
+
       const response = await axios.post(
         `${API_URL}/terminated-employees/terminate/${terminatingEmployee._id}`,
         {
@@ -117,7 +117,7 @@ const EmployeeManagement = () => {
           headers: { Authorization: `Bearer ${token}` }
         }
       );
-      
+
       if (response.data.success) {
         message.success('Đã chuyển nhân viên sang danh sách nghỉ việc');
         setTerminateModalVisible(false);
@@ -136,16 +136,16 @@ const EmployeeManagement = () => {
   const handleDelete = async (id) => {
     try {
       console.log('🗑️ Deleting employee:', id);
-      
+
       // Call API to delete employee
       const API_URL = getAPIUrl();
       const response = await axios.delete(`${API_URL}/debug/employees/${id}`);
-      
+
       if (response.data.success) {
         // Remove from local state
         setEmployees(prev => prev.filter(emp => emp._id !== id));
         message.success('Xóa nhân viên thành công');
-        
+
         // Refresh list to ensure consistency
         setTimeout(() => {
           fetchEmployees();
@@ -163,7 +163,7 @@ const EmployeeManagement = () => {
   const handleSubmit = async (values) => {
     try {
       const API_URL = getAPIUrl();
-      
+
       if (editingEmployee) {
         // Update employee - ensure salary is a number
         const salaryValue = values.salary ? Number(values.salary) : editingEmployee.salary || 0;
@@ -182,7 +182,7 @@ const EmployeeManagement = () => {
             Authorization: `Bearer ${localStorage.getItem('token')}`
           }
         });
-        
+
         if (response.data.success) {
           message.success('Cập nhật nhân viên thành công');
           // Refresh employee list
@@ -210,15 +210,15 @@ const EmployeeManagement = () => {
           salary: salaryValue
           // status will be set to 'active' by default in backend
         });
-        
+
         console.log('✅ Response:', response.data);
-        
+
         if (response.data.success) {
           message.success('Thêm nhân viên thành công!');
-          
+
           // Refresh employee list from server to ensure consistency
           await fetchEmployees();
-          
+
           // Don't auto enroll - let user do it manually
           message.info('Nhân viên đã được thêm. Vui lòng click "Đăng ký vân tay" để đăng ký vân tay cho nhân viên này.');
           form.resetFields();
@@ -238,20 +238,20 @@ const EmployeeManagement = () => {
     setEnrolling(true);
     try {
       const API_URL = getAPIUrl();
-      
+
       if (manual) {
         // Manual enrollment (mark as enrolled without ESP32) - for testing
         message.loading('Đang đánh dấu đã đăng ký vân tay...', 2);
-        
+
         const response = await axios.post(`${API_URL}/employees/enroll-fingerprint`, {
           fingerprintId: employee.fingerprintId
         }, {
           headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
         });
-        
+
         if (response.data.success) {
-          setEmployees(prev => prev.map(emp => 
-            emp._id === employee._id 
+          setEmployees(prev => prev.map(emp =>
+            emp._id === employee._id
               ? { ...emp, fingerprintEnrolled: true }
               : emp
           ));
@@ -264,24 +264,29 @@ const EmployeeManagement = () => {
         }
         return;
       }
-      
+
       // ESP32 enrollment (requires ESP32 device)
-      message.loading('Đang gửi lệnh đăng ký vân tay đến ESP32...', 3);
-      
-      const response = await axios.get(`${API_URL}/enroll`, {
-        params: { id: employee.fingerprintId }
+      // Use LOCAL backend for ESP32 operations since ESP32 is on local network
+      const LOCAL_API_URL = getLocalAPIUrl();
+
+      message.loading('Đang gửi lệnh đăng ký vân tay đến ESP32 (qua local server)...', 3);
+      console.log('🔗 Enrolling via LOCAL backend:', LOCAL_API_URL);
+
+      const response = await axios.get(`${LOCAL_API_URL}/enroll`, {
+        params: { id: employee.fingerprintId },
+        timeout: 15000 // 15 seconds timeout
       });
-      
+
       if (response.data.success) {
         // Update employee status immediately
-        setEmployees(prev => prev.map(emp => 
-          emp._id === employee._id 
+        setEmployees(prev => prev.map(emp =>
+          emp._id === employee._id
             ? { ...emp, fingerprintEnrolled: true }
             : emp
         ));
-        
+
         message.success('Đã gửi lệnh đăng ký vân tay! Vui lòng đặt ngón tay lên cảm biến ESP32 và giữ nguyên cho đến khi có thông báo thành công.');
-        
+
         // Refresh data from server after a short delay to ensure consistency
         setTimeout(() => {
           fetchEmployees();
@@ -296,12 +301,12 @@ const EmployeeManagement = () => {
       }
     } catch (error) {
       console.error('Enrollment error:', error);
-      
+
       // Handle specific error cases
       if (error.response) {
         const status = error.response.status;
         const errorData = error.response.data;
-        
+
         if (status === 503) {
           // ESP32 unreachable
           message.error({
@@ -328,10 +333,10 @@ const EmployeeManagement = () => {
   const handleSyncESP32 = async () => {
     try {
       message.loading('Đang đồng bộ dữ liệu với ESP32...', 3);
-      
+
       // Simulate sync delay
       await new Promise(resolve => setTimeout(resolve, 2000));
-      
+
       const enrolledCount = employees.filter(emp => emp.fingerprintEnrolled).length;
       message.success(`Đã đồng bộ ${enrolledCount} nhân viên với ESP32!`);
     } catch (error) {
@@ -403,9 +408,9 @@ const EmployeeManagement = () => {
       render: (salary, record) => {
         // Use baseSalary if available, otherwise use salary
         const salaryValue = record.baseSalary || salary || 0;
-        return new Intl.NumberFormat('vi-VN', { 
-          style: 'currency', 
-          currency: 'VND' 
+        return new Intl.NumberFormat('vi-VN', {
+          style: 'currency',
+          currency: 'VND'
         }).format(salaryValue);
       },
     },
@@ -455,28 +460,28 @@ const EmployeeManagement = () => {
       align: 'center',
       render: (_, record) => {
         const actionItems = [
-          { 
-            key: 'edit', 
-            label: 'Chỉnh sửa', 
+          {
+            key: 'edit',
+            label: 'Chỉnh sửa',
             icon: <EditOutlined />,
             onClick: () => handleEdit(record)
           },
           { type: 'divider' }
         ];
-        
+
         // Fingerprint enrollment actions
         if (!record.fingerprintEnrolled) {
           actionItems.push(
-            { 
-              key: 'esp32', 
-              label: 'Đăng ký vân tay (ESP32)', 
+            {
+              key: 'esp32',
+              label: 'Đăng ký vân tay (ESP32)',
               icon: <SafetyCertificateOutlined />,
               onClick: () => handleEnrollFingerprint(record, false),
               disabled: enrolling
             },
-            { 
-              key: 'mark', 
-              label: 'Đánh dấu đã đăng ký', 
+            {
+              key: 'mark',
+              label: 'Đánh dấu đã đăng ký',
               icon: <CheckCircleOutlined />,
               onClick: () => handleEnrollFingerprint(record, true),
               disabled: enrolling
@@ -490,18 +495,18 @@ const EmployeeManagement = () => {
             disabled: true
           });
         }
-        
+
         actionItems.push(
           { type: 'divider' },
-          { 
-            key: 'terminate', 
-            label: 'Cho nghỉ việc', 
+          {
+            key: 'terminate',
+            label: 'Cho nghỉ việc',
             icon: <UserDeleteOutlined />,
             danger: true,
             onClick: () => handleTerminateEmployee(record)
           }
         );
-        
+
         return <TableActionDropdown items={actionItems} />;
       },
     },
@@ -514,7 +519,7 @@ const EmployeeManagement = () => {
       return employees;
     }
     const searchTerm = searchCode.trim().toUpperCase();
-    const filtered = employees.filter(emp => 
+    const filtered = employees.filter(emp =>
       emp.employeeId && emp.employeeId.toUpperCase().includes(searchTerm)
     );
     console.log('📊 Filtered employees:', filtered.length, 'Search term:', searchTerm);
@@ -538,15 +543,15 @@ const EmployeeManagement = () => {
               allowClear
               style={{ width: 250 }}
             />
-            <Button 
-              type="default" 
+            <Button
+              type="default"
               icon={<SafetyCertificateOutlined />}
               onClick={handleSyncESP32}
             >
               Đồng bộ ESP32
             </Button>
-            <Button 
-              type="primary" 
+            <Button
+              type="primary"
               icon={<PlusOutlined />}
               onClick={handleAdd}
             >
@@ -600,8 +605,8 @@ const EmployeeManagement = () => {
           </Col>
         </Row>
 
-        <div style={{ 
-          width: '100%', 
+        <div style={{
+          width: '100%',
           overflowX: 'auto',
           overflowY: 'hidden',
           maxWidth: '100%'
@@ -611,7 +616,7 @@ const EmployeeManagement = () => {
             dataSource={filteredEmployees}
             loading={loading}
             rowKey="_id"
-            scroll={{ 
+            scroll={{
               x: 'max-content',
               y: undefined // Remove vertical scroll to show all rows
             }}
@@ -621,7 +626,7 @@ const EmployeeManagement = () => {
               showQuickJumper: true,
               showTotal: (total) => `Tổng ${total} nhân viên`,
             }}
-            style={{ 
+            style={{
               width: '100%',
               minWidth: '1400px'
             }}
@@ -794,10 +799,10 @@ const EmployeeManagement = () => {
       >
         {terminatingEmployee && (
           <div>
-            <div style={{ 
-              background: '#fff7e6', 
-              padding: 12, 
-              borderRadius: 8, 
+            <div style={{
+              background: '#fff7e6',
+              padding: 12,
+              borderRadius: 8,
               marginBottom: 16,
               border: '1px solid #ffd591'
             }}>
@@ -805,12 +810,12 @@ const EmployeeManagement = () => {
                 Bạn đang xử lý nghỉ việc cho nhân viên: <strong>{terminatingEmployee.name}</strong> ({terminatingEmployee.employeeId})
               </p>
               <p style={{ margin: '8px 0 0 0', fontSize: 12, color: '#8c8c8c' }}>
-                • Thông tin nhân viên sẽ được lưu vào danh sách nghỉ việc<br/>
-                • Vân tay sẽ bị vô hiệu hóa<br/>
+                • Thông tin nhân viên sẽ được lưu vào danh sách nghỉ việc<br />
+                • Vân tay sẽ bị vô hiệu hóa<br />
                 • Tài khoản đăng nhập sẽ bị xóa
               </p>
             </div>
-            
+
             <Form
               form={terminateForm}
               layout="vertical"
@@ -834,8 +839,8 @@ const EmployeeManagement = () => {
                 name="note"
                 label="Ghi chú thêm"
               >
-                <Input.TextArea 
-                  rows={3} 
+                <Input.TextArea
+                  rows={3}
                   placeholder="Nhập ghi chú thêm về trường hợp nghỉ việc này..."
                 />
               </Form.Item>

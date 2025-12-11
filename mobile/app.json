@@ -4,10 +4,8 @@
     "slug": "hrm-mobile",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "splash": {
-      "image": "./assets/splash.png",
       "resizeMode": "contain",
       "backgroundColor": "#ffffff"
     },
@@ -20,14 +18,14 @@
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
       "package": "com.hrm.mobile"
     },
+    "sdkVersion": "54.0.0",
     "extra": {
       "eas": {
-        "projectId": "hrm-mobile"
+        "projectId": "e76724e0-41b7-4ece-b86e-26b56a0b393c"
       }
     }
   }

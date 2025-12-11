@@ -60,51 +60,59 @@ mongoose.connect(mongoURI, {
   useNewUrlParser: true,
   useUnifiedTopology: true
 })
-.then(async () => {
-  console.log('MongoDB connected successfully');
-  
-  // Load ESP32 IP from database on startup
-  try {
-    const ESP32Config = require('./models/ESP32Config');
-    const latestConfig = await ESP32Config.findOne().sort({ lastSeen: -1 });
-    if (latestConfig && latestConfig.esp32Ip) {
-      esp32Info.ip = latestConfig.esp32Ip;
-      esp32Info.lastSeen = latestConfig.lastSeen?.toISOString() || new Date().toISOString();
-      console.log(`✅ Loaded ESP32 IP from database: ${esp32Info.ip}`);
-    } else {
-      console.log('ℹ️ No ESP32 IP found in database. Will use configured IP or wait for ESP32 registration.');
+  .then(async () => {
+    console.log('MongoDB connected successfully');
+
+    // Load ESP32 IP from database on startup
+    try {
+      const ESP32Config = require('./models/ESP32Config');
+      const latestConfig = await ESP32Config.findOne().sort({ lastSeen: -1 });
+      if (latestConfig && latestConfig.esp32Ip) {
+        esp32Info.ip = latestConfig.esp32Ip;
+        esp32Info.lastSeen = latestConfig.lastSeen?.toISOString() || new Date().toISOString();
+        console.log(`✅ Loaded ESP32 IP from database: ${esp32Info.ip}`);
+      } else {
+        console.log('ℹ️ No ESP32 IP found in database. Will use configured IP or wait for ESP32 registration.');
+      }
+    } catch (error) {
+      console.error('Error loading ESP32 config from database:', error);
     }
-  } catch (error) {
-    console.error('Error loading ESP32 config from database:', error);
-  }
-  
-  // Initialize Auto-Completion Service (Cron Job at 17:00 daily)
-  try {
-    const cron = require('node-cron');
-    const autoCompletionService = require('./services/autoCompletionService');
-    const Settings = require('./models/Settings');
-    
-    // Get work end time from settings (default: 17:00)
-    const workSettings = await Settings.findOne({ type: 'working-hours' });
-    const endTime = workSettings?.config?.endTime || '17:00';
-    const [endHour, endMin] = endTime.split(':').map(Number);
-    
-    // Schedule cron job at work end time (e.g., 17:00)
-    // Format: "minute hour * * *" (minute hour day month weekday)
-    const cronSchedule = `${endMin} ${endHour} * * *`;
-    
-    cron.schedule(cronSchedule, async () => {
-      console.log(`\n🕐 Auto-completion cron triggered at ${new Date().toLocaleString()}`);
-      await autoCompletionService.runAutoCompletion();
-    });
-    
-    console.log(`✅ Auto-completion cron job scheduled at ${endTime} daily (${cronSchedule})`);
-  } catch (error) {
-    console.error('❌ Error initializing auto-completion service:', error);
-    console.error('Note: Run "npm install node-cron" if module not found');
-  }
-})
-.catch(err => console.error('MongoDB connection error:', err));
+
+    // 🕒 Initialize Time Machine from MongoDB
+    try {
+      const { initializeTimeMachine } = require('./utils/timeMachine');
+      await initializeTimeMachine();
+    } catch (error) {
+      console.error('Error initializing Time Machine:', error);
+    }
+
+    // Initialize Auto-Completion Service (Cron Job at 17:00 daily)
+    try {
+      const cron = require('node-cron');
+      const autoCompletionService = require('./services/autoCompletionService');
+      const Settings = require('./models/Settings');
+
+      // Get work end time from settings (default: 17:00)
+      const workSettings = await Settings.findOne({ type: 'working-hours' });
+      const endTime = workSettings?.config?.endTime || '17:00';
+      const [endHour, endMin] = endTime.split(':').map(Number);
+
+      // Schedule cron job at work end time (e.g., 17:00)
+      // Format: "minute hour * * *" (minute hour day month weekday)
+      const cronSchedule = `${endMin} ${endHour} * * *`;
+
+      cron.schedule(cronSchedule, async () => {
+        console.log(`\n🕐 Auto-completion cron triggered at ${new Date().toLocaleString()}`);
+        await autoCompletionService.runAutoCompletion();
+      });
+
+      console.log(`✅ Auto-completion cron job scheduled at ${endTime} daily (${cronSchedule})`);
+    } catch (error) {
+      console.error('❌ Error initializing auto-completion service:', error);
+      console.error('Note: Run "npm install node-cron" if module not found');
+    }
+  })
+  .catch(err => console.error('MongoDB connection error:', err));
 
 // ===== ESP32 state (in-memory) =====
 let esp32Info = {
@@ -117,11 +125,11 @@ const getServerUrl = (req) => {
   // Try to get from request first
   const protocol = req.protocol || 'http';
   const host = req.get('host');
-  
+
   if (host) {
     return `${protocol}://${host}/api`;
   }
-  
+
   // Fallback to environment variable or default
   const serverIP = process.env.IP_MACHINE || 'localhost';
   const serverPort = process.env.PORT || '3000';
@@ -134,7 +142,7 @@ app.post('/esp32-register', async (req, res) => {
     const { ip } = req.body;
     const ESP32Config = require('./models/ESP32Config');
     const serverUrl = getServerUrl(req);
-    
+
     console.log(`=== ESP32 REGISTRATION ===`);
     console.log(`ESP32 registered with IP: ${ip}`);
     console.log(`Server URL: ${serverUrl}`);
@@ -197,7 +205,7 @@ app.get('/api/esp32-config', async (req, res) => {
     const ESP32Config = require('./models/ESP32Config');
     const esp32Ip = req.query.ip || req.headers['x-esp32-ip'];
     const serverUrl = getServerUrl(req);
-    
+
     let config;
     if (esp32Ip) {
       config = await ESP32Config.findOne({ esp32Ip });
@@ -293,7 +301,7 @@ app.get('/api/esp32-configs', async (req, res) => {
   try {
     const ESP32Config = require('./models/ESP32Config');
     const configs = await ESP32Config.find().sort({ lastSeen: -1 });
-    
+
     res.json({
       success: true,
       data: configs
@@ -313,24 +321,24 @@ app.delete('/api/esp32-config/:ip', async (req, res) => {
   try {
     const ESP32Config = require('./models/ESP32Config');
     const { ip } = req.params;
-    
+
     const deleted = await ESP32Config.findOneAndDelete({ esp32Ip: ip });
-    
+
     if (!deleted) {
       return res.status(404).json({
         success: false,
         message: `ESP32 IP ${ip} not found in database`
       });
     }
-    
+
     // Clear in-memory info if it matches
     if (esp32Info.ip === ip) {
       esp32Info.ip = null;
       esp32Info.lastSeen = null;
     }
-    
+
     console.log(`✅ Deleted ESP32 IP from database: ${ip}`);
-    
+
     res.json({
       success: true,
       message: `ESP32 IP ${ip} deleted successfully`,
@@ -351,17 +359,17 @@ app.put('/api/esp32-config', async (req, res) => {
   try {
     const ESP32Config = require('./models/ESP32Config');
     const { oldIp, newIp, serverUrl } = req.body;
-    
+
     if (!oldIp || !newIp) {
       return res.status(400).json({
         success: false,
         message: 'Missing oldIp or newIp'
       });
     }
-    
+
     // Delete old IP if exists
     await ESP32Config.findOneAndDelete({ esp32Ip: oldIp });
-    
+
     // Create new IP config
     const config = await ESP32Config.findOneAndUpdate(
       { esp32Ip: newIp },
@@ -374,15 +382,15 @@ app.put('/api/esp32-config', async (req, res) => {
       },
       { upsert: true, new: true }
     );
-    
+
     // Update in-memory info if it matches
     if (esp32Info.ip === oldIp) {
       esp32Info.ip = newIp;
       esp32Info.lastSeen = new Date().toISOString();
     }
-    
+
     console.log(`✅ Updated ESP32 IP from ${oldIp} to ${newIp}`);
-    
+
     res.json({
       success: true,
       message: `ESP32 IP updated from ${oldIp} to ${newIp}`,
@@ -438,7 +446,7 @@ app.get('/api/esp32-info', async (req, res) => {
   try {
     const ESP32Config = require('./models/ESP32Config');
     const configs = await ESP32Config.find().sort({ lastSeen: -1 });
-    
+
     res.json({
       success: true,
       data: {
@@ -462,7 +470,7 @@ app.post('/api/attendance/fingerprint', async (req, res) => {
   try {
     const { fingerId, action } = req.body;
     console.log('Received fingerprint attendance from ESP32:', { fingerId, action });
-    
+
     // Call attendance controller directly
     const { addAttendance } = require('./controllers/attendanceController');
     await addAttendance(req, res);
@@ -495,7 +503,7 @@ app.use('/api/terminated-employees', terminatedEmployeeRoutes); // Terminated em
 app.use((req, res, next) => {
   if (req.path.startsWith('/api/chat')) {
     // giả lập user để các handler dùng req.user
-    req.user = { _id: 'demo', name: 'Tester', role: 'admin' }; 
+    req.user = { _id: 'demo', name: 'Tester', role: 'admin' };
   }
   next();
 });
@@ -512,7 +520,7 @@ app.get('/api/enroll', async (req, res) => {
   try {
     const { id } = req.query;
     const MAX_FINGERPRINT_ID = 127;
-    
+
     console.log('=== ESP32 ENROLL REQUEST ===');
     console.log('Fingerprint ID:', id);
 
@@ -521,7 +529,7 @@ app.get('/api/enroll', async (req, res) => {
     }
 
     const fingerprintId = parseInt(id);
-    
+
     // Validate fingerprint ID range
     if (fingerprintId > MAX_FINGERPRINT_ID || fingerprintId < 1) {
       return res.status(400).json({
@@ -532,7 +540,7 @@ app.get('/api/enroll', async (req, res) => {
 
     // Try to get ESP32 IP from multiple sources
     let esp32Ip = null;
-    
+
     // 1. First try in-memory (from registration)
     if (esp32Info.ip) {
       esp32Ip = esp32Info.ip;
@@ -551,7 +559,7 @@ app.get('/api/enroll', async (req, res) => {
       } catch (dbError) {
         console.error('Error loading ESP32 IP from database:', dbError);
       }
-      
+
       // 3. Fallback to configured IP
       if (!esp32Ip) {
         esp32Ip = process.env.IP_ESP32 || '192.168.1.101';
@@ -586,7 +594,7 @@ app.get('/api/enroll', async (req, res) => {
         error: healthError.message,
         esp32Info: {
           ip: esp32Ip,
-          configuredIp: configuredIp,
+          configuredIp: process.env.IP_ESP32 || '192.168.1.101',
           registered: !!esp32Info.ip
         },
         healthCheckUrl: healthCheckUrl
@@ -620,7 +628,7 @@ app.get('/api/enroll', async (req, res) => {
 
         const Employee = require('./models/Employee');
         const User = require('./models/User');
-        
+
         console.log(`Looking for employee with fingerprintId: ${fingerprintId}`);
         const updateResult = await Employee.findOneAndUpdate(
           { fingerprintId: parseInt(id) },
@@ -642,22 +650,22 @@ app.get('/api/enroll', async (req, res) => {
         // Check if user account exists
         let userAccount = null;
         let accountPassword = null; // Password to send in email
-        
+
         try {
           userAccount = await User.findOne({ username: updateResult.employeeId });
         } catch (userError) {
           console.error('Error checking user account:', userError);
           // Continue even if user check fails
         }
-        
+
         if (!userAccount) {
           // User account doesn't exist - create new one
           try {
             console.log('📝 Creating user account for:', updateResult.employeeId);
-            
+
             // Generate random password
             accountPassword = Math.random().toString(36).slice(-8);
-            
+
             // Create user account
             userAccount = new User({
               username: updateResult.employeeId,
@@ -666,7 +674,7 @@ app.get('/api/enroll', async (req, res) => {
               employee: updateResult._id,
               isActive: true
             });
-            
+
             await userAccount.save();
             console.log('✅ User account created:', updateResult.employeeId);
           } catch (userCreateError) {
@@ -679,11 +687,11 @@ app.get('/api/enroll', async (req, res) => {
         } else {
           // User account already exists - reset password
           console.log('ℹ️ User account already exists for:', updateResult.employeeId);
-          
+
           try {
             // Generate new random password
             accountPassword = Math.random().toString(36).slice(-8);
-            
+
             // Update password (will be hashed by pre-save hook)
             userAccount.password = accountPassword;
             await userAccount.save();
@@ -703,12 +711,12 @@ app.get('/api/enroll', async (req, res) => {
           accountPassword = Math.random().toString(36).slice(-8);
           console.log('⚠️ Generated fallback password for email');
         }
-        
+
         if (updateResult.email) {
           try {
             const { sendEnrollmentNotification } = require('./services/emailService');
             console.log('📧 Sending enrollment notification with login credentials to:', updateResult.email);
-            
+
             const emailResult = await sendEnrollmentNotification({
               name: updateResult.name,
               email: updateResult.email,
@@ -719,7 +727,7 @@ app.get('/api/enroll', async (req, res) => {
               position: updateResult.position,
               department: updateResult.department
             });
-            
+
             if (emailResult.success) {
               console.log('✅ Enrollment notification with credentials sent successfully!');
             } else {
@@ -778,7 +786,7 @@ app.post('/api/fingerprint', async (req, res) => {
   try {
     const { fingerId, action, template } = req.body;
     console.log('Received fingerprint data from ESP32:', { fingerId, action, hasTemplate: !!template });
-    
+
     // If this is a template upload (enrollment), update fingerprintEnrolled status
     if (template && fingerId) {
       console.log('Template received for fingerprint ID:', fingerId);
@@ -788,7 +796,7 @@ app.post('/api/fingerprint', async (req, res) => {
         { fingerprintEnrolled: true },
         { new: true }
       );
-      
+
       if (updateResult) {
         console.log('Updated employee fingerprint status:', updateResult.name, 'enrolled:', updateResult.fingerprintEnrolled);
         return res.json({
@@ -808,13 +816,13 @@ app.post('/api/fingerprint', async (req, res) => {
         });
       }
     }
-    
+
     // Forward the request to attendance handler with correct format
     const attendanceData = {
       fingerId: fingerId,
       action: action || 'auto'
     };
-    
+
     // Call attendance controller directly
     const { addAttendance } = require('./controllers/attendanceController');
     req.body = attendanceData;
@@ -836,7 +844,7 @@ app.post('/api/attendance/add', async (req, res) => {
     console.log('=== ESP32 ATTENDANCE REQUEST ===');
     console.log('Received ESP32 attendance request:', { fingerId, action });
     console.log('Full request body:', req.body);
-    
+
     // Call attendance controller directly
     const { addAttendance } = require('./controllers/attendanceController');
     await addAttendance(req, res);
@@ -856,19 +864,19 @@ app.post('/api/esp32-attendance', async (req, res) => {
     const { fingerId, action } = req.body;
     console.log('=== ESP32 SIMPLIFIED ATTENDANCE ===');
     console.log('FingerId:', fingerId, 'Action:', action);
-    
+
     const { addAttendance } = require('./controllers/attendanceController');
-    
+
     // Create a mock response handler to capture the result
     let responseData = null;
     const originalJson = res.json;
-    res.json = function(data) {
+    res.json = function (data) {
       responseData = data;
       return originalJson.call(this, data);
     };
-    
+
     await addAttendance(req, res);
-    
+
     // Send simplified response for ESP32
     if (responseData) {
       const simplifiedResponse = {
@@ -877,7 +885,7 @@ app.post('/api/esp32-attendance', async (req, res) => {
         message: responseData.message,
         status: responseData.status || 'unknown'
       };
-      
+
       console.log('Sending simplified response to ESP32:', simplifiedResponse);
       res.json(simplifiedResponse);
     }
@@ -899,7 +907,7 @@ app.get('/api/test', (req, res) => {
 
 // Debug route for ESP32 status
 app.get('/api/esp32-status', (req, res) => {
-  res.json({ 
+  res.json({
     message: 'ESP32 status check',
     timestamp: new Date().toISOString(),
     server: 'running'
@@ -935,7 +943,7 @@ app.post('/api/test-attendance', async (req, res) => {
     console.log('=== MANUAL ATTENDANCE TEST ===');
     console.log('FingerId:', fingerId);
     console.log('Action:', action);
-    
+
     const { addAttendance } = require('./controllers/attendanceController');
     req.body = { fingerId, action };
     await addAttendance(req, res);
@@ -975,21 +983,21 @@ app.delete('/api/security/clear-unenrolled-attendance', async (req, res) => {
   try {
     const Attendance = require('./models/Attendance');
     const Employee = require('./models/Employee');
-    
+
     // Find all employees who are not enrolled
     const unenrolledEmployees = await Employee.find({ fingerprintEnrolled: false });
     const unenrolledIds = unenrolledEmployees.map(emp => emp._id);
-    
+
     console.log('Found unenrolled employees:', unenrolledEmployees.length);
     console.log('Unenrolled employee IDs:', unenrolledIds);
-    
+
     // Delete attendance records for unenrolled employees
-    const result = await Attendance.deleteMany({ 
-      employee: { $in: unenrolledIds } 
+    const result = await Attendance.deleteMany({
+      employee: { $in: unenrolledIds }
     });
-    
+
     console.log('Cleared attendance for unenrolled employees:', result.deletedCount);
-    
+
     res.json({
       success: true,
       message: `Cleared ${result.deletedCount} attendance records for unenrolled employees`,
@@ -1012,28 +1020,28 @@ app.post('/api/debug/fix-salary/:employeeId', async (req, res) => {
     const Employee = require('./models/Employee');
     const { employeeId } = req.params;
     const { salary } = req.body;
-    
+
     if (!salary || isNaN(Number(salary))) {
       return res.status(400).json({
         success: false,
         message: 'Lương không hợp lệ'
       });
     }
-    
+
     const parsedSalary = Number(salary);
     const employee = await Employee.findOne({ employeeId });
-    
+
     if (!employee) {
       return res.status(404).json({
         success: false,
         message: 'Không tìm thấy nhân viên'
       });
     }
-    
+
     employee.salary = parsedSalary;
     employee.baseSalary = parsedSalary;
     await employee.save();
-    
+
     res.json({
       success: true,
       message: `Đã cập nhật lương cho ${employee.name} thành ${parsedSalary.toLocaleString('vi-VN')} VND`,
@@ -1054,10 +1062,10 @@ app.get('/api/debug/employees', async (req, res) => {
   try {
     const Employee = require('./models/Employee');
     const User = require('./models/User');
-    
+
     // Include baseSalary in the select to ensure it's returned
     const employees = await Employee.find({}, 'name employeeId fingerprintId fingerprintEnrolled position department email phone status contractType salary baseSalary profileCompleted').lean();
-    
+
     // Lookup user roles for each employee
     const employeesWithRole = await Promise.all(employees.map(async (emp) => {
       const user = await User.findOne({ employee: emp._id }, 'role').lean();
@@ -1066,11 +1074,11 @@ app.get('/api/debug/employees', async (req, res) => {
         userRole: user?.role || 'employee'
       };
     }));
-    
-    console.log('All employees:', employeesWithRole.map(emp => ({ 
-      name: emp.name, 
-      employeeId: emp.employeeId, 
-      salary: emp.salary, 
+
+    console.log('All employees:', employeesWithRole.map(emp => ({
+      name: emp.name,
+      employeeId: emp.employeeId,
+      salary: emp.salary,
       baseSalary: emp.baseSalary,
       userRole: emp.userRole
     })));
@@ -1095,9 +1103,9 @@ app.delete('/api/debug/employees/:id', async (req, res) => {
     const User = require('./models/User');
     const Attendance = require('./models/Attendance');
     const { id } = req.params;
-    
+
     console.log('🗑️ Deleting employee:', id);
-    
+
     // Find employee first
     const employee = await Employee.findById(id);
     if (!employee) {
@@ -1106,17 +1114,17 @@ app.delete('/api/debug/employees/:id', async (req, res) => {
         message: 'Nhân viên không tồn tại'
       });
     }
-    
+
     console.log('📋 Employee to delete:', {
       name: employee.name,
       employeeId: employee.employeeId,
       email: employee.email,
       fingerprintId: employee.fingerprintId
     });
-    
+
     // Delete associated user accounts (by username OR email)
     const deleteUserPromises = [];
-    
+
     if (employee.employeeId) {
       deleteUserPromises.push(
         User.findOneAndDelete({ username: employee.employeeId }).then(result => {
@@ -1124,7 +1132,7 @@ app.delete('/api/debug/employees/:id', async (req, res) => {
         })
       );
     }
-    
+
     if (employee.email) {
       deleteUserPromises.push(
         User.findOneAndDelete({ email: employee.email }).then(result => {
@@ -1132,7 +1140,7 @@ app.delete('/api/debug/employees/:id', async (req, res) => {
         })
       );
     }
-    
+
     // Also delete by employee reference
     if (employee._id) {
       deleteUserPromises.push(
@@ -1141,17 +1149,17 @@ app.delete('/api/debug/employees/:id', async (req, res) => {
         })
       );
     }
-    
+
     await Promise.all(deleteUserPromises);
-    
+
     // Delete attendance records for this employee
     const attendanceResult = await Attendance.deleteMany({ employee: employee._id });
     console.log('✅ Deleted attendance records:', attendanceResult.deletedCount);
-    
+
     // Delete employee
     await Employee.findByIdAndDelete(id);
     console.log('✅ Employee deleted successfully:', id);
-    
+
     res.json({
       success: true,
       message: 'Xóa nhân viên thành công',
@@ -1177,9 +1185,9 @@ app.post('/api/debug/employees', async (req, res) => {
     const Employee = require('./models/Employee');
     const User = require('./models/User');
     const { name, position, department, email, phone, fingerprintId, contractType, salary: salaryRaw, createUserAccount, userRole } = req.body;
-    
+
     console.log('📝 Creating employee with data:', req.body);
-    
+
     // Validate required fields
     if (!name) {
       return res.status(400).json({
@@ -1187,37 +1195,37 @@ app.post('/api/debug/employees', async (req, res) => {
         message: 'Tên nhân viên là bắt buộc'
       });
     }
-    
+
     if (!position) {
       return res.status(400).json({
         success: false,
         message: 'Chức vụ là bắt buộc'
       });
     }
-    
+
     if (!department) {
       return res.status(400).json({
         success: false,
         message: 'Phòng ban là bắt buộc'
       });
     }
-    
+
     if (!email) {
       return res.status(400).json({
         success: false,
         message: 'Email là bắt buộc'
       });
     }
-    
+
     if (!phone) {
       return res.status(400).json({
         success: false,
         message: 'Số điện thoại là bắt buộc'
       });
     }
-    
+
     const normalizedEmail = email.toLowerCase().trim();
-    
+
     // Check if employee with this email already exists
     const existingEmployee = await Employee.findOne({ email: normalizedEmail });
     if (existingEmployee) {
@@ -1231,19 +1239,19 @@ app.post('/api/debug/employees', async (req, res) => {
         }
       });
     }
-    
+
     // Clean up orphan user accounts with this email (if any)
     // This handles the case where employee was deleted but user account remains
-    const orphanUsers = await User.find({ 
+    const orphanUsers = await User.find({
       $or: [
         { email: normalizedEmail },
         { email: new RegExp(`^${normalizedEmail}$`, 'i') }
       ]
     });
-    
+
     if (orphanUsers.length > 0) {
       console.log(`🧹 Found ${orphanUsers.length} orphan user account(s) with email ${normalizedEmail}, cleaning up...`);
-      await User.deleteMany({ 
+      await User.deleteMany({
         $or: [
           { email: normalizedEmail },
           { email: new RegExp(`^${normalizedEmail}$`, 'i') }
@@ -1251,11 +1259,11 @@ app.post('/api/debug/employees', async (req, res) => {
       });
       console.log('✅ Cleaned up orphan user accounts');
     }
-    
+
     // Generate employee ID (find next available ID)
     // Get all existing employeeIds
     const existingEmployeeIds = await Employee.distinct('employeeId');
-    
+
     // Find next available employeeId
     let employeeId = null;
     for (let i = 1; i <= 999; i++) {
@@ -1265,16 +1273,16 @@ app.post('/api/debug/employees', async (req, res) => {
         break;
       }
     }
-    
+
     if (!employeeId) {
       return res.status(400).json({
         success: false,
         message: 'Không thể tạo employeeId mới. Đã đạt giới hạn 999 nhân viên.'
       });
     }
-    
+
     console.log('Generated employeeId:', employeeId);
-    
+
     // Get next fingerprint ID if not provided
     // ESP32 fingerprint scanner typically supports IDs 1-127 or 1-255
     // Limit to 1-127 for safety
@@ -1282,30 +1290,30 @@ app.post('/api/debug/employees', async (req, res) => {
     let finalFingerprintId = fingerprintId;
     if (!finalFingerprintId) {
       // Find the highest fingerprint ID that's less than MAX_FINGERPRINT_ID
-      const lastEmployee = await Employee.findOne({ 
-        fingerprintId: { $lt: MAX_FINGERPRINT_ID } 
+      const lastEmployee = await Employee.findOne({
+        fingerprintId: { $lt: MAX_FINGERPRINT_ID }
       }).sort({ fingerprintId: -1 });
-      
+
       if (lastEmployee && lastEmployee.fingerprintId) {
         finalFingerprintId = lastEmployee.fingerprintId + 1;
       } else {
         finalFingerprintId = 1; // Start from 1
       }
-      
+
       // If we've reached the max, find a gap or return error
       if (finalFingerprintId >= MAX_FINGERPRINT_ID) {
         // Find any available ID below max
         const usedIds = await Employee.distinct('fingerprintId', {
           fingerprintId: { $lt: MAX_FINGERPRINT_ID, $ne: null }
         });
-        
+
         for (let i = 1; i < MAX_FINGERPRINT_ID; i++) {
           if (!usedIds.includes(i)) {
             finalFingerprintId = i;
             break;
           }
         }
-        
+
         if (finalFingerprintId >= MAX_FINGERPRINT_ID) {
           return res.status(400).json({
             success: false,
@@ -1314,7 +1322,7 @@ app.post('/api/debug/employees', async (req, res) => {
         }
       }
     }
-    
+
     // Check if fingerprint ID is already in use
     if (finalFingerprintId) {
       const existingFingerprint = await Employee.findOne({ fingerprintId: finalFingerprintId });
@@ -1325,7 +1333,7 @@ app.post('/api/debug/employees', async (req, res) => {
         });
       }
     }
-    
+
     // Validate fingerprint ID range
     if (finalFingerprintId > MAX_FINGERPRINT_ID || finalFingerprintId < 1) {
       return res.status(400).json({
@@ -1333,7 +1341,7 @@ app.post('/api/debug/employees', async (req, res) => {
         message: `Fingerprint ID phải trong khoảng 1-${MAX_FINGERPRINT_ID}. Giá trị hiện tại: ${finalFingerprintId}`
       });
     }
-    
+
     // Parse salary to number - handle both string and number input
     let parsedSalary = 0;
     if (salaryRaw !== undefined && salaryRaw !== null && salaryRaw !== '') {
@@ -1345,9 +1353,9 @@ app.post('/api/debug/employees', async (req, res) => {
         });
       }
     }
-    
+
     console.log('💰 Salary parsing:', { raw: salaryRaw, parsed: parsedSalary });
-    
+
     const newEmployee = new Employee({
       name,
       position,
@@ -1362,11 +1370,11 @@ app.post('/api/debug/employees', async (req, res) => {
       baseSalary: parsedSalary, // Set baseSalary explicitly to ensure it's saved
       status: 'active' // Always set to active by default
     });
-    
+
     console.log('💾 Saving employee:', newEmployee);
     const savedEmployee = await newEmployee.save();
     console.log('✅ Employee created successfully:', savedEmployee.employeeId);
-    
+
     // Create user account if requested
     let userAccount = null;
     if (createUserAccount) {
@@ -1374,15 +1382,15 @@ app.post('/api/debug/employees', async (req, res) => {
         // Validate role
         const validRoles = ['employee', 'accountant', 'manager'];
         const finalRole = validRoles.includes(userRole) ? userRole : 'employee';
-        
+
         // Check if user account already exists with this email
-        const existingUser = await User.findOne({ 
+        const existingUser = await User.findOne({
           $or: [
             { email: normalizedEmail },
             { username: employeeId }
           ]
         });
-        
+
         if (existingUser) {
           console.log('⚠️ User account already exists for this employee');
         } else {
@@ -1396,7 +1404,7 @@ app.post('/api/debug/employees', async (req, res) => {
             employee: savedEmployee._id, // Link to employee
             isActive: true
           });
-          
+
           await userAccount.save();
           console.log(`✅ User account created with role: ${finalRole}`);
         }
@@ -1406,7 +1414,7 @@ app.post('/api/debug/employees', async (req, res) => {
         // Just log the error
       }
     }
-    
+
     res.json({
       success: true,
       message: 'Thêm nhân viên thành công',
@@ -1423,14 +1431,14 @@ app.post('/api/debug/employees', async (req, res) => {
     });
   } catch (error) {
     console.error('❌ Error creating employee:', error);
-    
+
     // Handle duplicate key error
     if (error.code === 11000) {
       const duplicateField = Object.keys(error.keyPattern)[0];
       const duplicateValue = error.keyValue[duplicateField];
-      
+
       let message = `${duplicateField === 'email' ? 'Email' : duplicateField === 'employeeId' ? 'Mã nhân viên' : duplicateField === 'fingerprintId' ? 'Fingerprint ID' : duplicateField} đã tồn tại`;
-      
+
       if (duplicateField === 'email') {
         message += `. Có thể có user account cũ với email này. Đang tự động cleanup...`;
         // Try to clean up and retry
@@ -1448,7 +1456,7 @@ app.post('/api/debug/employees', async (req, res) => {
           console.error('Error during cleanup:', cleanupError);
         }
       }
-      
+
       return res.status(400).json({
         success: false,
         message: message,
@@ -1457,7 +1465,7 @@ app.post('/api/debug/employees', async (req, res) => {
         duplicateValue
       });
     }
-    
+
     res.status(500).json({
       success: false,
       message: 'Lỗi khi tạo nhân viên',
@@ -1473,23 +1481,23 @@ app.get('/api/debug/attendance', async (req, res) => {
     const Employee = require('./models/Employee');
     const now = new Date();
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    
+
     console.log('Debug - Current time:', now);
     console.log('Debug - Today date:', today);
-    
+
     // Check employees first
     const employees = await Employee.find({}).limit(5);
     console.log('Debug - Employees count:', employees.length);
     console.log('Debug - First employee:', employees[0]);
-    
+
     const attendance = await Attendance.find({})
       .populate('employee', 'name employeeId')
       .sort({ createdAt: -1 })
       .limit(10);
-    
+
     console.log('Debug - Found records:', attendance.length);
     console.log('Debug - First record employee:', attendance[0]?.employee);
-    
+
     res.json({
       success: true,
       data: {
@@ -1516,9 +1524,9 @@ app.get('/api/security/check-enrollment/:fingerprintId', async (req, res) => {
   try {
     const { fingerprintId } = req.params;
     const Employee = require('./models/Employee');
-    
+
     const employee = await Employee.findOne({ fingerprintId: parseInt(fingerprintId) });
-    
+
     if (!employee) {
       return res.status(404).json({
         success: false,
@@ -1526,7 +1534,7 @@ app.get('/api/security/check-enrollment/:fingerprintId', async (req, res) => {
         fingerprintId: fingerprintId
       });
     }
-    
+
     res.json({
       success: true,
       data: {
@@ -1553,7 +1561,7 @@ app.post('/api/esp32-enroll', async (req, res) => {
     const { fingerId } = req.body;
     console.log('=== ESP32 ENROLL REQUEST ===');
     console.log('FingerId:', fingerId);
-    
+
     const { enrollFingerprint } = require('./controllers/employeeController');
     await enrollFingerprint(req, res);
   } catch (error) {
@@ -1586,6 +1594,22 @@ server.listen(PORT, '0.0.0.0', () => {
   const serverIP = process.env.IP_MACHINE || 'localhost';
   console.log(`Server accessible at: http://${serverIP}:${PORT}`);
   console.log(`Socket.IO initialized and ready for connections`);
+
+  // Initialize Keep-Alive Service (Production only)
+  // This prevents Render Free tier from sleeping
+  try {
+    const keepAliveService = require('./services/keepAliveService');
+
+    // Determine the backend URL to ping
+    let backendUrl;
+    if (process.env.NODE_ENV === 'production') {
+      // In production, ping the deployed URL
+      backendUrl = process.env.BACKEND_URL || `https://${process.env.RENDER_EXTERNAL_HOSTNAME}` || `http://${serverIP}:${PORT}`;
+      keepAliveService.init(backendUrl);
+    }
+  } catch (error) {
+    console.warn('⚠️  Keep-alive service not initialized:', error.message);
+  }
 });
 
 

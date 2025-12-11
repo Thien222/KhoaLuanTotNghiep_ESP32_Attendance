@@ -491,7 +491,7 @@ int validateAttendanceTime(bool isCheckIn)
 }
 
 // ================== BACKEND URL (DYNAMIC - Tự động lấy từ backend) ==================
-const char *DEFAULT_SERVER_URL = "http://172.20.10.7:3000/api"; // Fallback only
+const char *DEFAULT_SERVER_URL = "http://172.20.10.7:3000/api"; // Fallback - Updated to current local server
 String serverUrl = DEFAULT_SERVER_URL;
 String fingerprintEndpoint = serverUrl + "/fingerprint";
 String attendanceEndpoint = serverUrl + "/attendance/add";
