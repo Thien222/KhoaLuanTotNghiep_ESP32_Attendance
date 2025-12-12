@@ -1,7 +1,15 @@
 const nodemailer = require('nodemailer');
 
-// Create email transporter
+// Singleton transporter to reuse connection
+let cachedTransporter = null;
+
+// Create email transporter with retry logic
 const createTransporter = () => {
+  if (cachedTransporter) {
+    console.log('📧 Using cached transporter');
+    return cachedTransporter;
+  }
+
   const emailUser = process.env.EMAIL_USER;
   const emailPassword = process.env.EMAIL_APP_PASSWORD;
 
@@ -17,10 +25,14 @@ const createTransporter = () => {
     throw new Error('Email configuration missing. Set EMAIL_USER and EMAIL_APP_PASSWORD.');
   }
 
-  const transporter = nodemailer.createTransport({
+  // Create transporter with connection pooling and increased timeouts
+  cachedTransporter = nodemailer.createTransport({
     host: 'smtp.gmail.com',
     port: 465,
     secure: true,
+    pool: true, // Use connection pooling
+    maxConnections: 3,
+    maxMessages: 100,
     auth: {
       user: emailUser,
       pass: emailPassword
@@ -28,24 +40,64 @@ const createTransporter = () => {
     tls: {
       rejectUnauthorized: false
     },
-    connectionTimeout: 30000,
-    greetingTimeout: 30000,
-    socketTimeout: 30000
+    connectionTimeout: 60000, // 60 seconds
+    greetingTimeout: 60000,   // 60 seconds  
+    socketTimeout: 60000,     // 60 seconds
+    debug: true,  // Enable debug output
+    logger: true  // Log to console
   });
 
-  return transporter;
+  console.log('📧 New transporter created with pooling');
+  return cachedTransporter;
+};
+
+// Send email with retry logic
+const sendEmailWithRetry = async (mailOptions, maxRetries = 3) => {
+  let lastError = null;
+
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      console.log(`📧 [Attempt ${attempt}/${maxRetries}] Sending email to: ${mailOptions.to}`);
+
+      const transporter = createTransporter();
+      const info = await transporter.sendMail(mailOptions);
+
+      console.log(`✅ [Attempt ${attempt}] Email sent successfully!`);
+      console.log('📧 Message ID:', info.messageId);
+      console.log('📧 Response:', info.response);
+
+      return { success: true, messageId: info.messageId, attempt };
+
+    } catch (error) {
+      lastError = error;
+      console.error(`❌ [Attempt ${attempt}/${maxRetries}] Email error:`, error.message);
+      console.error('❌ Error code:', error.code);
+
+      // Reset transporter on connection errors
+      if (error.code === 'ETIMEDOUT' || error.code === 'ECONNECTION' || error.code === 'ESOCKET') {
+        console.log('🔄 Resetting transporter due to connection error...');
+        cachedTransporter = null;
+      }
+
+      if (attempt < maxRetries) {
+        const delay = attempt * 2000; // 2s, 4s, 6s...
+        console.log(`⏳ Waiting ${delay}ms before retry...`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
+    }
+  }
+
+  console.error('❌ All email attempts failed!');
+  return { success: false, error: lastError?.message || 'Unknown error', attempts: maxRetries };
 };
 
 // Send enrollment notification
 exports.sendEnrollmentNotification = async (employeeData) => {
-  try {
-    console.log('========== EMAIL SERVICE START ==========');
-    console.log('📧 sendEnrollmentNotification called');
-    console.log('📧 Employee data:', JSON.stringify(employeeData, null, 2));
-    
-    const transporter = createTransporter();
-    console.log('✅ Transporter created');
+  console.log('========== EMAIL SERVICE START ==========');
+  console.log('📧 sendEnrollmentNotification called');
+  console.log('📧 Employee data:', JSON.stringify(employeeData, null, 2));
 
+  try {
     const htmlContent = `
       <!DOCTYPE html>
       <html>
@@ -129,22 +181,14 @@ exports.sendEnrollmentNotification = async (employeeData) => {
       html: htmlContent
     };
 
-    console.log('📧 Sending email to:', employeeData.email);
-    console.log('📧 From:', mailOptions.from);
-    
-    const info = await transporter.sendMail(mailOptions);
-    
-    console.log('✅ Email sent successfully!');
-    console.log('📧 Message ID:', info.messageId);
-    console.log('📧 Response:', info.response);
-    console.log('========== EMAIL SERVICE END (SUCCESS) ==========');
-    
-    return { success: true, messageId: info.messageId };
-    
+    const result = await sendEmailWithRetry(mailOptions, 3);
+
+    console.log('========== EMAIL SERVICE END ==========');
+    return result;
+
   } catch (error) {
     console.error('========== EMAIL SERVICE ERROR ==========');
     console.error('❌ Error:', error.message);
-    console.error('❌ Code:', error.code);
     console.error('❌ Stack:', error.stack);
     console.error('========== EMAIL SERVICE END (FAILED) ==========');
     return { success: false, error: error.message };
@@ -153,12 +197,10 @@ exports.sendEnrollmentNotification = async (employeeData) => {
 
 // Send admin notification
 exports.sendAdminNotification = async (notificationData) => {
-  try {
-    console.log('========== ADMIN NOTIFICATION START ==========');
-    console.log('📧 Sending admin notification');
-    
-    const transporter = createTransporter();
+  console.log('========== ADMIN NOTIFICATION START ==========');
+  console.log('📧 Sending admin notification');
 
+  try {
     const htmlContent = `
       <!DOCTYPE html>
       <html>
@@ -182,16 +224,10 @@ exports.sendAdminNotification = async (notificationData) => {
       html: htmlContent
     };
 
-    console.log('📧 Sending to admin:', notificationData.adminEmail);
-    
-    const info = await transporter.sendMail(mailOptions);
-    
-    console.log('✅ Admin notification sent!');
-    console.log('📧 Message ID:', info.messageId);
+    const result = await sendEmailWithRetry(mailOptions, 3);
     console.log('========== ADMIN NOTIFICATION END ==========');
-    
-    return { success: true, messageId: info.messageId };
-    
+    return result;
+
   } catch (error) {
     console.error('❌ Admin notification error:', error.message);
     return { success: false, error: error.message };
@@ -207,16 +243,35 @@ exports.sendWelcomeEmail = async (employeeData, credentials) => {
   });
 };
 
-// Test email config
+// Test email config with detailed error
 exports.testEmailConfig = async () => {
   try {
     console.log('📧 Testing email configuration...');
     const transporter = createTransporter();
+
+    console.log('📧 Verifying SMTP connection...');
     await transporter.verify();
-    console.log('✅ Email config is valid');
-    return { success: true };
+    console.log('✅ SMTP connection verified!');
+
+    return { success: true, message: 'Email configuration is valid' };
   } catch (error) {
     console.error('❌ Email config error:', error.message);
-    return { success: false, error: error.message };
+    console.error('❌ Error code:', error.code);
+    console.error('❌ Full error:', error);
+    return {
+      success: false,
+      error: error.message,
+      code: error.code,
+      details: error.response || 'No additional details'
+    };
+  }
+};
+
+// Force close transporter (use when shutting down)
+exports.closeTransporter = () => {
+  if (cachedTransporter) {
+    cachedTransporter.close();
+    cachedTransporter = null;
+    console.log('📧 Transporter closed');
   }
 };
