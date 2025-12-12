@@ -792,7 +792,7 @@ bool httpPostJson(const String &url, const String &body, int &outCode, String &o
   if (url.startsWith("https://"))
   {
     secureClient.setInsecure(); // Skip certificate verification
-    secureClient.setTimeout(30000); // 30 seconds for Render
+    secureClient.setTimeout(60000); // 60 seconds for Render cold start (can take 30-60s)
     okBegin = http.begin(secureClient, url);
     Serial.println("Using HTTPS (WiFiClientSecure)");
   }
@@ -809,7 +809,7 @@ bool httpPostJson(const String &url, const String &body, int &outCode, String &o
   }
   
   http.setReuse(false);
-  http.setTimeout(30000); // 30 seconds timeout
+  http.setTimeout(60000); // 60 seconds timeout for Render cold start
   http.addHeader("Content-Type", "application/json");
   
   Serial.printf("Sending body: %s\n", body.c_str());

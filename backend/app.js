@@ -375,7 +375,7 @@ app.post('/api/esp32/commands/complete', async (req, res) => {
           { fingerprintEnrolled: true }
         );
         console.log(`✅ Employee with fingerprintId ${fingerprintId} marked as enrolled`);
-        
+
         // Send enrollment email notification
         console.log('📧 Sending enrollment email notification...');
         try {
@@ -411,7 +411,7 @@ app.post('/api/esp32/commands/complete', async (req, res) => {
         { fingerprintEnrolled: true }
       );
       console.log(`✅ Employee with fingerprintId ${command.fingerprintId} marked as enrolled`);
-      
+
       // Send enrollment email notification
       console.log('📧 Sending enrollment email notification...');
       try {
@@ -1062,6 +1062,7 @@ app.get('/api/enroll', async (req, res) => {
 });
 
 // Special route for ESP32 fingerprint device
+// OPTIMIZED: Send response immediately, then send email in background to avoid ESP32 timeout
 app.post('/api/fingerprint', async (req, res) => {
   try {
     const { fingerId, action, template } = req.body;
@@ -1079,18 +1080,9 @@ app.post('/api/fingerprint', async (req, res) => {
 
       if (updateResult) {
         console.log('Updated employee fingerprint status:', updateResult.name, 'enrolled:', updateResult.fingerprintEnrolled);
-        
-        // Send enrollment email notification
-        console.log('📧 Sending enrollment email notification...');
-        try {
-          const { sendEnrollmentEmailNotification } = require('./controllers/employeeController');
-          await sendEnrollmentEmailNotification(updateResult);
-        } catch (emailError) {
-          console.error('❌ Error sending enrollment email:', emailError.message);
-          // Don't fail the enrollment if email fails
-        }
-        
-        return res.json({
+
+        // SEND RESPONSE IMMEDIATELY to ESP32 to avoid timeout
+        res.json({
           success: true,
           message: 'Fingerprint template received and employee enrolled',
           data: {
@@ -1099,6 +1091,21 @@ app.post('/api/fingerprint', async (req, res) => {
             action: 'template-received'
           }
         });
+
+        // THEN send email in background (don't await - non-blocking)
+        console.log('📧 Sending enrollment email notification in background...');
+        (async () => {
+          try {
+            const { sendEnrollmentEmailNotification } = require('./controllers/employeeController');
+            await sendEnrollmentEmailNotification(updateResult);
+            console.log('✅ Background email sent successfully');
+          } catch (emailError) {
+            console.error('❌ Background email error:', emailError.message);
+            // Don't fail the enrollment if email fails
+          }
+        })();
+
+        return; // Already sent response
       } else {
         return res.status(404).json({
           success: false,
