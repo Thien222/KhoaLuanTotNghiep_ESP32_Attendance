@@ -25,37 +25,37 @@ const createTransporter = () => {
     throw new Error('Email configuration missing. Set EMAIL_USER and EMAIL_APP_PASSWORD.');
   }
 
-  // Create transporter - FIX cho Render
-  // - family: 4 -> Force IPv4 (tránh lỗi IPv6 trên Render)
-  // - pool: false -> Tạo connection mới mỗi lần gửi (ổn định hơn trên cloud free tier)
+  // Create transporter - OUTLOOK (Office365)
+  // Outlook ổn định hơn Gmail trên Render
   cachedTransporter = nodemailer.createTransport({
-    host: 'smtp.gmail.com',
-    port: 587,
-    secure: false,  // Bắt buộc false cho port 587 (STARTTLS)
+    host: "smtp.office365.com",  // Server của Outlook
+    port: 587,                   // Port chuẩn
+    secure: false,               // false cho port 587 (STARTTLS)
 
-    // --- CẤU HÌNH QUAN TRỌNG ĐỂ FIX TIMEOUT ---
-    family: 4,      // (QUAN TRỌNG) Bắt buộc dùng IPv4, tránh lỗi IPv6 trên Render
-    pool: false,    // (QUAN TRỌNG) Tắt pooling - connection mới cho mỗi lần gửi
+    // --- CẤU HÌNH FIX LỖI MẠNG RENDER ---
+    pool: false,   // Quan trọng: Tắt pool để tránh lỗi ngắt kết nối ngầm
+    family: 4,     // Quan trọng: Ép dùng IPv4 để kết nối ổn định hơn
+    // -------------------------------------
 
     auth: {
-      user: emailUser,
-      pass: emailPassword
+      user: process.env.EMAIL_USER,
+      pass: process.env.EMAIL_APP_PASSWORD
     },
     tls: {
-      rejectUnauthorized: false,  // Bỏ qua lỗi chứng chỉ
-      ciphers: 'SSLv3'
+      ciphers: 'SSLv3',         // Fix lỗi giao thức cũ
+      rejectUnauthorized: false // Bỏ qua lỗi chứng chỉ nếu có
     },
 
-    // Tăng thời gian chờ để mạng chậm vẫn gửi được
-    connectionTimeout: 20000,  // 20 giây
-    greetingTimeout: 20000,    // 20 giây
-    socketTimeout: 20000,      // 20 giây
+    // Tăng thời gian chờ để mạng lag vẫn gửi được
+    connectionTimeout: 20000,
+    greetingTimeout: 20000,
+    socketTimeout: 20000,
 
     debug: true,
     logger: true
   });
 
-  console.log('📧 Transporter created (IPv4 only, no pooling, port 587)');
+  console.log('📧 Transporter created (Outlook, IPv4, port 587)');
   return cachedTransporter;
 };
 
