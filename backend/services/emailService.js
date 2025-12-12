@@ -1,109 +1,79 @@
-const nodemailer = require('nodemailer');
+/**
+ * Email Service using Resend (HTTP API)
+ * 
+ * Render Free Tier blocks SMTP connections (port 25, 465, 587)
+ * Resend uses HTTP API which is NOT blocked!
+ * 
+ * Setup:
+ * 1. Go to https://resend.com and create account
+ * 2. Get API key from dashboard
+ * 3. Add RESEND_API_KEY to Render environment variables
+ * 4. Verify your domain or use onboarding@resend.dev for testing
+ */
 
-// Singleton transporter to reuse connection
-let cachedTransporter = null;
+const { Resend } = require('resend');
 
-// Create email transporter with retry logic
-const createTransporter = () => {
-  if (cachedTransporter) {
-    console.log('📧 Using cached transporter');
-    return cachedTransporter;
+// Initialize Resend client
+let resendClient = null;
+
+const getResendClient = () => {
+  if (resendClient) return resendClient;
+
+  const apiKey = process.env.RESEND_API_KEY;
+
+  if (!apiKey) {
+    console.error('❌ RESEND_API_KEY is not set!');
+    console.log('📧 To enable email, add RESEND_API_KEY to environment variables');
+    console.log('📧 Get free API key at: https://resend.com');
+    return null;
   }
 
-  const emailUser = process.env.EMAIL_USER;
-  const emailPassword = process.env.EMAIL_APP_PASSWORD;
-
-  console.log('📧 createTransporter called with:', {
-    hasEmailUser: !!emailUser,
-    hasEmailPassword: !!emailPassword,
-    emailUser: emailUser || 'undefined',
-    passwordLength: emailPassword ? emailPassword.length : 0
-  });
-
-  if (!emailUser || !emailPassword) {
-    console.error('❌ EMAIL_USER or EMAIL_APP_PASSWORD is not set!');
-    throw new Error('Email configuration missing. Set EMAIL_USER and EMAIL_APP_PASSWORD.');
-  }
-
-  // Create transporter - OUTLOOK (Office365)
-  // Outlook ổn định hơn Gmail trên Render
-  cachedTransporter = nodemailer.createTransport({
-    host: "smtp.office365.com",  // Server của Outlook
-    port: 587,                   // Port chuẩn
-    secure: false,               // false cho port 587 (STARTTLS)
-
-    // --- CẤU HÌNH FIX LỖI MẠNG RENDER ---
-    pool: false,   // Quan trọng: Tắt pool để tránh lỗi ngắt kết nối ngầm
-    family: 4,     // Quan trọng: Ép dùng IPv4 để kết nối ổn định hơn
-    // -------------------------------------
-
-    auth: {
-      user: process.env.EMAIL_USER,
-      pass: process.env.EMAIL_APP_PASSWORD
-    },
-    tls: {
-      ciphers: 'SSLv3',         // Fix lỗi giao thức cũ
-      rejectUnauthorized: false // Bỏ qua lỗi chứng chỉ nếu có
-    },
-
-    // Tăng thời gian chờ để mạng lag vẫn gửi được
-    connectionTimeout: 20000,
-    greetingTimeout: 20000,
-    socketTimeout: 20000,
-
-    debug: true,
-    logger: true
-  });
-
-  console.log('📧 Transporter created (Outlook, IPv4, port 587)');
-  return cachedTransporter;
+  resendClient = new Resend(apiKey);
+  console.log('📧 Resend client initialized');
+  return resendClient;
 };
 
-// Send email with retry logic
-const sendEmailWithRetry = async (mailOptions, maxRetries = 3) => {
-  let lastError = null;
+// Send email using Resend API (HTTP - không bị Render block!)
+const sendEmailWithResend = async (mailOptions) => {
+  console.log('📧 Sending email via Resend HTTP API...');
+  console.log('📧 To:', mailOptions.to);
 
-  for (let attempt = 1; attempt <= maxRetries; attempt++) {
-    try {
-      console.log(`📧 [Attempt ${attempt}/${maxRetries}] Sending email to: ${mailOptions.to}`);
+  const client = getResendClient();
 
-      const transporter = createTransporter();
-      const info = await transporter.sendMail(mailOptions);
-
-      console.log(`✅ [Attempt ${attempt}] Email sent successfully!`);
-      console.log('📧 Message ID:', info.messageId);
-      console.log('📧 Response:', info.response);
-
-      return { success: true, messageId: info.messageId, attempt };
-
-    } catch (error) {
-      lastError = error;
-      console.error(`❌ [Attempt ${attempt}/${maxRetries}] Email error:`, error.message);
-      console.error('❌ Error code:', error.code);
-
-      // Reset transporter on connection errors
-      if (error.code === 'ETIMEDOUT' || error.code === 'ECONNECTION' || error.code === 'ESOCKET') {
-        console.log('🔄 Resetting transporter due to connection error...');
-        cachedTransporter = null;
-      }
-
-      if (attempt < maxRetries) {
-        const delay = attempt * 2000; // 2s, 4s, 6s...
-        console.log(`⏳ Waiting ${delay}ms before retry...`);
-        await new Promise(resolve => setTimeout(resolve, delay));
-      }
-    }
+  if (!client) {
+    console.log('⚠️ Email disabled (no RESEND_API_KEY)');
+    return { success: false, error: 'Resend API key not configured' };
   }
 
-  console.error('❌ All email attempts failed!');
-  return { success: false, error: lastError?.message || 'Unknown error', attempts: maxRetries };
+  try {
+    // Resend requires verified domain or use their test email
+    // For testing, use: onboarding@resend.dev as from address
+    const fromEmail = process.env.RESEND_FROM_EMAIL || 'HR System <onboarding@resend.dev>';
+
+    const result = await client.emails.send({
+      from: fromEmail,
+      to: mailOptions.to,
+      subject: mailOptions.subject,
+      html: mailOptions.html
+    });
+
+    console.log('✅ Email sent via Resend!');
+    console.log('📧 Result:', JSON.stringify(result));
+
+    return { success: true, messageId: result.data?.id || 'sent', result };
+
+  } catch (error) {
+    console.error('❌ Resend error:', error.message);
+    console.error('❌ Full error:', JSON.stringify(error));
+    return { success: false, error: error.message };
+  }
 };
 
 // Send enrollment notification
 exports.sendEnrollmentNotification = async (employeeData) => {
-  console.log('========== EMAIL SERVICE START ==========');
+  console.log('========== EMAIL SERVICE START (RESEND) ==========');
   console.log('📧 sendEnrollmentNotification called');
-  console.log('📧 Employee data:', JSON.stringify(employeeData, null, 2));
+  console.log('📧 Employee:', employeeData.name, '-', employeeData.email);
 
   try {
     const htmlContent = `
@@ -183,13 +153,12 @@ exports.sendEnrollmentNotification = async (employeeData) => {
     `;
 
     const mailOptions = {
-      from: `"HR Management System" <${process.env.EMAIL_USER}>`,
       to: employeeData.email,
       subject: '✅ Đăng ký vân tay thành công!',
       html: htmlContent
     };
 
-    const result = await sendEmailWithRetry(mailOptions, 3);
+    const result = await sendEmailWithResend(mailOptions);
 
     console.log('========== EMAIL SERVICE END ==========');
     return result;
@@ -197,7 +166,6 @@ exports.sendEnrollmentNotification = async (employeeData) => {
   } catch (error) {
     console.error('========== EMAIL SERVICE ERROR ==========');
     console.error('❌ Error:', error.message);
-    console.error('❌ Stack:', error.stack);
     console.error('========== EMAIL SERVICE END (FAILED) ==========');
     return { success: false, error: error.message };
   }
@@ -226,13 +194,12 @@ exports.sendAdminNotification = async (notificationData) => {
     `;
 
     const mailOptions = {
-      from: `"HR Management System" <${process.env.EMAIL_USER}>`,
       to: notificationData.adminEmail,
       subject: '⚠️ Nhân viên chưa có tài khoản đăng nhập',
       html: htmlContent
     };
 
-    const result = await sendEmailWithRetry(mailOptions, 3);
+    const result = await sendEmailWithResend(mailOptions);
     console.log('========== ADMIN NOTIFICATION END ==========');
     return result;
 
@@ -251,35 +218,41 @@ exports.sendWelcomeEmail = async (employeeData, credentials) => {
   });
 };
 
-// Test email config with detailed error
+// Test email config
 exports.testEmailConfig = async () => {
   try {
-    console.log('📧 Testing email configuration...');
-    const transporter = createTransporter();
+    console.log('📧 Testing Resend configuration...');
 
-    console.log('📧 Verifying SMTP connection...');
-    await transporter.verify();
-    console.log('✅ SMTP connection verified!');
+    const client = getResendClient();
+    if (!client) {
+      return {
+        success: false,
+        error: 'RESEND_API_KEY not set',
+        message: 'Get free API key at https://resend.com'
+      };
+    }
 
-    return { success: true, message: 'Email configuration is valid' };
+    // Try to send a test email
+    const result = await client.emails.send({
+      from: process.env.RESEND_FROM_EMAIL || 'HR System <onboarding@resend.dev>',
+      to: 'test@test.com',
+      subject: 'Test Email',
+      html: '<p>Test email from HR System</p>'
+    });
+
+    console.log('✅ Resend config is valid');
+    return { success: true, message: 'Resend configuration is valid' };
+
   } catch (error) {
-    console.error('❌ Email config error:', error.message);
-    console.error('❌ Error code:', error.code);
-    console.error('❌ Full error:', error);
+    console.error('❌ Resend config error:', error.message);
     return {
       success: false,
-      error: error.message,
-      code: error.code,
-      details: error.response || 'No additional details'
+      error: error.message
     };
   }
 };
 
-// Force close transporter (use when shutting down)
+// No-op for compatibility
 exports.closeTransporter = () => {
-  if (cachedTransporter) {
-    cachedTransporter.close();
-    cachedTransporter = null;
-    console.log('📧 Transporter closed');
-  }
+  console.log('📧 Resend uses HTTP API, no connection to close');
 };
