@@ -1384,6 +1384,105 @@ void setup()
   oledPrintCenter("Dat ngon tay de", "DIEM DANH (AUTO)", "1=IN, 2=OUT");
 }
 
+// ==================== COMMAND POLLING SYSTEM ====================
+// Poll server for pending commands and execute them
+
+void reportCommandCompletion(const String &commandId, int fingerprintId, bool success, const String &result)
+{
+  String url = serverUrl + "/esp32/commands/complete";
+  String body = "{\"commandId\":\"" + commandId + "\",\"fingerprintId\":" + String(fingerprintId) + 
+                ",\"success\":" + (success ? "true" : "false") + 
+                ",\"result\":\"" + result + "\"}";
+  
+  int code = 0;
+  String resp;
+  httpPostJson(url, body, code, resp);
+  Serial.printf("📤 Reported command completion: %s, code=%d\n", success ? "SUCCESS" : "FAILED", code);
+}
+
+void pollAndExecuteCommands()
+{
+  if (WiFi.status() != WL_CONNECTED) return;
+
+  // Build poll URL
+  String pollUrl = serverUrl + "/esp32/commands/poll";
+  
+  // Use GET request to poll
+  HTTPClient http;
+  bool okBegin = false;
+  
+  if (pollUrl.startsWith("https://")) {
+    secureClient.setInsecure();
+    secureClient.setTimeout(10000);
+    okBegin = http.begin(secureClient, pollUrl);
+  } else {
+    plainClient.setTimeout(5000);
+    okBegin = http.begin(plainClient, pollUrl);
+  }
+  
+  if (!okBegin) return;
+  
+  http.setTimeout(10000);
+  int httpCode = http.GET();
+  
+  if (httpCode != 200) {
+    http.end();
+    return;
+  }
+  
+  String payload = http.getString();
+  http.end();
+  
+  // Parse response
+  if (!getJsonBoolValue(payload, "hasCommand")) {
+    return; // No pending commands
+  }
+  
+  String commandId = getJsonStringValue(payload, "commandId");
+  String command = getJsonStringValue(payload, "command");
+  int fingerprintId = 0;
+  
+  // Parse fingerprintId
+  int fpIdx = payload.indexOf("\"fingerprintId\":");
+  if (fpIdx >= 0) {
+    int start = fpIdx + 16;
+    String fpStr = "";
+    while (start < (int)payload.length() && (isdigit(payload[start]) || payload[start] == ' ')) {
+      if (isdigit(payload[start])) fpStr += payload[start];
+      start++;
+    }
+    fingerprintId = fpStr.toInt();
+  }
+  
+  Serial.printf("\n📥 Received command: %s for ID %d\n", command.c_str(), fingerprintId);
+  
+  if (command == "enroll" && fingerprintId > 0) {
+    oledPrintCenter("ENROLL COMMAND", "ID #" + String(fingerprintId), "Dang xu ly...");
+    beepPrompt();
+    
+    // Execute enrollment
+    bool success = enrollFingerprint(fingerprintId);
+    
+    // Report completion back to server
+    reportCommandCompletion(commandId, fingerprintId, success, success ? "Enrollment successful" : "Enrollment failed");
+    
+    if (success) {
+      oledPrintCenter("ENROLL OK!", "ID #" + String(fingerprintId), "Da gui server");
+    } else {
+      oledPrintCenter("ENROLL FAIL", "ID #" + String(fingerprintId), "Thu lai sau");
+    }
+    
+    delay(2000);
+  }
+  else if (command == "delete" && fingerprintId > 0) {
+    oledPrintCenter("DELETE COMMAND", "ID #" + String(fingerprintId), "Dang xu ly...");
+    
+    bool success = deleteFingerprint(fingerprintId);
+    reportCommandCompletion(commandId, fingerprintId, success, success ? "Delete successful" : "Delete failed");
+    
+    delay(1000);
+  }
+}
 void loop()
 {
   webServer.handleClient();
@@ -1395,6 +1494,14 @@ void loop()
   {
     oledPrintCenter("Dat ngon tay de", "DIEM DANH (AUTO)", "1=IN, 2=OUT");
     lastUi = millis();
+  }
+
+  // ========== POLL COMMANDS FROM SERVER (every 3 seconds) ==========
+  static unsigned long lastCommandPoll = 0;
+  if (millis() - lastCommandPoll > 3000)
+  {
+    lastCommandPoll = millis();
+    pollAndExecuteCommands();
   }
 
   // Định kỳ check config mới (mỗi 5 phút)

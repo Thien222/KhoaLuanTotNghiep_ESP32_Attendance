@@ -265,63 +265,78 @@ const EmployeeManagement = () => {
         return;
       }
 
-      // ESP32 enrollment (requires ESP32 device)
-      // Use RENDER backend API - ESP32 connects directly to Render
-      message.loading('Đang gửi lệnh đăng ký vân tay đến ESP32...', 5);
-      console.log('🔗 Enrolling via API:', API_URL);
+      // ESP32 enrollment via Command Queue System
+      // Frontend queues a command, ESP32 polls and executes
+      message.loading('Đang gửi lệnh đăng ký vân tay... ESP32 sẽ nhận lệnh trong giây lát.', 5);
+      console.log('📝 Queuing enroll command for fingerprintId:', employee.fingerprintId);
 
-      const response = await axios.get(`${API_URL}/enroll`, {
-        params: { id: employee.fingerprintId },
-        timeout: 60000 // 60 seconds timeout (Render may need to wake up)
+      // Step 1: Queue the enroll command
+      const queueResponse = await axios.post(`${API_URL}/esp32/commands`, {
+        command: 'enroll',
+        fingerprintId: employee.fingerprintId,
+        employeeId: employee._id
+      }, {
+        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
+        timeout: 30000
       });
 
-      if (response.data.success) {
-        // Update employee status immediately
-        setEmployees(prev => prev.map(emp =>
-          emp._id === employee._id
-            ? { ...emp, fingerprintEnrolled: true }
-            : emp
-        ));
-
-        message.success('Đã gửi lệnh đăng ký vân tay! Vui lòng đặt ngón tay lên cảm biến ESP32 và giữ nguyên cho đến khi có thông báo thành công.');
-
-        // Refresh data from server after a short delay to ensure consistency
-        setTimeout(() => {
-          fetchEmployees();
-        }, 2000);
-      } else {
-        const errorMsg = response.data.error || response.data.message || 'Lỗi khi đăng ký vân tay';
-        if (errorMsg.includes('Quet khong thanh cong')) {
-          message.error('Quét vân tay không thành công! Vui lòng thử lại và đảm bảo ngón tay được đặt đúng vị trí trên cảm biến.');
-        } else {
-          message.error(errorMsg);
-        }
+      if (!queueResponse.data.success) {
+        message.error(queueResponse.data.message || 'Không thể gửi lệnh đăng ký');
+        return;
       }
+
+      const commandId = queueResponse.data.commandId;
+      console.log('✅ Command queued:', commandId);
+
+      message.success({
+        content: `Lệnh đăng ký đã được gửi! Vui lòng đặt ngón tay lên cảm biến ESP32. ID: ${employee.fingerprintId}`,
+        duration: 10
+      });
+
+      // Step 2: Poll for command completion (check every 3 seconds, max 60 seconds)
+      let attempts = 0;
+      const maxAttempts = 20;
+      const pollInterval = setInterval(async () => {
+        attempts++;
+        try {
+          const statusResponse = await axios.get(`${API_URL}/esp32/commands/${commandId}`);
+          const commandStatus = statusResponse.data.command?.status;
+
+          if (commandStatus === 'completed') {
+            clearInterval(pollInterval);
+            setEmployees(prev => prev.map(emp =>
+              emp._id === employee._id
+                ? { ...emp, fingerprintEnrolled: true }
+                : emp
+            ));
+            message.success('🎉 Đăng ký vân tay thành công!');
+            fetchEmployees();
+          } else if (commandStatus === 'failed') {
+            clearInterval(pollInterval);
+            message.error('Đăng ký vân tay thất bại. Vui lòng thử lại.');
+          } else if (attempts >= maxAttempts) {
+            clearInterval(pollInterval);
+            message.warning('Hết thời gian chờ. Vui lòng kiểm tra ESP32 và thử lại.');
+          }
+        } catch (pollError) {
+          console.error('Poll error:', pollError);
+        }
+      }, 3000);
+
     } catch (error) {
       console.error('Enrollment error:', error);
 
-      // Handle specific error cases
       if (error.response) {
         const status = error.response.status;
         const errorData = error.response.data;
 
-        if (status === 503) {
-          // ESP32 unreachable
-          message.error({
-            content: 'ESP32 không kết nối được. Vui lòng kiểm tra:\n- ESP32 đã bật và kết nối mạng\n- IP ESP32 đã được cấu hình đúng\n- ESP32 đã gọi /esp32-register',
-            duration: 8
-          });
-        } else if (status === 504) {
-          // ESP32 timeout
-          message.error('ESP32 không phản hồi. Vui lòng thử lại sau.');
-        } else if (status === 400) {
-          // Invalid fingerprint ID
-          message.error(errorData.message || 'Fingerprint ID không hợp lệ');
+        if (status === 409) {
+          message.warning('Đã có lệnh đang chờ xử lý cho nhân viên này. Vui lòng đợi hoặc thử lại sau.');
         } else {
           message.error(errorData.message || `Lỗi: ${status}`);
         }
       } else {
-        message.error('Lỗi kết nối đến ESP32 hoặc backend. Vui lòng kiểm tra kết nối mạng.');
+        message.error('Lỗi kết nối. Vui lòng kiểm tra mạng.');
       }
     } finally {
       setEnrolling(false);

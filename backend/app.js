@@ -208,8 +208,203 @@ app.get('/esp32-discovery', (req, res) => {
     fingerprintEndpoint: `${serverUrl}/fingerprint`,
     attendanceEndpoint: `${serverUrl}/attendance/add`,
     enrollEndpoint: `${serverUrl}/enroll`,
-    configEndpoint: `${serverUrl}/esp32-config`
+    configEndpoint: `${serverUrl}/esp32-config`,
+    commandPollEndpoint: `${serverUrl}/esp32/commands/poll`
   });
+});
+
+// ==================== ESP32 COMMAND QUEUE SYSTEM ====================
+// This allows frontend to queue commands for ESP32 to poll and execute
+
+// Queue a new command for ESP32 (called by frontend)
+app.post('/api/esp32/commands', async (req, res) => {
+  try {
+    const ESP32Command = require('./models/ESP32Command');
+    const { command, fingerprintId, employeeId } = req.body;
+
+    if (!command || !fingerprintId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Missing required fields: command, fingerprintId'
+      });
+    }
+
+    // Check if there's already a pending command for this fingerprintId
+    const existingCommand = await ESP32Command.findOne({
+      fingerprintId,
+      status: 'pending'
+    });
+
+    if (existingCommand) {
+      return res.status(409).json({
+        success: false,
+        message: 'Already have a pending command for this fingerprint ID',
+        existingCommand: existingCommand
+      });
+    }
+
+    const newCommand = new ESP32Command({
+      command,
+      fingerprintId,
+      employeeId,
+      status: 'pending'
+    });
+
+    await newCommand.save();
+    console.log(`📝 Command queued: ${command} for fingerprintId ${fingerprintId}`);
+
+    res.json({
+      success: true,
+      message: 'Command queued successfully',
+      commandId: newCommand._id,
+      command: newCommand
+    });
+  } catch (error) {
+    console.error('Error queuing command:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to queue command',
+      error: error.message
+    });
+  }
+});
+
+// Get pending command status (called by frontend to check progress)
+app.get('/api/esp32/commands/:commandId', async (req, res) => {
+  try {
+    const ESP32Command = require('./models/ESP32Command');
+    const command = await ESP32Command.findById(req.params.commandId);
+
+    if (!command) {
+      return res.status(404).json({
+        success: false,
+        message: 'Command not found'
+      });
+    }
+
+    res.json({
+      success: true,
+      command
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+});
+
+// ESP32 polls for pending commands (called by ESP32)
+app.get('/api/esp32/commands/poll', async (req, res) => {
+  try {
+    const ESP32Command = require('./models/ESP32Command');
+
+    // Find oldest pending command
+    const command = await ESP32Command.findOne({ status: 'pending' })
+      .sort({ createdAt: 1 });
+
+    if (!command) {
+      return res.json({
+        success: true,
+        hasCommand: false,
+        message: 'No pending commands'
+      });
+    }
+
+    // Mark as processing
+    command.status = 'processing';
+    await command.save();
+
+    console.log(`📤 Sending command to ESP32: ${command.command} for ID ${command.fingerprintId}`);
+
+    res.json({
+      success: true,
+      hasCommand: true,
+      commandId: command._id,
+      command: command.command,
+      fingerprintId: command.fingerprintId
+    });
+  } catch (error) {
+    console.error('Error polling commands:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+});
+
+// ESP32 reports command completion (called by ESP32)
+app.post('/api/esp32/commands/complete', async (req, res) => {
+  try {
+    const ESP32Command = require('./models/ESP32Command');
+    const Employee = require('./models/Employee');
+    const { commandId, success, result, fingerprintId } = req.body;
+
+    const command = await ESP32Command.findById(commandId);
+
+    if (!command) {
+      // If commandId not found, try to find by fingerprintId and status=processing
+      const processingCommand = await ESP32Command.findOne({
+        fingerprintId,
+        status: 'processing'
+      });
+
+      if (!processingCommand) {
+        return res.status(404).json({
+          success: false,
+          message: 'Command not found'
+        });
+      }
+
+      processingCommand.status = success ? 'completed' : 'failed';
+      processingCommand.result = result || '';
+      processingCommand.completedAt = new Date();
+      await processingCommand.save();
+
+      // If enrollment successful, update employee
+      if (success && processingCommand.command === 'enroll') {
+        await Employee.findOneAndUpdate(
+          { fingerprintId },
+          { fingerprintEnrolled: true }
+        );
+        console.log(`✅ Employee with fingerprintId ${fingerprintId} marked as enrolled`);
+      }
+
+      return res.json({
+        success: true,
+        message: 'Command completed',
+        command: processingCommand
+      });
+    }
+
+    command.status = success ? 'completed' : 'failed';
+    command.result = result || '';
+    command.completedAt = new Date();
+    await command.save();
+
+    // If enrollment successful, update employee
+    if (success && command.command === 'enroll') {
+      await Employee.findOneAndUpdate(
+        { fingerprintId: command.fingerprintId },
+        { fingerprintEnrolled: true }
+      );
+      console.log(`✅ Employee with fingerprintId ${command.fingerprintId} marked as enrolled`);
+    }
+
+    console.log(`✅ Command ${commandId} completed: ${success ? 'SUCCESS' : 'FAILED'}`);
+
+    res.json({
+      success: true,
+      message: 'Command completion recorded',
+      command
+    });
+  } catch (error) {
+    console.error('Error completing command:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
 });
 
 // ESP32 get config endpoint
