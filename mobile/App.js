@@ -17,10 +17,13 @@ function AppNavigator() {
   }
 
   // Check if user needs to complete profile
+  // Check both user.profileCompleted (from login response) and user.employee?.profileCompleted
+  const profileCompleted = user?.profileCompleted !== false && user?.employee?.profileCompleted !== false;
   const needsProfileCompletion = isAuthenticated &&
-    user?.employee &&
-    !user.employee.profileCompleted &&
-    user.role !== 'admin'; // Admin doesn't need to complete profile
+    !profileCompleted &&
+    user?.role !== 'admin' && 
+    user?.role !== 'manager' &&
+    user?.role !== 'accountant'; // Only employees need to complete profile
 
   if (!isAuthenticated) {
     return (

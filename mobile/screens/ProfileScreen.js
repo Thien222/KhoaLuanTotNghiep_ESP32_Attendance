@@ -102,7 +102,6 @@ export default function ProfileScreen({ navigation }) {
   const getContractTypeLabel = (type) => {
     const labels = {
       'official': 'Chính thức',
-      'probation': 'Thử việc',
       'intern': 'Thực tập'
     };
     return labels[type] || type || 'Chưa cập nhật';
@@ -171,7 +170,7 @@ export default function ProfileScreen({ navigation }) {
           <InfoRow
             icon="card-outline"
             label="Số CCCD/CMND"
-            value={employee?.citizenId}
+            value={employee?.citizenId || employee?.idCardNumber}
           />
           <InfoRow
             icon="shield-checkmark-outline"
@@ -204,11 +203,6 @@ export default function ProfileScreen({ navigation }) {
             icon="calendar-number-outline"
             label="Ngày vào làm"
             value={formatDate(employee?.joinDate)}
-          />
-          <InfoRow
-            icon="time-outline"
-            label="Thâm niên"
-            value={employee?.seniorityYears ? `${employee.seniorityYears} năm` : 'Chưa cập nhật'}
           />
         </View>
       </View>
@@ -259,6 +253,15 @@ export default function ProfileScreen({ navigation }) {
 
       {/* Menu Actions */}
       <View style={styles.section}>
+        <TouchableOpacity
+          style={styles.menuItem}
+          onPress={() => navigation.navigate('EditProfile')}
+        >
+          <Ionicons name="create-outline" size={24} color="#52c41a" />
+          <Text style={styles.menuText}>Chỉnh sửa thông tin</Text>
+          <Ionicons name="chevron-forward" size={20} color="#999" />
+        </TouchableOpacity>
+
         <TouchableOpacity
           style={styles.menuItem}
           onPress={() => navigation.navigate('ChangePassword')}

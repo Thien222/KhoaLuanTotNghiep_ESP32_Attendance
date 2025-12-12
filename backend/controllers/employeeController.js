@@ -1,5 +1,6 @@
 const Employee = require('../models/Employee');
 const User = require('../models/User');
+const emailService = require('../services/emailService');
 
 // Get next employee ID
 const getNextEmployeeId = async () => {
@@ -92,10 +93,61 @@ exports.addEmployee = async (req, res) => {
         await employee.save();
         console.log('Employee saved successfully');
         
+        // Tự động tạo tài khoản User cho nhân viên
+        const defaultPassword = `hrm${generatedFingerprintId}2025`; // Mật khẩu mặc định
+        
+        try {
+          const newUser = new User({
+            username: generatedEmployeeId, // Username = Mã nhân viên
+            email: generatedEmail,
+            password: defaultPassword,
+            role: 'employee',
+            employee: employee._id,
+            isActive: true
+          });
+          
+          await newUser.save();
+          console.log('✅ User account created for employee:', generatedEmployeeId);
+          
+          // Gửi email thông báo với thông tin đăng nhập
+          if (email && email.includes('@') && !email.includes('@company.com')) {
+            try {
+              const emailResult = await emailService.sendWelcomeEmail(
+                {
+                  name: employee.name,
+                  email: generatedEmail,
+                  employeeId: generatedEmployeeId,
+                  fingerprintId: generatedFingerprintId,
+                  position: employee.position,
+                  department: employee.department,
+                  fingerprintEnrolled: false
+                },
+                {
+                  username: generatedEmployeeId,
+                  password: defaultPassword
+                }
+              );
+              
+              if (emailResult.success) {
+                console.log('✅ Welcome email sent to:', generatedEmail);
+              } else {
+                console.warn('⚠️ Failed to send welcome email:', emailResult.error);
+              }
+            } catch (emailError) {
+              console.error('❌ Error sending welcome email:', emailError);
+              // Không throw error, vẫn tiếp tục tạo nhân viên
+            }
+          }
+        } catch (userError) {
+          console.error('⚠️ Error creating user account:', userError);
+          // Không throw error, nhân viên vẫn được tạo thành công
+        }
+        
         res.status(201).json({
           success: true,
           data: employee,
-          message: 'Employee added successfully'
+          message: 'Employee added successfully',
+          accountCreated: true
         });
         return;
         
@@ -269,6 +321,31 @@ exports.enrollFingerprint = async (req, res) => {
     }
 
     console.log('Employee enrolled successfully:', employee.name, 'ID:', employee.employeeId);
+    
+    // Gửi email thông báo đăng ký vân tay thành công
+    if (employee.email && employee.email.includes('@') && !employee.email.includes('@company.com')) {
+      try {
+        // Tìm user account để lấy password (nếu có)
+        const user = await User.findOne({ employee: employee._id });
+        
+        const emailResult = await emailService.sendEnrollmentNotification({
+          name: employee.name,
+          email: employee.email,
+          employeeId: employee.employeeId,
+          fingerprintId: employee.fingerprintId,
+          username: user ? user.username : employee.employeeId,
+          password: user ? null : null // Không gửi password trong email enrollment
+        });
+        
+        if (emailResult.success) {
+          console.log('✅ Enrollment notification sent to:', employee.email);
+        } else {
+          console.warn('⚠️ Failed to send enrollment notification:', emailResult.error);
+        }
+      } catch (emailError) {
+        console.error('❌ Error sending enrollment notification:', emailError);
+      }
+    }
 
     res.status(200).json({
       success: true,

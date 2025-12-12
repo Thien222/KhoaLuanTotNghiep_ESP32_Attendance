@@ -1,7 +1,6 @@
 const nodemailer = require('nodemailer');
 
-// Load environment variables
-require('dotenv').config({ path: '../config.env' });
+// Environment variables are loaded from app.js, no need to reload here
 
 // Create email transporter
 const createTransporter = () => {

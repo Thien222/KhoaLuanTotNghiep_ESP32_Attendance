@@ -104,10 +104,9 @@ export default function PayrollScreen() {
         {payrolls.length > 0 ? (
           payrolls.map((payroll) => {
             // Tính toán tổng thu nhập và tổng khấu trừ để hiển thị thực lãnh đúng
-            // Bỏ weekendWorkPay vì không có công thức tính lương liên quan
+            // Bỏ weekendWorkPay và seniorityAllowance
             const totalIncome = (payroll.proratedSalary || payroll.baseSalary || payroll.basicSalary || 0) +
               (payroll.generalAllowance || payroll.allowance || 0) +
-              (payroll.seniorityAllowance || 0) +
               (payroll.positionAllowance || 0) +
               (payroll.overtimePay || 0) +
               (payroll.holidayWorkPay || 0) +
@@ -182,14 +181,6 @@ export default function PayrollScreen() {
                       )}
                     </Text>
                   </View>
-                  {(payroll.seniorityAllowance || 0) > 0 && (
-                    <View style={styles.amountRow}>
-                      <Text style={styles.amountLabel}>PC Thâm niên:</Text>
-                      <Text style={styles.amountValue}>
-                        {formatCurrency(payroll.seniorityAllowance)}
-                      </Text>
-                    </View>
-                  )}
                   {(payroll.positionAllowance || 0) > 0 && (
                     <View style={styles.amountRow}>
                       <Text style={styles.amountLabel}>PC Chức vụ:</Text>

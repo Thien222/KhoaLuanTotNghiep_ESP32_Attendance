@@ -12,6 +12,7 @@ import ApplyLeaveScreen from '../screens/ApplyLeaveScreen';
 import ApplyOvertimeScreen from '../screens/ApplyOvertimeScreen';
 import ChatBotScreen from '../screens/ChatBotScreen';
 import ChangePasswordScreen from '../screens/ChangePasswordScreen';
+import EditProfileScreen from '../screens/EditProfileScreen';
 import OTScheduleScreen from '../screens/OTScheduleScreen';
 import InternalChatScreen from '../screens/InternalChatScreen';
 
@@ -52,6 +53,11 @@ function ProfileStack() {
         name="ProfileHome" 
         component={ProfileScreen}
         options={{ headerShown: false }}
+      />
+      <Stack.Screen 
+        name="EditProfile" 
+        component={EditProfileScreen}
+        options={{ title: 'Chỉnh sửa thông tin' }}
       />
       <Stack.Screen 
         name="ChangePassword" 

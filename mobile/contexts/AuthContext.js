@@ -56,7 +56,9 @@ export const AuthProvider = ({ children }) => {
         console.log('🔐 Login successful:', {
           hasToken: !!token,
           tokenLength: token?.length,
-          hasUser: !!userData
+          hasUser: !!userData,
+          profileCompleted: userData?.profileCompleted,
+          employeeProfileCompleted: userData?.employee?.profileCompleted
         });
         
         if (!token) {
@@ -64,17 +66,28 @@ export const AuthProvider = ({ children }) => {
           return { success: false, message: 'Không nhận được token từ server' };
         }
         
+        // Ensure profileCompleted is properly set in user data
+        const enrichedUserData = {
+          ...userData,
+          profileCompleted: userData.profileCompleted !== undefined 
+            ? userData.profileCompleted 
+            : (userData.employee?.profileCompleted !== undefined 
+              ? userData.employee.profileCompleted 
+              : true)
+        };
+        
         await AsyncStorage.setItem('token', token);
-        await AsyncStorage.setItem('user', JSON.stringify(userData));
+        await AsyncStorage.setItem('user', JSON.stringify(enrichedUserData));
         
         // Verify token was saved
         const savedToken = await AsyncStorage.getItem('token');
         console.log('✅ Token saved to AsyncStorage:', {
           saved: !!savedToken,
-          length: savedToken?.length
+          length: savedToken?.length,
+          profileCompleted: enrichedUserData.profileCompleted
         });
         
-        setUser(userData);
+        setUser(enrichedUserData);
         setIsAuthenticated(true);
         
         return { success: true };
