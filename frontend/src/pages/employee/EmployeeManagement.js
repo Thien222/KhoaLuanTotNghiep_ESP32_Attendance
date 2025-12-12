@@ -35,7 +35,7 @@ import {
 } from '@ant-design/icons';
 import { TableActionDropdown } from '../../components/ActionDropdown';
 import axios from 'axios';
-import { getAPIUrl, getConfig, getLocalAPIUrl } from '../../utils/configManager';
+import { getAPIUrl, getConfig } from '../../utils/configManager';
 
 const { Title } = Typography;
 const { Option } = Select;
@@ -266,15 +266,13 @@ const EmployeeManagement = () => {
       }
 
       // ESP32 enrollment (requires ESP32 device)
-      // Use LOCAL backend for ESP32 operations since ESP32 is on local network
-      const LOCAL_API_URL = getLocalAPIUrl();
+      // Use RENDER backend API - ESP32 connects directly to Render
+      message.loading('Đang gửi lệnh đăng ký vân tay đến ESP32...', 5);
+      console.log('🔗 Enrolling via API:', API_URL);
 
-      message.loading('Đang gửi lệnh đăng ký vân tay đến ESP32 (qua local server)...', 3);
-      console.log('🔗 Enrolling via LOCAL backend:', LOCAL_API_URL);
-
-      const response = await axios.get(`${LOCAL_API_URL}/enroll`, {
+      const response = await axios.get(`${API_URL}/enroll`, {
         params: { id: employee.fingerprintId },
-        timeout: 15000 // 15 seconds timeout
+        timeout: 60000 // 60 seconds timeout (Render may need to wake up)
       });
 
       if (response.data.success) {

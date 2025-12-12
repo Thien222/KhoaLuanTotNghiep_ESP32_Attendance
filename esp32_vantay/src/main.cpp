@@ -496,7 +496,7 @@ int validateAttendanceTime(bool isCheckIn)
 const char *DEFAULT_SERVER_URL = "https://khoaluantotnghiep-esp32-attendance.onrender.com/api"; // Production Render
 String serverUrl = DEFAULT_SERVER_URL;
 String fingerprintEndpoint = serverUrl + "/fingerprint";
-String attendanceEndpoint = serverUrl + "/attendance/add";
+String attendanceEndpoint = serverUrl + "/attendance/fingerprint"; // Changed from /attendance/add
 
 // ================== WEBSERVER + NVS ==================
 WebServer webServer(80);
@@ -515,25 +515,40 @@ void handleOptions()
   webServer.send(204);
 }
 
+// ====== Helper: Force HTTPS for Render URLs ======
+String forceHttpsForRender(const String &url) {
+  // If URL contains "render.com" or "onrender.com", force HTTPS
+  if (url.indexOf("render.com") > 0 || url.indexOf("onrender.com") > 0) {
+    if (url.startsWith("http://")) {
+      String fixed = "https://" + url.substring(7);
+      Serial.println("⚠️ Converted HTTP to HTTPS for Render: " + fixed);
+      return fixed;
+    }
+  }
+  return url;
+}
+
 // ====== Load/Save Server URL từ NVS ======
 void loadServerUrl()
 {
   prefs.begin("app", false);
-  serverUrl = prefs.getString("serverUrl", DEFAULT_SERVER_URL);
+  String loadedUrl = prefs.getString("serverUrl", DEFAULT_SERVER_URL);
+  serverUrl = forceHttpsForRender(loadedUrl); // Force HTTPS for Render
   fingerprintEndpoint = serverUrl + "/fingerprint";
-  attendanceEndpoint = serverUrl + "/attendance/add";
+  attendanceEndpoint = serverUrl + "/attendance/fingerprint";
   prefs.end();
   Serial.printf("Loaded serverUrl from NVS: %s\n", serverUrl.c_str());
 }
 
 void saveServerUrl(const String &url)
 {
+  String fixedUrl = forceHttpsForRender(url); // Force HTTPS for Render
   prefs.begin("app", false);
-  prefs.putString("serverUrl", url);
+  prefs.putString("serverUrl", fixedUrl);
   prefs.end();
-  serverUrl = url;
+  serverUrl = fixedUrl;
   fingerprintEndpoint = serverUrl + "/fingerprint";
-  attendanceEndpoint = serverUrl + "/attendance/add";
+  attendanceEndpoint = serverUrl + "/attendance/fingerprint";
   Serial.printf("✓ Saved serverUrl to NVS: %s\n", serverUrl.c_str());
 }
 
@@ -763,33 +778,49 @@ String base64_encode(const uint8_t *data, size_t len)
 }
 
 // ================== HTTP helper ==================
+// Static clients to keep them alive during request
+static WiFiClientSecure secureClient;
+static WiFiClient plainClient;
+
 bool httpPostJson(const String &url, const String &body, int &outCode, String &outResp)
 {
   HTTPClient http;
   bool okBegin = false;
+  
+  Serial.printf("POST to: %s\n", url.c_str());
+  
   if (url.startsWith("https://"))
   {
-    WiFiClientSecure client;
-    client.setTimeout(15000);
-    client.setInsecure();
-    okBegin = http.begin(client, url);
+    secureClient.setInsecure(); // Skip certificate verification
+    secureClient.setTimeout(30000); // 30 seconds for Render
+    okBegin = http.begin(secureClient, url);
+    Serial.println("Using HTTPS (WiFiClientSecure)");
   }
   else
   {
-    WiFiClient client;
-    client.setTimeout(15000);
-    okBegin = http.begin(client, url);
+    plainClient.setTimeout(15000);
+    okBegin = http.begin(plainClient, url);
+    Serial.println("Using HTTP (WiFiClient)");
   }
-  if (!okBegin)
+  
+  if (!okBegin) {
+    Serial.println("http.begin() failed!");
     return false;
+  }
+  
   http.setReuse(false);
+  http.setTimeout(30000); // 30 seconds timeout
   http.addHeader("Content-Type", "application/json");
+  
+  Serial.printf("Sending body: %s\n", body.c_str());
   outCode = http.POST(body);
   outResp = http.getString();
+  
   if (outCode <= 0)
     Serial.printf("HTTP error %d: %s\n", outCode, http.errorToString(outCode).c_str());
   else
     Serial.printf("HTTP %d, resp len=%d\n", outCode, outResp.length());
+  
   http.end();
   return true;
 }
