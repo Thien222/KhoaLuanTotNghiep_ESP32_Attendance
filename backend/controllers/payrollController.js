@@ -163,12 +163,15 @@ exports.calculateMonthly = async (req, res) => {
       try {
         const payrollData = await calculateMonthlySalary(employeeId, year, month);
         
-        // Lưu hoặc cập nhật payroll
+        // Lưu hoặc cập nhật payroll với $set để đảm bảo tất cả field được cập nhật
+        // KHÔNG gọi payroll.calculate() vì nó sẽ tính lại theo công thức trong model (khác với salaryCalculator)
         const payroll = await Payroll.findOneAndUpdate(
           { employee: employeeId, month: monthStr },
-          payrollData,
-          { new: true, upsert: true, runValidators: true }
+          { $set: payrollData },
+          { new: true, upsert: true, runValidators: true, setDefaultsOnInsert: true }
         ).populate('employee', 'name employeeId position');
+
+        console.log(`✅ [PAYROLL] Updated single employee: Net = ${payroll.netSalary.toLocaleString()}đ`);
 
         return res.json({
           success: true,
@@ -176,6 +179,7 @@ exports.calculateMonthly = async (req, res) => {
           data: payroll
         });
       } catch (error) {
+        console.error(`❌ [PAYROLL] Error calculating for employee ${employeeId}:`, error);
         return res.status(500).json({
           success: false,
           message: `Lỗi khi tính lương cho nhân viên: ${error.message}`,
@@ -192,11 +196,15 @@ exports.calculateMonthly = async (req, res) => {
         try {
           const payrollData = await calculateMonthlySalary(employee._id, year, month);
           
+          // Đảm bảo cập nhật tất cả các field bằng cách dùng $set
+          // KHÔNG gọi payroll.calculate() vì nó sẽ tính lại theo công thức trong model (khác với salaryCalculator)
           const payroll = await Payroll.findOneAndUpdate(
             { employee: employee._id, month: monthStr },
-            payrollData,
-            { new: true, upsert: true, runValidators: true }
+            { $set: payrollData },
+            { new: true, upsert: true, runValidators: true, setDefaultsOnInsert: true }
           );
+          
+          console.log(`✅ [PAYROLL] Updated ${employee.name}: Net = ${payroll.netSalary.toLocaleString()}đ (Base: ${payroll.baseSalary?.toLocaleString()}đ, Allowance: ${payroll.generalAllowance?.toLocaleString()}đ, Tax: ${payroll.taxAmount?.toLocaleString()}đ)`);
           
           results.push({
             employee: employee.name,
@@ -204,6 +212,7 @@ exports.calculateMonthly = async (req, res) => {
             payrollId: payroll._id
           });
         } catch (error) {
+          console.error(`❌ [PAYROLL] Error for ${employee.name}:`, error.message);
           errors.push({
             employee: employee.name,
             employeeId: employee.employeeId,

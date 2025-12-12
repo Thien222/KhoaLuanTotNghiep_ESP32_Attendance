@@ -1,0 +1,571 @@
+@startuml
+!theme plain
+skinparam classAttributeIconSize 0
+
+' ============================================
+' MODELS (Database Entities)
+' ============================================
+
+class User {
+  -_id: ObjectId
+  -username: String
+  -email: String
+  -password: String
+  -role: Enum['employee','accountant','manager']
+  -employee: ObjectId
+  -isActive: Boolean
+  -lastLogin: Date
+  -resetPasswordToken: String
+  -resetPasswordExpires: Date
+  -createdAt: Date
+  -updatedAt: Date
+  +comparePassword(candidatePassword): Boolean
+  +toJSON(): Object
+}
+
+class Employee {
+  -_id: ObjectId
+  -name: String
+  -employeeId: String
+  -fingerprintId: Number
+  -fingerprintTemplate: String
+  -fingerprintEnrolled: Boolean
+  -position: String
+  -department: String
+  -email: String
+  -phone: String
+  -joinDate: Date
+  -status: Enum['active','inactive']
+  -contractType: Enum['intern','probation','official']
+  -salary: Number
+  -baseSalary: Number
+  -allowance_rate: Number
+  -tax_rate: Number
+  -seniorityYears: Number
+  -isMaternityLeave: Boolean
+  -maternityLeaveStart: Date
+  -maternityLeaveEnd: Date
+  -leaveQuotas: Object
+  -salaryHistory: Array
+  -createdAt: Date
+  -updatedAt: Date
+  +updateSeniority(): Employee
+  +increaseSalary(newSalary, reason, approvedBy): Employee
+}
+
+class Attendance {
+  -_id: ObjectId
+  -employee: ObjectId
+  -fingerprintId: Number
+  -date: Date
+  -checkIn: Object{time, status}
+  -checkOut: Object{time, status}
+  -workingHours: Number
+  -status: Enum['present','absent','half-day']
+  -lateMinutes: Number
+  -latePenalty: Number
+  -overtimeHours: Number
+  -overtimeRate: Number
+  -isHoliday: Boolean
+  -holidayRate: Number
+  -autoCheckout: Boolean
+  -incompleteCheckout: Boolean
+  -estimatedOTSalary: Number
+  -actualPenalty: Number
+  -is_ot_approved: Boolean
+  -isManual: Boolean
+  -autoCompleted: Boolean
+  -autoCompletionType: String
+  -earlyMinutes: Number
+  -notes: String
+  -createdAt: Date
+  -updatedAt: Date
+}
+
+class Leave {
+  -_id: ObjectId
+  -employee: ObjectId
+  -leaveType: Enum['annual','sick','unpaid','maternity','other']
+  -type: Enum['annual','sick','unpaid','maternity','other']
+  -startDate: Date
+  -endDate: Date
+  -totalDays: Number
+  -reason: String
+  -attachments: Array
+  -status: Enum['pending','approved','rejected','cancelled']
+  -reviewedBy: ObjectId
+  -reviewedAt: Date
+  -reviewComment: String
+  -appliedAt: Date
+  -createdAt: Date
+  -updatedAt: Date
+}
+
+class OvertimeRequest {
+  -_id: ObjectId
+  -employee: ObjectId
+  -date: Date
+  -startTime: String
+  -endTime: String
+  -reason: String
+  -estimatedHours: Number
+  -shift: ObjectId
+  -shiftName: String
+  -status: Enum['pending','approved','rejected']
+  -reviewedBy: ObjectId
+  -reviewedAt: Date
+  -reviewComment: String
+  -appliedAt: Date
+  -createdAt: Date
+  -updatedAt: Date
+  +hasApprovedOTForDate(employeeId, date): Boolean
+}
+
+class Payroll {
+  -_id: ObjectId
+  -employee: ObjectId
+  -month: String
+  -baseSalary: Number
+  -generalAllowance: Number
+  -seniorityAllowance: Number
+  -positionAllowance: Number
+  -overtimePay: Number
+  -holidayWorkPay: Number
+  -weekendWorkPay: Number
+  -bonus: Number
+  -performanceBonus: Number
+  -otherAllowances: Number
+  -latePenalty: Number
+  -absentDeduction: Number
+  -unpaidLeaveDeduction: Number
+  -halfDayDeduction: Number
+  -taxAmount: Number
+  -taxRate: Number
+  -otherDeductions: Number
+  -maternityPay: Number
+  -sickLeavePay: Number
+  -annualLeavePay: Number
+  -grossSalary: Number
+  -totalDeductions: Number
+  -netSalary: Number
+  -workingDays: Number
+  -absentDays: Number
+  -halfDays: Number
+  -lateCount: Number
+  -lateMinutes: Number
+  -overtimeHours: Number
+  -holidayWorkDays: Number
+  -weekendWorkDays: Number
+  -paidLeaveDays: Number
+  -unpaidLeaveDays: Number
+  -maternityDays: Number
+  -sickLeaveDays: Number
+  -manualAdjustments: Array
+  -salaryHistory: Array
+  -status: Enum['draft','calculated','reviewed','approved','paid','cancelled']
+  -calculatedAt: Date
+  -approvedAt: Date
+  -approvedBy: String
+  -paidAt: Date
+  -notes: String
+  -createdAt: Date
+  -updatedAt: Date
+  +calculate(): Payroll
+}
+
+class Shift {
+  -_id: ObjectId
+  -name: String
+  -startTime: String
+  -endTime: String
+  -gracePeriod: Number
+  -isHoliday: Boolean
+  -description: String
+  -isActive: Boolean
+  -createdAt: Date
+  -updatedAt: Date
+}
+
+class EmployeeShift {
+  -_id: ObjectId
+  -employee: ObjectId
+  -shift: ObjectId
+  -startDate: Date
+  -endDate: Date
+  -isActive: Boolean
+  -isOvertimeShift: Boolean
+  -createdAt: Date
+  -updatedAt: Date
+}
+
+class Settings {
+  -_id: ObjectId
+  -type: Enum['working-hours','overtime','late-policy','early-checkin','salary-structure','leave-policy','auto-checkout','tax-config','ot-rate']
+  -config: Mixed
+  -updatedBy: String
+  -createdAt: Date
+  -updatedAt: Date
+  +getDefaultSettings(): Object
+}
+
+class Holiday {
+  -_id: ObjectId
+  -name: String
+  -date: Date
+  -type: Enum['national','tet','custom']
+  -workRate: Number
+  -description: String
+  -active: Boolean
+  -createdAt: Date
+  -updatedAt: Date
+  +isHoliday(date): Holiday
+}
+
+class InternalMessage {
+  -_id: ObjectId
+  -sender: ObjectId
+  -receiver: ObjectId
+  -content: String
+  -type: Enum['text','file','image']
+  -read: Boolean
+  -readAt: Date
+  -room: String
+  -createdAt: Date
+  -updatedAt: Date
+}
+
+class ESP32Config {
+  -_id: ObjectId
+  -esp32Ip: String
+  -serverUrl: String
+  -lastUpdated: Date
+  -lastSeen: Date
+  -status: Enum['online','offline']
+  -createdAt: Date
+  -updatedAt: Date
+}
+
+class SalaryConfig {
+  -_id: ObjectId
+  -standard_days: Number
+  -ot_rate: Number
+  -fine_per_15m: Number
+  -standard_start_hour: Number
+  -standard_start_minute: Number
+  -standard_end_hour: Number
+  -standard_end_minute: Number
+  -critical_missed_minutes: Number
+  -createdAt: Date
+  -updatedAt: Date
+  +getDefaultConfig(): SalaryConfig
+  +getStandardStartTime(date): Date
+  +getStandardEndTime(date): Date
+}
+
+class TerminatedEmployee {
+  -_id: ObjectId
+  -originalEmployeeId: ObjectId
+  -employeeId: String
+  -fingerprintId: Number
+  -name: String
+  -email: String
+  -phone: String
+  -position: String
+  -department: String
+  -contractType: Enum['intern','probation','official']
+  -baseSalary: Number
+  -joinDate: Date
+  -terminationDate: Date
+  -totalWorkingDays: Number
+  -terminationReason: Enum['resigned','terminated','contract_ended','retirement','other']
+  -terminationNote: String
+  -terminatedBy: String
+  -status: Enum['terminated','resigned']
+  -createdAt: Date
+  -updatedAt: Date
+}
+
+' ============================================
+' CONTROLLERS
+' ============================================
+
+class AuthController {
+  +register(req, res): void
+  +login(req, res): void
+  +logout(req, res): void
+  +getMe(req, res): void
+  +changePassword(req, res): void
+  +forgotPassword(req, res): void
+  +resetPassword(req, res): void
+}
+
+class AttendanceController {
+  +checkIn(req, res): void
+  +checkOut(req, res): void
+  +getAttendances(req, res): void
+  +getAttendanceById(req, res): void
+  +getMyAttendance(req, res): void
+  +createManualAttendance(req, res): void
+  +updateAttendance(req, res): void
+  +deleteAttendance(req, res): void
+  +getAttendanceStats(req, res): void
+  +autoCheckout(req, res): void
+}
+
+class EmployeeController {
+  +getEmployees(req, res): void
+  +getEmployeeById(req, res): void
+  +createEmployee(req, res): void
+  +updateEmployee(req, res): void
+  +deleteEmployee(req, res): void
+  +enrollFingerprint(req, res): void
+  +updateFingerprint(req, res): void
+  +getEmployeeProfile(req, res): void
+  +updateEmployeeProfile(req, res): void
+  +updateSalary(req, res): void
+}
+
+class LeaveController {
+  +createLeaveRequest(req, res): void
+  +getLeaves(req, res): void
+  +getLeaveById(req, res): void
+  +getMyLeaves(req, res): void
+  +reviewLeaveRequest(req, res): void
+  +cancelLeaveRequest(req, res): void
+  +deleteLeaveRequest(req, res): void
+}
+
+class OvertimeController {
+  +createOTRequest(req, res): void
+  +getOTRequests(req, res): void
+  +getOTRequestById(req, res): void
+  +getMyOTRequests(req, res): void
+  +reviewOTRequest(req, res): void
+  +deleteOTRequest(req, res): void
+  +assignOTShift(req, res): void
+}
+
+class PayrollController {
+  +calculatePayroll(req, res): void
+  +getPayrolls(req, res): void
+  +getPayrollById(req, res): void
+  +getMyPayroll(req, res): void
+  +updatePayrollStatus(req, res): void
+  +addManualAdjustment(req, res): void
+}
+
+class ShiftController {
+  +createShift(req, res): void
+  +getShifts(req, res): void
+  +getShiftById(req, res): void
+  +updateShift(req, res): void
+  +deleteShift(req, res): void
+  +assignShiftToEmployee(req, res): void
+  +getEmployeeShifts(req, res): void
+}
+
+class SettingsController {
+  +getAllSettings(req, res): void
+  +getSettingByType(req, res): void
+  +updateSetting(req, res): void
+  +createSetting(req, res): void
+}
+
+class ChatController {
+  +postMessage(req, res): void
+  +getChatHistory(req, res): void
+}
+
+class InternalChatController {
+  +sendMessage(req, res): void
+  +getMessages(req, res): void
+  +getConversations(req, res): void
+  +markAsRead(req, res): void
+}
+
+class DashboardController {
+  +getDashboardStats(req, res): void
+  +getAttendanceOverview(req, res): void
+  +getRecentActivities(req, res): void
+}
+
+class HolidayController {
+  +createHoliday(req, res): void
+  +getHolidays(req, res): void
+  +updateHoliday(req, res): void
+  +deleteHoliday(req, res): void
+}
+
+class TerminatedEmployeeController {
+  +terminateEmployee(req, res): void
+  +getTerminatedEmployees(req, res): void
+  +getTerminatedEmployeeById(req, res): void
+}
+
+' ============================================
+' SERVICES
+' ============================================
+
+class SalaryService {
+  +calculateMonthlySalary(employeeId, month, year): Object
+  +calculateBaseSalary(employee, workingDays): Number
+  +calculateOvertimePay(employee, attendanceRecords): Number
+  +calculatePenalties(employee, attendanceRecords): Number
+  +calculateAllowances(employee): Number
+  +calculateTax(grossSalary, taxRate): Number
+}
+
+class EmailService {
+  +sendEmail(to, subject, text, html): void
+  +sendPasswordResetEmail(user, token): void
+  +sendWelcomeEmail(user): void
+}
+
+class AttendanceHelper {
+  +calculateWorkingHours(checkIn, checkOut): Number
+  +calculateLateMinutes(checkInTime, shiftStartTime): Number
+  +calculateOvertimeHours(checkOutTime, shiftEndTime): Number
+  +isHoliday(date): Boolean
+  +isWeekend(date): Boolean
+}
+
+class SalaryCalculator {
+  +calculateBasePay(employee, workingDays): Number
+  +calculateOTPay(employee, overtimeHours, rate): Number
+  +calculatePenalty(lateMinutes, penaltyRate): Number
+  +calculateTax(grossSalary, taxRate): Number
+  +calculateNetSalary(grossSalary, deductions): Number
+}
+
+class TimeMachine {
+  +getCurrentTime(): Date
+  +setTime(date): void
+  +resetTime(): void
+}
+
+' ============================================
+' MIDDLEWARE
+' ============================================
+
+class AuthMiddleware {
+  +protect(req, res, next): void
+  +authorize(...roles): Function
+}
+
+class ErrorHandler {
+  +handleError(err, req, res, next): void
+}
+
+' ============================================
+' RELATIONSHIPS
+' ============================================
+
+' User - Employee relationship
+User "1" --> "0..1" Employee : references
+
+' Employee relationships
+Employee "1" --> "*" Attendance : has
+Employee "1" --> "*" Leave : requests
+Employee "1" --> "*" OvertimeRequest : requests
+Employee "1" --> "*" Payroll : has
+Employee "1" --> "*" EmployeeShift : assigned
+Employee "1" --> "0..1" TerminatedEmployee : becomes
+
+' Attendance relationships
+Attendance --> Employee : belongs to
+
+' Leave relationships
+Leave --> Employee : belongs to
+Leave --> User : reviewed by
+
+' OvertimeRequest relationships
+OvertimeRequest --> Employee : belongs to
+OvertimeRequest --> Shift : references
+OvertimeRequest --> User : reviewed by
+
+' Payroll relationships
+Payroll --> Employee : belongs to
+
+' Shift relationships
+Shift "1" --> "*" EmployeeShift : has
+EmployeeShift --> Employee : assigned to
+EmployeeShift --> Shift : references
+
+' InternalMessage relationships
+InternalMessage --> User : sender
+InternalMessage --> User : receiver
+
+' Controller dependencies
+AuthController ..> User : uses
+AuthController ..> Employee : uses
+
+AttendanceController ..> Attendance : uses
+AttendanceController ..> Employee : uses
+AttendanceController ..> Settings : uses
+AttendanceController ..> Holiday : uses
+AttendanceController ..> AttendanceHelper : uses
+
+EmployeeController ..> Employee : uses
+EmployeeController ..> User : uses
+
+LeaveController ..> Leave : uses
+LeaveController ..> Employee : uses
+LeaveController ..> User : uses
+
+OvertimeController ..> OvertimeRequest : uses
+OvertimeController ..> Employee : uses
+OvertimeController ..> Shift : uses
+OvertimeController ..> User : uses
+
+PayrollController ..> Payroll : uses
+PayrollController ..> Employee : uses
+PayrollController ..> Attendance : uses
+PayrollController ..> SalaryService : uses
+
+ShiftController ..> Shift : uses
+ShiftController ..> EmployeeShift : uses
+ShiftController ..> Employee : uses
+
+SettingsController ..> Settings : uses
+
+ChatController ..> Employee : uses
+ChatController ..> Payroll : uses
+ChatController ..> Attendance : uses
+
+InternalChatController ..> InternalMessage : uses
+InternalChatController ..> User : uses
+
+DashboardController ..> Attendance : uses
+DashboardController ..> Employee : uses
+DashboardController ..> Leave : uses
+
+HolidayController ..> Holiday : uses
+
+TerminatedEmployeeController ..> TerminatedEmployee : uses
+TerminatedEmployeeController ..> Employee : uses
+
+' Service dependencies
+SalaryService ..> Employee : uses
+SalaryService ..> Attendance : uses
+SalaryService ..> Payroll : uses
+SalaryService ..> Settings : uses
+SalaryService ..> SalaryCalculator : uses
+
+AttendanceHelper ..> Settings : uses
+AttendanceHelper ..> Holiday : uses
+
+SalaryCalculator ..> Settings : uses
+
+EmailService ..> User : uses
+
+' Middleware dependencies
+AuthMiddleware ..> User : uses
+
+@enduml
+
+
+
+
+
+
+

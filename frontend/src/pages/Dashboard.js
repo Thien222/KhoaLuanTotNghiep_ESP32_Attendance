@@ -344,7 +344,9 @@ const Dashboard = () => {
           <Title level={2} style={{ margin: 0, fontWeight: 600, color: '#262626' }}>
             Hello, {user?.name || user?.employee?.name || 'User'}
           </Title>
-
+          <Text type="secondary" style={{ fontSize: 14, marginTop: 4, display: 'block' }}>
+            Track team progress here. You almost reach a goal!
+          </Text>
         </div>
         <Space size="middle">
           <RangePicker

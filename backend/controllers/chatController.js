@@ -1,9 +1,11 @@
 const Employee = require('../models/Employee');
-const Attendance = require('../models/Attendance'); // giữ nguyên model Attendance của bạn
-const Payroll = require('../models/Payroll');       // snapshot bảng lương theo tháng
+const Attendance = require('../models/Attendance');
+const Payroll = require('../models/Payroll');
+const { calculateMonthlySalary } = require('../utils/salaryCalculator'); // Added import
 const { detectIntentAndEntities, toASCII, pickEmployeeName, pickEmployeeCode } = require('../services/nlu');
 const { classifyIntent } = require('../services/llm');
 const moment = require('moment-timezone');
+
 moment.tz.setDefault('Asia/Ho_Chi_Minh');
 
 // ===== Commons =====
@@ -27,132 +29,128 @@ async function resolveMe(user) {
     await Employee.findOne();
 }
 
-/** Ưu tiên snapshot bảng lương nếu đã có; nếu chưa thì fallback Employee.salary + Attendance */
+function isPrivileged(user) {
+  // Roles: employee | accountant | manager
+  return user && user.role && user.role !== 'employee';
+}
+
+/** 
+ * TÍNH LƯƠNG CHO CHATBOT
+ * Ưu tiên dùng snapshot Payroll nếu đã lưu trong DB.
+ * Nếu chưa có snapshot → gọi calculateMonthlySalary để tính đúng công thức mới.
+ */
 async function computeSalaryFor(emp, year, month, extraLeaveDays = 0) {
-  // 1) Ưu tiên snapshot payrolls (format month: "YYYY-MM")
   const monthStr = `${year}-${String(month).padStart(2, '0')}`; // "2025-08"
-  const snap = await Payroll.findOne({ employee: emp._id, month: monthStr }).lean();
-  if (snap) {
-    // Đọc các trường từ Payroll model
-    const baseSalaryFull = Number(emp.baseSalary || emp.salary || 0); // Lương cơ bản đầy đủ
-    const base = Number(snap.baseSalary || 0); // Lương theo ngày công thực tế
-    const netSalary = Number(snap.netSalary || snap.totalSalary || 0); // Lương thực lãnh
-    const workingDays = Number(snap.workingDays || 0);
-    const overtimeHours = Number(snap.overtimeHours || 0);
-    const overtimePay = Number(snap.overtimePay || 0);
-    const latePenalty = Number(snap.latePenalty || 0);
-    const generalAllowance = Number(snap.generalAllowance || 0);
-    const taxAmount = Number(snap.taxAmount || 0);
-    const totalDeductions = Number(snap.totalDeductions || 0);
 
-    // Tính daily rate từ lương cơ bản đầy đủ / 26 (Cách 1 - Ngày công chuẩn)
-    const STANDARD_WORKING_DAYS = 26;
-    const dailyRate = baseSalaryFull / STANDARD_WORKING_DAYS;
+  // 1) Thử lấy snapshot payroll trong DB
+  let snap = await Payroll.findOne({ employee: emp._id, month: monthStr }).lean();
 
-    // Nếu có extraLeaveDays (what-if), trừ thêm theo đơn giá ngày để dự báo
-    const totalLeave = Number(snap.absentDays || 0) + Number(snap.unpaidLeaveDays || 0) + Number(extraLeaveDays || 0);
-    const total = netSalary > 0
-      ? Math.max(0, netSalary - dailyRate * Number(extraLeaveDays || 0))
-      : base;
+  // 2) Nếu chưa có → tính on-the-fly bằng module calculateMonthlySalary (KHÔNG save DB)
+  if (!snap) {
+    try {
+      snap = await calculateMonthlySalary(emp._id, year, month);
+    } catch (e) {
+      console.error("Error calculating salary on-the-fly", e);
+      snap = null;
+    }
+  }
 
+  // Fallback if still no snap (e.g. employee has no data)
+  if (!snap) {
+    // Basic fallback to avoid crash
+    const baseSalaryFull = Number(emp.baseSalary || emp.salary || 0);
     return {
       mode: 'snapshot',
-      baseSalaryFull,   // Lương cơ bản đầy đủ
-      base,             // Lương theo ngày công
-      netSalary,        // Lương thực lãnh
-      dailyRate,
-      workingDays,
-      overtimeHours,
-      overtimePay,
-      latePenalty,
-      generalAllowance,
-      taxAmount,
-      totalDeductions,
-      leaveDays: Number(snap.absentDays || 0),
-      extraLeaveDays,
-      totalLeave,
-      hours: Number(snap.overtimeHours || 0),
-      total             // Lương thực lãnh (sau khi trừ what-if nếu có)
+      baseSalaryFull,
+      base: 0,
+      netSalary: 0,
+      dailyRate: 0,
+      workingDays: 0,
+      overtimeHours: 0,
+      overtimePay: 0,
+      holidayWorkPay: 0,
+      weekendWorkPay: 0,
+      latePenalty: 0,
+      generalAllowance: 0,
+      taxAmount: 0,
+      leaveDays: 0,
+      extraLeaveDays: 0,
+      total: 0
     };
   }
 
-  // 2) Fallback tính theo Employee.salary + giờ công thực tế
-  const hourly = Number(emp.hourlyRate || 0);
-  if (hourly > 0) {
-    const { start, end } = monthRange(year, month);
-    const docs = await Attendance.find(
-      { employee: emp._id, date: { $gte: start, $lt: end } },
-      'workingHours checkIn checkOut'
-    ).lean();
+  // 3) Map dữ liệu từ snapshot/module sang format dùng cho chatbot
+  const baseSalaryFull = Number(
+    snap.basicSalaryFull ?? snap.baseSalaryFull ?? emp.baseSalary ?? emp.salary ?? 0
+  );
 
-    let hours = 0;
-    if (docs.length && docs.some(d => d.workingHours != null))
-      hours = docs.reduce((s, d) => s + Number(d.workingHours || 0), 0);
-    else {
-      for (const d of docs) {
-        const inT = d?.checkIn?.time ? new Date(d.checkIn.time) : null;
-        const outT = d?.checkOut?.time ? new Date(d.checkOut.time) : null;
-        if (inT && outT && outT > inT) hours += (outT - inT) / 3600000;
-      }
-    }
-    return { mode: 'hourly', base: hourly, hours, dailyRate: 0, leaveDays: 0, total: hours * hourly };
-  }
+  // Lương theo ngày công (đã prorate theo ngày làm thực tế)
+  const base = Number(snap.baseSalary ?? snap.base ?? 0);
 
-  /** Employee.salary là Number theo schema gốc (default 0) — dùng làm lương cơ bản fallback. */
-  const baseSalaryFull = Number(emp.baseSalary || emp.salary || 0);
+  // Tổng phụ cấp: phụ cấp chung + thâm niên + chức vụ + otherAllowances
+  const generalAllowance =
+    Number(snap.generalAllowance ?? 0) +
+    Number(snap.seniorityAllowance ?? 0) +
+    Number(snap.positionAllowance ?? 0) +
+    Number(snap.otherAllowances ?? 0);
 
-  // Công thức: Lương 1 ngày = Lương cơ bản / 26
+  const overtimePay = Number(snap.overtimePay ?? 0);         // OT thường (đã có hệ số)
+  const holidayWorkPay = Number(snap.holidayWorkPay ?? 0);   // Làm ngày lễ
+  const weekendWorkPay = Number(snap.weekendWorkPay ?? 0);   // Chỉ hiển thị tham khảo, KHÔNG cộng net
+  const latePenalty = Number(snap.latePenalty ?? 0);         // Tổng phạt
+  const taxAmount = Number(snap.taxAmount ?? 0);             // Thuế
+
   const STANDARD_WORKING_DAYS = 26;
-  const dailyRate = baseSalaryFull / STANDARD_WORKING_DAYS;
+  const dailyRate = Number(
+    snap.dailyRate ?? Math.round(baseSalaryFull / STANDARD_WORKING_DAYS)
+  );
 
-  // Lấy số ngày công thực tế từ attendance
-  const { start, end } = monthRange(year, month);
-  const attendances = await Attendance.find(
-    { employee: emp._id, date: { $gte: start, $lt: end } },
-    'status'
-  ).lean();
+  const workingDays = Number(snap.actualWorkingDays ?? snap.workingDays ?? 0);
+  const overtimeHours = Number(snap.overtimeHours ?? 0);
 
-  // Tính số ngày công thực tế (present = 1 ngày, half-day = 0.5 ngày)
-  let actualWorkingDays = 0;
-  let absentDays = 0;
-  attendances.forEach(att => {
-    if (att.status === 'present') {
-      actualWorkingDays += 1;
-    } else if (att.status === 'half-day') {
-      actualWorkingDays += 0.5;
-    } else if (att.status === 'absent') {
-      absentDays += 1;
-    }
-  });
+  // Tổng ngày nghỉ (absent + unpaid) đang có trong tháng
+  const leaveDaysNow =
+    Number(snap.absentDays ?? 0) +
+    Number(snap.unpaidLeaveDays ?? 0);
 
-  // Tính lương tháng = (Lương cơ bản / 26) × Số ngày công thực tế
-  const monthlySalary = (baseSalaryFull / STANDARD_WORKING_DAYS) * actualWorkingDays;
+  // Lương thực lãnh đã được tính toán đúng trong snap (do Payroll hoặc calculateMonthlySalary trả về)
+  // Tuy nhiên, để đảm bảo consistency như yêu cầu trước đây, ta dùng prop netSalary của snap
+  const storedNet = Number(snap.netSalary ?? snap.totalSalary ?? 0);
 
-  // Tính khấu trừ nghỉ = (Lương cơ bản / 26) × Số ngày nghỉ (bao gồm extraLeaveDays nếu có)
-  const totalLeaveDays = absentDays + Number(extraLeaveDays || 0);
-  const leaveDeduction = (baseSalaryFull / STANDARD_WORKING_DAYS) * totalLeaveDays;
+  // 4) Logic dự báo: nếu nghỉ thêm extraLeaveDays
+  // Công thức đơn giản: LCB - (tổng ngày nghỉ × đơn giá/ngày), KHÔNG trừ thuế/phạt/OT
+  const totalAbsentDays = leaveDaysNow + Number(extraLeaveDays || 0);
+  const simpleSalaryIfLeave = Math.max(
+    0,
+    baseSalaryFull - totalAbsentDays * dailyRate
+  );
 
-  // Lương thực nhận = Lương tháng - Khấu trừ nghỉ
-  const net = Math.max(0, monthlySalary - leaveDeduction);
+  // 5) Net salary hiển thị
+  // - Nếu extraLeaveDays > 0 → dùng lương tạm tính đơn giản
+  // - Nếu = 0            → tin tưởng netSalary từ payroll
+  const finalNet =
+    extraLeaveDays > 0
+      ? simpleSalaryIfLeave
+      : storedNet;
 
   return {
-    mode: 'daily',
-    base: baseSalaryFull,
-    baseSalaryFull,
-    wd: STANDARD_WORKING_DAYS,
+    mode: 'snapshot',
+    baseSalaryFull,          // LCB tháng do admin set
+    base,                    // Lương theo ngày công (prorated)
+    netSalary: finalNet,     // Lương thực lãnh dùng để hiển thị (thực tế hoặc dự báo)
     dailyRate,
-    workingDays: actualWorkingDays,
-    leaveDays: absentDays,
+    workingDays,
+    overtimeHours,
+    overtimePay,
+    holidayWorkPay,
+    weekendWorkPay,          // chỉ để tham khảo nếu muốn show chi tiết
+    latePenalty,
+    generalAllowance,
+    taxAmount,
+    leaveDays: leaveDaysNow, // nghỉ hiện tại trong tháng
     extraLeaveDays,
-    totalLeave: totalLeaveDays,
-    hours: 0,
-    total: net
+    total: finalNet          // alias để các chỗ khác dùng
   };
-}
-
-function isPrivileged(user) {
-  // Roles trong schema: employee | accountant | manager  :contentReference[oaicite:3]{index=3}
-  return user && user.role && user.role !== 'employee';
 }
 
 // ===== Handlers intent =====
@@ -169,17 +167,26 @@ async function handleMySalary(user, entities) {
     return `Lương ${month}/${year} của bạn: ${fmtVND(info.total)} (giờ: ${info.hours.toFixed(2)}h × ${fmtVND(info.base)}/h).`;
   }
   if (info.mode === 'snapshot') {
-    // Có dữ liệu từ Payroll - hiển thị chi tiết
+    // Nếu là dự báo (What-if nghỉ thêm ngày) -> Hiển thị đơn giản
+    if (info.extraLeaveDays > 0) {
+      const deduct = info.dailyRate * info.extraLeaveDays;
+      const remain = Math.max(0, info.baseSalaryFull - deduct);
+      return `Lương tháng ${month}/${year} của bạn nếu nghỉ ${info.extraLeaveDays} ngày thì còn khoảng ${fmtVND(remain)} (LCB: ${fmtVND(info.baseSalaryFull)} - ${info.extraLeaveDays} × ${fmtVND(info.dailyRate)} = ${fmtVND(remain)}).`;
+    }
+
+    // Nếu xem lương bình thường -> Hiển thị chi tiết (đồng bộ với phiếu lương)
     const parts = [
       `Lương ${month}/${year} của bạn:`,
-      `• Lương cơ bản: ${fmtVND(info.baseSalaryFull || info.base)}`,
-      `• Lương ngày công (${info.workingDays || 0} ngày): ${fmtVND(info.base)}`,
+      `• Lương cơ bản: ${fmtVND(info.baseSalaryFull)}`,
+      `• Lương ngày công (${info.workingDays} ngày): ${fmtVND(info.base)}`,
     ];
     if (info.generalAllowance > 0) parts.push(`• Phụ cấp: +${fmtVND(info.generalAllowance)}`);
-    if (info.overtimePay > 0) parts.push(`• OT (${info.overtimeHours || 0}h): +${fmtVND(info.overtimePay)}`);
+    if (info.overtimePay > 0) parts.push(`• OT (${info.overtimeHours}h): +${fmtVND(info.overtimePay)}`);
+    if (info.holidayWorkPay > 0) parts.push(`• Làm ngày lễ: +${fmtVND(info.holidayWorkPay)}`);
     if (info.latePenalty > 0) parts.push(`• Phạt: -${fmtVND(info.latePenalty)}`);
     if (info.taxAmount > 0) parts.push(`• Thuế: -${fmtVND(info.taxAmount)}`);
-    parts.push(`→ Thực lãnh: ${fmtVND(info.netSalary || info.total)}`);
+
+    parts.push(`→ Thực lãnh: ${fmtVND(info.netSalary)}`);
     return parts.join('\n');
   }
   return `Lương ${month}/${year} của bạn: ${fmtVND(info.total)} (cơ bản ${fmtVND(info.base)}, nghỉ ${info.totalLeave || 0} ngày, đơn giá/ngày ${fmtVND(info.dailyRate)}).`;
@@ -189,16 +196,23 @@ async function handleWhatIfLeave(user, entities) {
   const now = new Date();
   const year = entities.year || now.getFullYear();
   const month = entities.month || now.getMonth() + 1;
-  const more = Math.max(0, Number(entities.days ?? 1));
+  const more = Math.max(0, Number(entities.days ?? 1)); // số ngày muốn nghỉ
 
   const me = await resolveMe(user);
   if (!me) return 'Không tìm thấy hồ sơ nhân viên của bạn.';
 
-  const info = await computeSalaryFor(me, year, month, more);
-  if (info.mode === 'hourly') {
-    return `Bạn tính lương theo giờ (${fmtVND(info.base)}/h). Tạm tính nếu nghỉ thêm ${more} ngày → ${fmtVND(info.total)} (giờ hiện tại: ${info.hours.toFixed(2)}h).`;
-  }
-  return `Nếu nghỉ thêm ${more} ngày trong ${month}/${year}, lương tạm tính: ${fmtVND(info.total)} (tổng nghỉ ${info.totalLeave} ngày, đơn giá/ngày ${fmtVND(info.dailyRate)}).`;
+  // Lấy thông tin lương tháng (đúng theo phiếu lương)
+  const info = await computeSalaryFor(me, year, month, 0); // extraLeaveDays không dùng để tính net nữa
+
+  const baseSalaryFull = Number(info.baseSalaryFull || 0);
+  // Lương 1 ngày: LCB / 26 (nếu dailyRate chưa có thì tự tính)
+  const STANDARD_WORKING_DAYS = 26;
+  const dailyRate = info.dailyRate || (baseSalaryFull / STANDARD_WORKING_DAYS) || 0;
+
+  const deduction = dailyRate * more;                      // tiền trừ của X ngày nghỉ
+  const remaining = Math.max(0, baseSalaryFull - deduction); // LCB - X ngày
+
+  return `Lương tháng ${month}/${year} của bạn nếu nghỉ ${more} ngày thì còn khoảng ${fmtVND(remaining)} (LCB: ${fmtVND(baseSalaryFull)} - ${more} × ${fmtVND(dailyRate)} = ${fmtVND(remaining)}).`;
 }
 
 async function handleEmployeeSalary(user, entities, rawText) {
@@ -284,21 +298,23 @@ async function handleEmployeeSalary(user, entities, rawText) {
     return `Lương ${month}/${year} của ${emp.name}${codePart}: ${fmtVND(info.total)} (giờ: ${info.hours.toFixed(2)}h × ${fmtVND(info.base)}/h).`;
   }
   if (info.mode === 'snapshot') {
-    // Có dữ liệu từ Payroll - với admin/accountant chỉ trả về thực lãnh
     if (privileged) {
-      return `Lương ${month}/${year} của ${emp.name}${codePart}: ${fmtVND(info.netSalary || info.total)}`;
+      // Admin/KT xem: Hiển thị chi tiết gọn
+      return `Lương ${month}/${year} của ${emp.name}${codePart}: ${fmtVND(info.netSalary)} (CB: ${fmtVND(info.baseSalaryFull)}, Công: ${fmtVND(info.base)}, Phụ cấp: ${fmtVND(info.generalAllowance)}, OT: ${fmtVND(info.overtimePay)}, Lễ: ${fmtVND(info.holidayWorkPay)}, Phạt: -${fmtVND(info.latePenalty)}, Thuế: -${fmtVND(info.taxAmount)})`;
     }
-    // Nhân viên xem lương của mình - hiển thị chi tiết
+    // Nhân viên xem (fallback): Hiển thị chi tiết đầy đủ
     const parts = [
       `Lương ${month}/${year} của ${emp.name}${codePart}:`,
-      `• Lương cơ bản: ${fmtVND(info.baseSalaryFull || info.base)}`,
-      `• Lương ngày công (${info.workingDays || 0} ngày): ${fmtVND(info.base)}`,
+      `• Lương cơ bản: ${fmtVND(info.baseSalaryFull)}`,
+      `• Lương ngày công (${info.workingDays} ngày): ${fmtVND(info.base)}`,
     ];
     if (info.generalAllowance > 0) parts.push(`• Phụ cấp: +${fmtVND(info.generalAllowance)}`);
-    if (info.overtimePay > 0) parts.push(`• OT (${info.overtimeHours || 0}h): +${fmtVND(info.overtimePay)}`);
+    if (info.overtimePay > 0) parts.push(`• OT (${info.overtimeHours}h): +${fmtVND(info.overtimePay)}`);
+    if (info.holidayWorkPay > 0) parts.push(`• Làm ngày lễ: +${fmtVND(info.holidayWorkPay)}`);
     if (info.latePenalty > 0) parts.push(`• Phạt: -${fmtVND(info.latePenalty)}`);
     if (info.taxAmount > 0) parts.push(`• Thuế: -${fmtVND(info.taxAmount)}`);
-    parts.push(`→ Thực lãnh: ${fmtVND(info.netSalary || info.total)}`);
+
+    parts.push(`→ Thực lãnh: ${fmtVND(info.netSalary)}`);
     return parts.join('\n');
   }
   return `Lương ${month}/${year} của ${emp.name}${codePart}: ${fmtVND(info.total)} (cơ bản ${fmtVND(info.base)}, nghỉ ${info.totalLeave || 0} ngày, đơn giá/ngày ${fmtVND(info.dailyRate)}).`;
@@ -528,8 +544,8 @@ async function handleMyProfile(user) {
 async function handleMyLeaveBalance(user) {
   const me = await resolveMe(user);
   if (!me) return 'Không tìm thấy hồ sơ nhân viên của bạn.';
-  const annual = Number(me.annualLeaveDays || 0);   // từ schema Employee  :contentReference[oaicite:4]{index=4}
-  const used = Number(me.usedLeaveDays || 0);   // từ schema Employee  :contentReference[oaicite:5]{index=5}
+  const annual = Number(me.annualLeaveDays || 0);   // từ schema Employee
+  const used = Number(me.usedLeaveDays || 0);   // từ schema Employee
   const remain = Math.max(0, annual - used);
   return `Bạn có ${annual} ngày phép/năm, đã dùng ${used}, còn lại ${remain}.`;
 }
@@ -650,19 +666,6 @@ exports.postMessage = async (req, res) => {
           /(da|đã|chưa|chua|check|diem danh|điểm danh|cham cong|chấm công)/i.test(text)) {
           reply = await handleMyAttendanceYesterday(user, entities);
         }
-        // PRIORITY FIX: Check attendance FIRST if has employee code + attendance keywords
-        // Fallback: Nếu có mã nhân viên + check-in/điểm danh → EMPLOYEE_ATTENDANCE_BY_CODE
-        else if (/\b(EMP|NV)\s*\d{2,6}\b/i.test(text) &&
-          /(checkin|check\s*in|diem danh|điểm danh|cham cong|chấm công|da|đã|chưa)/i.test(text) &&
-          !/l[ươ]ng|b[ả]ng l[ươ]ng/i.test(text)) {
-          const extractedCode = pickEmployeeCode(toASCII(text), text);
-          if (extractedCode) {
-            entities.employeeCode = extractedCode;
-            reply = await handleEmployeeAttendanceByCode(user, entities, text);
-          } else {
-            reply = helpText();
-          }
-        }
         // Fallback: Nếu câu có "lương" và "nhân viên" → thử coi như EMPLOYEE_SALARY
         // NHƯNG không phải nếu có từ khóa check-in/điểm danh
         else if (/l[ươ]ng|b[ả]ng l[ươ]ng/i.test(text) && /nhân\s*viên/i.test(text) && !/(toi|tui|minh|cua toi|của tôi|m[iì]nh|t[ôo]i|em)\b/i.test(text) &&
@@ -678,10 +681,23 @@ exports.postMessage = async (req, res) => {
             reply = helpText();
           }
         }
-        // Nếu câu có "lương ... của ..." hoặc mã NV (WITHOUT attendance keywords) → EMPLOYEE_SALARY
+        // Nếu câu có "lương ... của ..." hoặc mã NV → thử coi như EMPLOYEE_SALARY
+        // NHƯNG không phải nếu có từ khóa check-in/điểm danh
         else if ((/l[ươ]ng|b[ả]ng l[ươ]ng/i.test(text) && /c[ủ]a\s+/i.test(text)) ||
-          (/\b(EMP|NV)\s*\d{2,6}\b/i.test(text) && !/(checkin|check\s*in|diem danh|điểm danh|cham cong|chấm công|da|đã|chưa)/i.test(text))) {
+          (/\b(EMP|NV)\s*\d{2,6}\b/i.test(text) && !/(checkin|check\s*in|diem danh|điểm danh|cham cong|chấm công)/i.test(text))) {
           reply = await handleEmployeeSalary(user, entities, text);
+        }
+        // Fallback: Nếu có mã nhân viên + check-in/điểm danh → EMPLOYEE_ATTENDANCE_BY_CODE
+        else if (/\b(EMP|NV)\s*\d{2,6}\b/i.test(text) &&
+          /(checkin|check\s*in|diem danh|điểm danh|cham cong|chấm công|da|đã|chưa)/i.test(text) &&
+          !/l[ươ]ng|b[ả]ng l[ươ]ng/i.test(text)) {
+          const extractedCode = pickEmployeeCode(toASCII(text), text);
+          if (extractedCode) {
+            entities.employeeCode = extractedCode;
+            reply = await handleEmployeeAttendanceByCode(user, entities, text);
+          } else {
+            reply = helpText();
+          }
         }
         else reply = helpText();
     }

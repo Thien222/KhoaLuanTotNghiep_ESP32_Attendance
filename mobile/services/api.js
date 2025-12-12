@@ -18,9 +18,20 @@ api.interceptors.request.use(
       const token = await AsyncStorage.getItem('token');
       if (token) {
         config.headers.Authorization = `Bearer ${token}`;
+        console.log('✅ Token added to request:', {
+          url: config.url,
+          method: config.method,
+          hasToken: !!token,
+          tokenLength: token.length
+        });
+      } else {
+        console.warn('⚠️ No token found in AsyncStorage for request:', {
+          url: config.url,
+          method: config.method
+        });
       }
     } catch (error) {
-      console.error('Error getting token:', error);
+      console.error('❌ Error getting token:', error);
     }
     return config;
   },
