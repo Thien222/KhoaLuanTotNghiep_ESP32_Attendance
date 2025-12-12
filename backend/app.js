@@ -1093,27 +1093,35 @@ app.post('/api/fingerprint', async (req, res) => {
         });
 
         // THEN send email in background (don't await - non-blocking)
-        console.log('📧 Sending enrollment email notification in background...');
-        console.log('📧 Employee data for email:', {
-          _id: updateResult._id,
-          name: updateResult.name,
-          email: updateResult.email,
-          employeeId: updateResult.employeeId,
-          fingerprintId: updateResult.fingerprintId
-        });
+        // Use setTimeout(0) to ensure this runs in next event loop cycle
+        // and cannot block the main thread
+        const ENABLE_ENROLLMENT_EMAIL = process.env.ENABLE_ENROLLMENT_EMAIL === 'true';
 
-        (async () => {
-          try {
-            console.log('📧 [BACKGROUND] Starting email task...');
-            const { sendEnrollmentEmailNotification } = require('./controllers/employeeController');
-            const emailResult = await sendEnrollmentEmailNotification(updateResult);
-            console.log('✅ [BACKGROUND] Email task completed:', emailResult ? 'success' : 'no result');
-          } catch (emailError) {
-            console.error('❌ [BACKGROUND] Email error:', emailError.message);
-            console.error('❌ [BACKGROUND] Error stack:', emailError.stack);
-            // Don't fail the enrollment if email fails
-          }
-        })();
+        if (ENABLE_ENROLLMENT_EMAIL) {
+          console.log('📧 Sending enrollment email notification in background...');
+          console.log('📧 Employee data for email:', {
+            _id: updateResult._id,
+            name: updateResult.name,
+            email: updateResult.email,
+            employeeId: updateResult.employeeId,
+            fingerprintId: updateResult.fingerprintId
+          });
+
+          // Use setTimeout to completely detach from request cycle
+          setTimeout(async () => {
+            try {
+              console.log('📧 [BACKGROUND] Starting email task...');
+              const { sendEnrollmentEmailNotification } = require('./controllers/employeeController');
+              const emailResult = await sendEnrollmentEmailNotification(updateResult);
+              console.log('✅ [BACKGROUND] Email task completed:', emailResult ? 'success' : 'no result');
+            } catch (emailError) {
+              console.error('❌ [BACKGROUND] Email error:', emailError.message);
+              // Don't fail the enrollment if email fails
+            }
+          }, 100); // Small delay to ensure response is sent first
+        } else {
+          console.log('📧 [SKIPPED] Email notifications disabled (set ENABLE_ENROLLMENT_EMAIL=true to enable)');
+        }
 
         return; // Already sent response
       } else {
