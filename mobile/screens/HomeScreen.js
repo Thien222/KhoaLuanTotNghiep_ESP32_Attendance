@@ -25,6 +25,8 @@ export default function HomeScreen({ navigation }) {
   const lastLeaveStatusRef = useRef({});
   const lastOTStatusRef = useRef({});
   const pollingIntervalRef = useRef(null);
+  const otSchedulePollingRef = useRef(null);
+  const currentOTScheduleRef = useRef([]); // Lưu OT schedule hiện tại để so sánh
 
   useEffect(() => {
     loadData();
@@ -34,12 +36,50 @@ export default function HomeScreen({ navigation }) {
       checkRequestStatus();
     }, 10000); // Check mỗi 10 giây
 
+    // ✅ Setup polling để check OT schedule mới (mỗi 5 giây)
+    otSchedulePollingRef.current = setInterval(() => {
+      checkOTSchedule();
+    }, 5000); // Check mỗi 5 giây
+
     return () => {
       if (pollingIntervalRef.current) {
         clearInterval(pollingIntervalRef.current);
       }
+      if (otSchedulePollingRef.current) {
+        clearInterval(otSchedulePollingRef.current);
+      }
     };
   }, [user, navigation]);
+
+  // ✅ Kiểm tra OT schedule mới được gán
+  const checkOTSchedule = async () => {
+    try {
+      const otRes = await overtimeAPI.getMyOTSchedule();
+      if (otRes.success) {
+        const newOTSchedule = (otRes.data || []).filter(ot => 
+          moment(ot.date).isSameOrAfter(moment(), 'day')
+        ).slice(0, 5);
+        
+        // So sánh với OT schedule hiện tại (dùng ref để tránh dependency issues)
+        const currentOTIds = new Set(currentOTScheduleRef.current.map(ot => ot._id?.toString() || String(ot._id)));
+        const newOTIds = new Set(newOTSchedule.map(ot => ot._id?.toString() || String(ot._id)));
+        
+        // Nếu có OT mới (có ID không có trong danh sách cũ) hoặc số lượng thay đổi
+        const hasNewOT = newOTSchedule.some(ot => {
+          const otId = ot._id?.toString() || String(ot._id);
+          return !currentOTIds.has(otId);
+        });
+        
+        if (hasNewOT || newOTSchedule.length !== currentOTScheduleRef.current.length) {
+          // Cập nhật OT schedule ngay lập tức
+          setOtSchedule(newOTSchedule);
+          currentOTScheduleRef.current = newOTSchedule; // Cập nhật ref
+        }
+      }
+    } catch (error) {
+      console.error('Error checking OT schedule:', error);
+    }
+  };
 
   // ✅ Kiểm tra trạng thái đơn và hiển thị thông báo nếu có thay đổi
   const checkRequestStatus = async () => {
@@ -116,6 +156,7 @@ export default function HomeScreen({ navigation }) {
           moment(ot.date).isSameOrAfter(moment(), 'day')
         ).slice(0, 5); // Lấy tối đa 5 ngày OT sắp tới
         setOtSchedule(upcomingOT);
+        currentOTScheduleRef.current = upcomingOT; // Lưu vào ref để so sánh sau này
       }
 
       // ✅ Lưu trạng thái ban đầu của đơn để so sánh sau này
