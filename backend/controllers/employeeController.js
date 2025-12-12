@@ -110,8 +110,21 @@ exports.addEmployee = async (req, res) => {
           console.log('✅ User account created for employee:', generatedEmployeeId);
           
           // Gửi email thông báo với thông tin đăng nhập
-          if (email && email.includes('@') && !email.includes('@company.com')) {
+          // Kiểm tra email hợp lệ (có @ và không phải email tự động @company.com)
+          const isValidEmail = generatedEmail && 
+                              generatedEmail.includes('@') && 
+                              !generatedEmail.includes('@company.com') &&
+                              generatedEmail.includes('.');
+          
+          console.log('📧 Email check:', {
+            generatedEmail,
+            isValidEmail,
+            originalEmail: email
+          });
+          
+          if (isValidEmail) {
             try {
+              console.log('📧 Attempting to send welcome email to:', generatedEmail);
               const emailResult = await emailService.sendWelcomeEmail(
                 {
                   name: employee.name,
@@ -129,14 +142,21 @@ exports.addEmployee = async (req, res) => {
               );
               
               if (emailResult.success) {
-                console.log('✅ Welcome email sent to:', generatedEmail);
+                console.log('✅ Welcome email sent successfully to:', generatedEmail);
+                console.log('📧 Email message ID:', emailResult.messageId);
               } else {
                 console.warn('⚠️ Failed to send welcome email:', emailResult.error);
               }
             } catch (emailError) {
               console.error('❌ Error sending welcome email:', emailError);
+              console.error('❌ Error details:', {
+                message: emailError.message,
+                stack: emailError.stack
+              });
               // Không throw error, vẫn tiếp tục tạo nhân viên
             }
+          } else {
+            console.warn('⚠️ Skipping email send - invalid email:', generatedEmail);
           }
         } catch (userError) {
           console.error('⚠️ Error creating user account:', userError);

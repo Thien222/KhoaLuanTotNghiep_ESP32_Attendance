@@ -25,7 +25,15 @@ const createTransporter = () => {
 // Send welcome email with login credentials
 exports.sendWelcomeEmail = async (employeeData, credentials) => {
   try {
+    console.log('📧 Preparing to send welcome email...');
+    console.log('📧 Email config check:', {
+      hasEmailUser: !!process.env.EMAIL_USER,
+      hasEmailPassword: !!process.env.EMAIL_APP_PASSWORD,
+      emailUser: process.env.EMAIL_USER
+    });
+    
     const transporter = createTransporter();
+    console.log('✅ Email transporter created');
 
     const mailOptions = {
       from: `"HR Management System" <${process.env.EMAIL_USER}>`,
@@ -122,13 +130,23 @@ exports.sendWelcomeEmail = async (employeeData, credentials) => {
       `
     };
 
+    console.log('📧 Sending email to:', employeeData.email);
     const info = await transporter.sendMail(mailOptions);
-    console.log('✅ Email sent successfully:', info.messageId);
+    console.log('✅ Email sent successfully!');
+    console.log('📧 Message ID:', info.messageId);
+    console.log('📧 Response:', info.response);
     console.log('📧 To:', employeeData.email);
     return { success: true, messageId: info.messageId };
     
   } catch (error) {
     console.error('❌ Error sending email:', error);
+    console.error('❌ Error details:', {
+      message: error.message,
+      code: error.code,
+      command: error.command,
+      response: error.response,
+      responseCode: error.responseCode
+    });
     return { success: false, error: error.message };
   }
 };
