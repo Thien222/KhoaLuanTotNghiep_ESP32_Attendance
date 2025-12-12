@@ -25,12 +25,14 @@ const createTransporter = () => {
     throw new Error('Email configuration missing. Set EMAIL_USER and EMAIL_APP_PASSWORD.');
   }
 
-  // Create transporter with connection pooling and increased timeouts
+  // Create transporter with connection pooling
+  // FIX: Đổi sang port 587 (STARTTLS) thay vì 465 (SMTPS)
+  // Port 587 được Render hỗ trợ tốt hơn, không bị block
   cachedTransporter = nodemailer.createTransport({
     host: 'smtp.gmail.com',
-    port: 465,
-    secure: true,
-    pool: true, // Use connection pooling
+    port: 587,       // Đổi sang port 587 (STARTTLS) - chuẩn quốc tế
+    secure: false,   // Bắt buộc false cho port 587 (STARTTLS)
+    pool: true,      // Giữ connection pooling
     maxConnections: 3,
     maxMessages: 100,
     auth: {
@@ -38,16 +40,17 @@ const createTransporter = () => {
       pass: emailPassword
     },
     tls: {
-      rejectUnauthorized: false
+      rejectUnauthorized: false,  // Tránh lỗi chứng chỉ SSL trên Render
+      ciphers: 'SSLv3'            // Đảm bảo tương thích
     },
-    connectionTimeout: 60000, // 60 seconds
-    greetingTimeout: 60000,   // 60 seconds  
-    socketTimeout: 60000,     // 60 seconds
-    debug: true,  // Enable debug output
-    logger: true  // Log to console
+    connectionTimeout: 10000,  // 10 giây - timeout ngắn hơn
+    greetingTimeout: 10000,    // 10 giây
+    socketTimeout: 10000,      // 10 giây
+    debug: true,   // Enable debug output
+    logger: true   // Log to console
   });
 
-  console.log('📧 New transporter created with pooling');
+  console.log('📧 New transporter created (port 587 - STARTTLS)');
   return cachedTransporter;
 };
 

@@ -7,6 +7,7 @@
  * - Chỉ mark NVS sau khi server xác nhận OK (tránh lệch).
  * - Có cooldown chống double-tap cùng ngón tay.
  * - Tự động lấy config từ backend (KHÔNG CẦN HARDCODE IP)
+ * - Hardware Watchdog Timer để tự restart khi bị treo
  ************************************************************/
 
 #include <Arduino.h>
@@ -18,6 +19,7 @@
 #include <Adafruit_Fingerprint.h>
 #include <Preferences.h>
 #include <time.h>
+#include <esp_task_wdt.h>  // Hardware Watchdog Timer
 
 // ================== Simple JSON Parser (không cần ArduinoJson) ==================
 String getJsonStringValue(const String &json, const String &key)
@@ -778,12 +780,25 @@ String base64_encode(const uint8_t *data, size_t len)
 }
 
 // ================== HTTP helper ==================
-// Static clients to keep them alive during request
+// Static clients - MUST be properly cleaned up to avoid memory leaks!
 static WiFiClientSecure secureClient;
 static WiFiClient plainClient;
 
+// Cleanup function to free SSL memory
+void cleanupSSLClient() {
+  secureClient.stop();
+  delay(10); // Give time for cleanup
+}
+
 bool httpPostJson(const String &url, const String &body, int &outCode, String &outResp)
 {
+  // Free memory before starting new connection
+  cleanupSSLClient();
+  delay(50); // Extra delay for memory cleanup
+  
+  // Print free heap for debugging
+  Serial.printf("Free heap before request: %d bytes\n", ESP.getFreeHeap());
+  
   HTTPClient http;
   bool okBegin = false;
   
@@ -791,8 +806,16 @@ bool httpPostJson(const String &url, const String &body, int &outCode, String &o
   
   if (url.startsWith("https://"))
   {
+    // Check if we have enough memory for SSL (needs ~40KB)
+    if (ESP.getFreeHeap() < 50000) {
+      Serial.println("⚠️ Low memory! Forcing garbage collection...");
+      cleanupSSLClient();
+      delay(100);
+      Serial.printf("Free heap after cleanup: %d bytes\n", ESP.getFreeHeap());
+    }
+    
     secureClient.setInsecure(); // Skip certificate verification
-    secureClient.setTimeout(60000); // 60 seconds for Render cold start (can take 30-60s)
+    secureClient.setTimeout(30000); // 30 seconds timeout (reduced from 60)
     okBegin = http.begin(secureClient, url);
     Serial.println("Using HTTPS (WiFiClientSecure)");
   }
@@ -805,11 +828,12 @@ bool httpPostJson(const String &url, const String &body, int &outCode, String &o
   
   if (!okBegin) {
     Serial.println("http.begin() failed!");
+    cleanupSSLClient(); // Cleanup on failure
     return false;
   }
   
-  http.setReuse(false);
-  http.setTimeout(60000); // 60 seconds timeout for Render cold start
+  http.setReuse(false); // Don't reuse connection - helps with memory
+  http.setTimeout(30000); // 30 seconds timeout
   http.addHeader("Content-Type", "application/json");
   
   Serial.printf("Sending body: %s\n", body.c_str());
@@ -822,6 +846,11 @@ bool httpPostJson(const String &url, const String &body, int &outCode, String &o
     Serial.printf("HTTP %d, resp len=%d\n", outCode, outResp.length());
   
   http.end();
+  
+  // IMPORTANT: Cleanup SSL connection after use to free memory
+  cleanupSSLClient();
+  Serial.printf("Free heap after request: %d bytes\n", ESP.getFreeHeap());
+  
   return true;
 }
 
@@ -1381,11 +1410,23 @@ void setup()
   webServer.onNotFound(handleNotFound);
   webServer.begin();
 
+  // ====== HARDWARE WATCHDOG TIMER ======
+  // Nếu loop() không chạy trong 30 giây, ESP32 sẽ tự restart
+  Serial.println("🐕 Setting up Hardware Watchdog Timer (30s)...");
+  esp_task_wdt_init(30, true); // 30 second timeout, panic on timeout
+  esp_task_wdt_add(NULL);      // Add current task to watchdog
+  Serial.println("✅ Watchdog enabled - ESP32 will auto-restart if stuck");
+
+  Serial.printf("🆓 Free heap after setup: %d bytes\n", ESP.getFreeHeap());
+  
   oledPrintCenter("Dat ngon tay de", "DIEM DANH (AUTO)", "1=IN, 2=OUT");
 }
 
 // ==================== COMMAND POLLING SYSTEM ====================
 // Poll server for pending commands and execute them
+
+// Forward declaration
+void processCommandPayload(const String &payload);
 
 void reportCommandCompletion(const String &commandId, int fingerprintId, bool success, const String &result)
 {
@@ -1407,40 +1448,71 @@ void pollAndExecuteCommands()
   // Build poll URL
   String pollUrl = serverUrl + "/esp32/commands/poll";
   
-  // Create FRESH client each time to avoid socket reuse issues
   HTTPClient http;
-  
+  bool beginSuccess = false;
+
+  // --- FIX MEMORY LEAK: Dùng biến cục bộ (Stack) thay vì new (Heap) ---
+  // Memory sẽ tự động được giải phóng khi function kết thúc
   if (pollUrl.startsWith("https://")) {
-    WiFiClientSecure *client = new WiFiClientSecure();
-    client->setInsecure();
-    client->setTimeout(10000);
-    if (!http.begin(*client, pollUrl)) {
-      delete client;
+    WiFiClientSecure client;   // Stack allocation - tự động cleanup
+    client.setInsecure();      // Bỏ qua check SSL
+    client.setTimeout(10000);
+    beginSuccess = http.begin(client, pollUrl);
+    
+    if (!beginSuccess) {
+      Serial.println("❌ Poll: HTTPS begin failed");
       return;
     }
-  } else {
-    WiFiClient *client = new WiFiClient();
-    client->setTimeout(5000);
-    if (!http.begin(*client, pollUrl)) {
-      delete client;
+    
+    http.setTimeout(10000);
+    int httpCode = http.GET();
+    
+    if (httpCode != 200) {
+      if (httpCode > 0) {
+        Serial.printf("Poll commands: HTTP %d\n", httpCode);
+      }
+      http.end();
       return;
     }
-  }
-  
-  http.setTimeout(10000);
-  int httpCode = http.GET();
-  
-  if (httpCode != 200) {
-    if (httpCode > 0) {
-      Serial.printf("Poll commands: HTTP %d\n", httpCode);
-    }
+    
+    String payload = http.getString();
     http.end();
-    return;
+    
+    // Process payload (moved inside scope for HTTPS)
+    processCommandPayload(payload);
+    
+  } else {
+    WiFiClient client;         // Stack allocation - tự động cleanup
+    client.setTimeout(5000);
+    beginSuccess = http.begin(client, pollUrl);
+    
+    if (!beginSuccess) {
+      Serial.println("❌ Poll: HTTP begin failed");
+      return;
+    }
+    
+    http.setTimeout(10000);
+    int httpCode = http.GET();
+    
+    if (httpCode != 200) {
+      if (httpCode > 0) {
+        Serial.printf("Poll commands: HTTP %d\n", httpCode);
+      }
+      http.end();
+      return;
+    }
+    
+    String payload = http.getString();
+    http.end();
+    
+    // Process payload
+    processCommandPayload(payload);
   }
-  
-  String payload = http.getString();
-  http.end();
-  
+}
+
+// Helper function to process command payload
+void processCommandPayload(const String &payload)
+{
   // Parse response
   if (!getJsonBoolValue(payload, "hasCommand")) {
     return; // No pending commands
@@ -1497,6 +1569,55 @@ void pollAndExecuteCommands()
 }
 void loop()
 {
+  // ====== WATCHDOG RESET - Phải gọi mỗi vòng loop để tránh restart ======
+  esp_task_wdt_reset();
+  
+  // ====== WIFI RECONNECT - Tự động kết nối lại nếu mất WiFi ======
+  static unsigned long lastWiFiCheck = 0;
+  if (millis() - lastWiFiCheck > 10000) { // Check mỗi 10 giây
+    lastWiFiCheck = millis();
+    if (WiFi.status() != WL_CONNECTED) {
+      Serial.println("⚠️ WiFi disconnected! Reconnecting...");
+      oledPrintCenter("WiFi mat ket noi", "Dang ket noi lai...");
+      
+      // Cố gắng kết nối lại
+      WiFi.disconnect();
+      delay(100);
+      if (!connectWiFiMulti(15000)) {
+        Serial.println("❌ WiFi reconnect failed. Will retry...");
+        oledPrintCenter("WiFi FAIL", "Thu lai sau 10s");
+      } else {
+        Serial.println("✅ WiFi reconnected!");
+        oledPrintCenter("WiFi OK!", WiFi.localIP().toString());
+        delay(1000);
+      }
+    }
+  }
+  
+  // ====== MEMORY MONITOR - Log và cảnh báo nếu memory thấp ======
+  static unsigned long lastMemCheck = 0;
+  if (millis() - lastMemCheck > 10000) { // Check mỗi 10 giây để dễ debug
+    lastMemCheck = millis();
+    uint32_t freeHeap = ESP.getFreeHeap();
+    Serial.printf(">>> Free Heap: %u bytes\n", freeHeap);
+    
+    // Nếu memory quá thấp, cleanup và cảnh báo
+    if (freeHeap < 30000) {
+      Serial.println("⚠️ LOW MEMORY! Cleaning up...");
+      cleanupSSLClient();
+      delay(100);
+      Serial.printf("🆓 Free heap after cleanup: %u bytes\n", ESP.getFreeHeap());
+      
+      // Nếu vẫn thấp, restart ESP32
+      if (ESP.getFreeHeap() < 20000) {
+        Serial.println("🔄 Memory critical! Restarting ESP32...");
+        oledPrintCenter("MEMORY LOW", "Dang khoi dong lai...");
+        delay(2000);
+        ESP.restart();
+      }
+    }
+  }
+  
   webServer.handleClient();
   tryRegisterIfLan();
 
@@ -1513,7 +1634,11 @@ void loop()
   if (millis() - lastCommandPoll > 3000)
   {
     lastCommandPoll = millis();
-    pollAndExecuteCommands();
+    
+    // Chỉ poll nếu WiFi connected để tránh stuck
+    if (WiFi.status() == WL_CONNECTED) {
+      pollAndExecuteCommands();
+    }
   }
 
   // Định kỳ check config mới (mỗi 5 phút)
@@ -1521,7 +1646,9 @@ void loop()
   if (millis() - lastConfigCheck > 300000)
   { // 5 minutes
     Serial.println("\n🔄 Periodic config check...");
-    getServerConfigFromBackend();
+    if (WiFi.status() == WL_CONNECTED) {
+      getServerConfigFromBackend();
+    }
     lastConfigCheck = millis();
   }
 
