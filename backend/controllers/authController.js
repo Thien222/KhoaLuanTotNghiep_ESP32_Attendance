@@ -84,17 +84,17 @@ exports.login = async (req, res) => {
         { username: email }
       ]
     };
-    
+
     // Only add email to query if email is provided and looks like email
     if (email && email.includes('@')) {
       query.$or.push({ email: email });
     }
-    
+
     console.log('🔍 Query:', JSON.stringify(query));
-    
+
     const user = await User.findOne(query).populate('employee');
     console.log('👤 User found:', user ? { id: user._id, username: user.username, email: user.email, role: user.role } : 'NOT FOUND');
-    
+
     if (!user) {
       return res.status(401).json({
         success: false,
@@ -114,7 +114,7 @@ exports.login = async (req, res) => {
     console.log('🔑 Comparing password...');
     const isPasswordValid = await user.comparePassword(password);
     console.log('🔑 Password valid:', isPasswordValid);
-    
+
     if (!isPasswordValid) {
       return res.status(401).json({
         success: false,
@@ -170,7 +170,7 @@ exports.getProfile = async (req, res) => {
   try {
     // req.user đã được populate từ authMiddleware, không cần query lại
     const user = req.user;
-    
+
     if (!user) {
       return res.status(404).json({
         success: false,
@@ -199,7 +199,7 @@ exports.getProfile = async (req, res) => {
 exports.changePassword = async (req, res) => {
   try {
     const { currentPassword, newPassword } = req.body;
-    
+
     // Validate input
     if (!currentPassword || !newPassword) {
       return res.status(400).json({
@@ -217,7 +217,7 @@ exports.changePassword = async (req, res) => {
 
     // req.user đã được populate từ authMiddleware
     const user = req.user;
-    
+
     if (!user) {
       return res.status(404).json({
         success: false,
@@ -257,6 +257,141 @@ exports.changePassword = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Lỗi server khi đổi mật khẩu',
+      error: error.message
+    });
+  }
+};
+
+// ============================================
+// ACCOUNT MANAGEMENT (Admin only)
+// ============================================
+
+// Get all accounts
+exports.getAllAccounts = async (req, res) => {
+  try {
+    // Check if user is admin
+    if (req.user.role !== 'manager') {
+      return res.status(403).json({
+        success: false,
+        message: 'Bạn không có quyền truy cập chức năng này'
+      });
+    }
+
+    const accounts = await User.find()
+      .populate('employee', 'name employeeId department position')
+      .select('-password')
+      .sort({ createdAt: -1 });
+
+    res.json({
+      success: true,
+      data: accounts
+    });
+
+  } catch (error) {
+    console.error('Get all accounts error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Lỗi server khi lấy danh sách tài khoản',
+      error: error.message
+    });
+  }
+};
+
+// Update account (role, status)
+exports.updateAccount = async (req, res) => {
+  try {
+    // Check if user is admin
+    if (req.user.role !== 'manager') {
+      return res.status(403).json({
+        success: false,
+        message: 'Bạn không có quyền truy cập chức năng này'
+      });
+    }
+
+    const { id } = req.params;
+    const { role, isActive } = req.body;
+
+    const account = await User.findById(id);
+    if (!account) {
+      return res.status(404).json({
+        success: false,
+        message: 'Tài khoản không tồn tại'
+      });
+    }
+
+    // Prevent admin from deactivating their own account
+    if (id === req.user._id.toString() && isActive === false) {
+      return res.status(400).json({
+        success: false,
+        message: 'Bạn không thể khóa tài khoản của chính mình'
+      });
+    }
+
+    // Update fields
+    if (role !== undefined) account.role = role;
+    if (isActive !== undefined) account.isActive = isActive;
+
+    await account.save();
+
+    res.json({
+      success: true,
+      message: 'Cập nhật tài khoản thành công',
+      data: account.toJSON()
+    });
+
+  } catch (error) {
+    console.error('Update account error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Lỗi server khi cập nhật tài khoản',
+      error: error.message
+    });
+  }
+};
+
+// Reset account password (Admin)
+exports.resetAccountPassword = async (req, res) => {
+  try {
+    // Check if user is admin
+    if (req.user.role !== 'manager') {
+      return res.status(403).json({
+        success: false,
+        message: 'Bạn không có quyền truy cập chức năng này'
+      });
+    }
+
+    const { id } = req.params;
+    const { newPassword } = req.body;
+
+    if (!newPassword || newPassword.length < 6) {
+      return res.status(400).json({
+        success: false,
+        message: 'Mật khẩu mới phải có ít nhất 6 ký tự'
+      });
+    }
+
+    const account = await User.findById(id);
+    if (!account) {
+      return res.status(404).json({
+        success: false,
+        message: 'Tài khoản không tồn tại'
+      });
+    }
+
+    // Update password (pre-save hook sẽ tự động hash)
+    account.password = newPassword;
+    await account.save();
+
+    res.json({
+      success: true,
+      message: 'Đặt lại mật khẩu thành công'
+    });
+
+  } catch (error) {
+    console.error('Reset account password error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Lỗi server khi đặt lại mật khẩu',
       error: error.message
     });
   }

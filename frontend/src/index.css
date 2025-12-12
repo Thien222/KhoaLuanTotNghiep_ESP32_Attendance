@@ -116,8 +116,10 @@ code {
 
 /* Content area with fixed header/sidebar */
 .main-content-area {
-  margin-left: 200px; /* Match sidebar width when not collapsed */
-  margin-top: 56px;   /* Match header height */
+  margin-left: 0px;
+  /* Match sidebar width when not collapsed */
+  margin-top: 56px;
+  /* Match header height */
   padding: 8px;
   min-height: calc(100vh - 56px);
   overflow-x: hidden;
@@ -125,7 +127,8 @@ code {
 }
 
 .main-content-area.collapsed {
-  margin-left: 80px; /* Match collapsed sidebar width */
+  margin-left: 80px;
+  /* Match collapsed sidebar width */
 }
 
 /* =====================================================
@@ -159,12 +162,12 @@ code {
   font-size: 13px;
 }
 
-.ant-table-thead > tr > th {
+.ant-table-thead>tr>th {
   padding: 8px 12px !important;
   font-size: 13px !important;
 }
 
-.ant-table-tbody > tr > td {
+.ant-table-tbody>tr>td {
   padding: 8px 12px !important;
   font-size: 13px !important;
 }
@@ -242,7 +245,7 @@ code {
 }
 
 /* Better table row hover */
-.ant-table-tbody > tr:hover > td {
+.ant-table-tbody>tr:hover>td {
   background: #f5f9ff !important;
 }
 
@@ -268,7 +271,7 @@ code {
   background: #ffffff !important;
 }
 
-.ant-table-thead > tr > th {
+.ant-table-thead>tr>th {
   background-color: #fafafa !important;
   font-weight: 600 !important;
   font-size: 13px !important;
@@ -282,7 +285,7 @@ code {
 }
 
 /* Remove blue accent line completely */
-.ant-table-thead > tr > th::after {
+.ant-table-thead>tr>th::after {
   display: none !important;
   content: none !important;
 }
@@ -293,17 +296,17 @@ code {
   content: none !important;
 }
 
-.ant-table-thead > tr > th:first-child {
+.ant-table-thead>tr>th:first-child {
   border-left: none !important;
   border-top-left-radius: 4px !important;
 }
 
-.ant-table-thead > tr > th:last-child {
+.ant-table-thead>tr>th:last-child {
   border-right: none !important;
   border-top-right-radius: 4px !important;
 }
 
-.ant-table-tbody > tr > td {
+.ant-table-tbody>tr>td {
   border-bottom: 2px solid #d9d9d9 !important;
   border-right: 2px solid #d9d9d9 !important;
   border-top: none !important;
@@ -314,42 +317,42 @@ code {
   vertical-align: middle !important;
 }
 
-.ant-table-tbody > tr > td:first-child {
+.ant-table-tbody>tr>td:first-child {
   border-left: none !important;
 }
 
-.ant-table-tbody > tr > td:last-child {
+.ant-table-tbody>tr>td:last-child {
   border-right: none !important;
 }
 
-.ant-table-tbody > tr:last-child > td {
+.ant-table-tbody>tr:last-child>td {
   border-bottom: none !important;
 }
 
-.ant-table-tbody > tr:last-child > td:first-child {
+.ant-table-tbody>tr:last-child>td:first-child {
   border-bottom-left-radius: 4px !important;
 }
 
-.ant-table-tbody > tr:last-child > td:last-child {
+.ant-table-tbody>tr:last-child>td:last-child {
   border-bottom-right-radius: 4px !important;
 }
 
 /* Fix extra row border in statistics page */
-.ant-table-tbody > tr:last-child {
+.ant-table-tbody>tr:last-child {
   border-bottom: none !important;
 }
 
-.ant-table-tbody > tr:last-child::after {
+.ant-table-tbody>tr:last-child::after {
   display: none !important;
 }
 
-.ant-table-bordered .ant-table-thead > tr > th,
-.ant-table-bordered .ant-table-tbody > tr > td {
+.ant-table-bordered .ant-table-thead>tr>th,
+.ant-table-bordered .ant-table-tbody>tr>td {
   border-right: 2px solid #d9d9d9 !important;
 }
 
-.ant-table-bordered .ant-table-thead > tr > th:last-child,
-.ant-table-bordered .ant-table-tbody > tr > td:last-child {
+.ant-table-bordered .ant-table-thead>tr>th:last-child,
+.ant-table-bordered .ant-table-tbody>tr>td:last-child {
   border-right: none !important;
 }
 
@@ -432,7 +435,7 @@ code {
 }
 
 /* Remove extra row at bottom - comprehensive fix */
-.ant-table-tbody > tr:last-child > td {
+.ant-table-tbody>tr:last-child>td {
   border-bottom: none !important;
 }
 
@@ -533,7 +536,7 @@ code {
 }
 
 /* Page-level spacing reduction */
-.ant-layout-content > div {
+.ant-layout-content>div {
   padding: 0 !important;
 }
 
@@ -547,7 +550,7 @@ code {
 }
 
 /* Card spacing */
-.ant-card + .ant-card {
+.ant-card+.ant-card {
   margin-top: 8px !important;
 }
 
@@ -688,7 +691,7 @@ code {
   padding-bottom: 2px !important;
 }
 
-.ant-form-item-label > label {
+.ant-form-item-label>label {
   height: auto !important;
   line-height: 1.5 !important;
 }

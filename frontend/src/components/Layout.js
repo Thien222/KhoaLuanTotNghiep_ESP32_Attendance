@@ -17,11 +17,13 @@ import {
   UserDeleteOutlined,
   CalendarOutlined,
   CrownOutlined,
-  MessageOutlined
+  MessageOutlined,
+  KeyOutlined
 } from '@ant-design/icons';
 import { useNavigate, useLocation } from 'react-router-dom';
 import TimeControl from './TimeControl';
 import { useViewMode } from '../contexts/ViewModeContext';
+import { useAuth } from '../contexts/AuthContext';
 import { useSocket } from '../hooks/useSocket';
 import { useUnreadCount } from '../hooks/useUnreadCount';
 
@@ -44,8 +46,12 @@ const MainLayout = ({ children }) => {
   const location = useLocation();
   const { socket, connected } = useSocket();
 
-  // Get user from localStorage
+  // Get user from AuthContext (primary source) with fallback to localStorage
+  const { user: authUser } = useAuth();
+
   const getUser = () => {
+    // Prefer AuthContext user, fallback to localStorage for initial load
+    if (authUser) return authUser;
     try {
       const userData = localStorage.getItem('user');
       if (userData) {
@@ -350,10 +356,9 @@ const MainLayout = ({ children }) => {
             />
 
             {/* View Mode Toggle - Admin/Accountant can switch modes */}
-            {canSwitchMode && (
+            {canSwitchMode ? (
               <Tooltip title={`Chuyển chế độ xem (hiện tại: ${getCurrentModeInfo().label})`}>
                 <Button
-                  key={`mode-btn-${user?.role}-${viewMode}-${canSwitchMode}`}
                   icon={
                     isPersonalMode ? <UserOutlined /> :
                       isAccountantMode ? <DollarOutlined /> :
@@ -366,10 +371,8 @@ const MainLayout = ({ children }) => {
                   {getCurrentModeInfo().label}
                 </Button>
               </Tooltip>
-            )}
-
-            {/* Show current mode badge */}
-            {!canSwitchMode && (
+            ) : (
+              /* Show current mode badge for employees who cannot switch */
               <Tag color="blue" icon={<UserOutlined />}>
                 Cá nhân
               </Tag>
@@ -399,6 +402,13 @@ const MainLayout = ({ children }) => {
                   label: 'Thông tin cá nhân',
                   onClick: () => navigate('/profile')
                 },
+                // Only show for admin
+                ...(isAdmin ? [{
+                  key: 'account-management',
+                  icon: <KeyOutlined />,
+                  label: 'Quản lý tài khoản',
+                  onClick: () => navigate('/account-management')
+                }] : []),
                 {
                   type: 'divider'
                 },

@@ -337,13 +337,14 @@ const Dashboard = () => {
         display: 'flex',
         justifyContent: 'space-between',
         alignItems: 'center',
-        marginBottom: 20
+        marginBottom: 20,
+        // marginLeft: "-150px",
       }}>
         <div>
           <Title level={2} style={{ margin: 0, fontWeight: 600, color: '#262626' }}>
             Hello, {user?.name || user?.employee?.name || 'User'}
           </Title>
-       
+
         </div>
         <Space size="middle">
           <RangePicker

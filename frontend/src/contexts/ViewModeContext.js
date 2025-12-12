@@ -22,35 +22,32 @@ export const useViewMode = () => {
 };
 
 export const ViewModeProvider = ({ children }) => {
-  const { user } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const [viewMode, setViewMode] = useState('personal');
-  const [initialized, setInitialized] = useState(false);
 
   // Reset viewMode when user changes
   useEffect(() => {
-    if (user) {
-      // Default mode based on role - always re-initialize when user changes
+    console.log('[ViewMode] useEffect triggered, user:', user?.role, user?._id, 'authLoading:', authLoading);
+    if (!authLoading && user && user.role) {
+      // Default mode based on role
       if (user.role === 'manager') {
+        console.log('[ViewMode] Setting admin mode for manager');
         setViewMode('admin');
       } else if (user.role === 'accountant') {
-        setViewMode('personal'); // Accountant default to personal
+        console.log('[ViewMode] Setting personal mode for accountant');
+        setViewMode('personal');
       } else {
+        console.log('[ViewMode] Setting personal mode for employee');
         setViewMode('personal');
       }
-      setInitialized(true);
-    } else {
-      setInitialized(false);
-      setViewMode('personal');
     }
-  }, [user?.role, user?._id]); // Re-initialize when user role or ID changes
+  }, [user, authLoading]);
 
-  // Check if user can switch modes
-  const canSwitchMode = React.useMemo(() => {
-    const role = user?.role;
-    const result = role === 'manager' || role === 'accountant';
-    console.log('[ViewMode] canSwitchMode check:', { role, result, user });
-    return result;
-  }, [user?.role]);
+  // Check if user can switch modes - compute directly from user
+  const canSwitchMode = !authLoading && user && (user.role === 'manager' || user.role === 'accountant');
+
+  // Check if context is ready (user loaded and not in loading state)
+  const initialized = !authLoading && !!user;
 
   // Get available modes based on role
   const getAvailableModes = React.useCallback(() => {
@@ -87,7 +84,7 @@ export const ViewModeProvider = ({ children }) => {
   const toggleMode = React.useCallback(() => {
     const role = user?.role;
     console.log('[ViewMode] toggleMode called:', { role, currentMode: viewMode });
-    
+
     if (role === 'manager') {
       setViewMode(prev => {
         const newMode = prev === 'admin' ? 'personal' : 'admin';
@@ -113,11 +110,11 @@ export const ViewModeProvider = ({ children }) => {
   const hasAccessTo = (feature) => {
     // Personal features - available in personal mode for everyone
     const personalFeatures = ['my-salary', 'my-attendance', 'my-leave', 'chatbot', 'profile'];
-    
+
     // Admin-only features
     const adminFeatures = [
-      'employee-management', 
-      'attendance-management', 
+      'employee-management',
+      'attendance-management',
       'shift-management',
       'overtime-management',
       'leave-approval',
@@ -127,7 +124,7 @@ export const ViewModeProvider = ({ children }) => {
       'statistics',
       'reports',
     ];
-    
+
     // Payroll features
     const payrollFeatures = ['payroll-management', 'payroll-all'];
 
@@ -157,6 +154,7 @@ export const ViewModeProvider = ({ children }) => {
     toggleMode,
     getCurrentModeInfo,
     hasAccessTo,
+    initialized,
   };
 
   return (

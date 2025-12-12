@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Form, Input, Button, Card, Typography, App } from 'antd';
 import { UserOutlined, LockOutlined, LoginOutlined, SettingOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
-import axios from 'axios';
+import { useAuth } from '../../contexts/AuthContext';
 import { getAPIUrl } from '../../utils/configManager';
 
 const { Title, Text } = Typography;
@@ -12,68 +12,48 @@ const Login = () => {
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
+  const { login, user } = useAuth();
 
   useEffect(() => {
-    // Check if already logged in
-    const token = localStorage.getItem('token');
-    const userData = localStorage.getItem('user');
-    
-    if (token && userData) {
-      try {
-        const user = JSON.parse(userData);
-        const userRole = user.role;
-        const profileCompleted = user.profileCompleted !== false;
-        
-        // Redirect based on role
-        if (userRole === 'manager') {
-          navigate('/dashboard');
-        } else if (userRole === 'employee') {
-          if (!profileCompleted) {
-            navigate('/complete-profile');
-          } else {
-            navigate('/requests');
-          }
-        } else if (userRole === 'accountant') {
-          navigate('/payroll');
+    // Check if already logged in via AuthContext
+    if (user) {
+      const userRole = user.role;
+      const profileCompleted = user.profileCompleted !== false;
+
+      // Redirect based on role
+      if (userRole === 'manager') {
+        navigate('/dashboard');
+      } else if (userRole === 'employee') {
+        if (!profileCompleted) {
+          navigate('/complete-profile');
         } else {
-          navigate('/dashboard');
+          navigate('/requests');
         }
-      } catch (error) {
-        console.error('Error parsing user data:', error);
-        // Clear invalid data
-        localStorage.removeItem('token');
-        localStorage.removeItem('user');
+      } else if (userRole === 'accountant') {
+        navigate('/payroll');
+      } else {
+        navigate('/dashboard');
       }
     }
-  }, [navigate]);
+  }, [user, navigate]);
 
   const onFinish = async (values) => {
     setLoading(true);
     try {
-      const API_URL = getAPIUrl();
-      console.log('🔐 Attempting login with API_URL:', API_URL);
-      
-      // Set timeout for axios request
-      const response = await axios.post(`${API_URL}/auth/login`, {
-        email: values.email,
-        password: values.password
-      }, {
-        timeout: 10000 // 10 seconds timeout
-      });
+      console.log('🔐 Attempting login with API_URL:', getAPIUrl());
 
-      console.log('✅ Login response:', response.data);
+      // Use AuthContext login method to ensure state is updated
+      const result = await login(values.email, values.password);
 
-      if (response.data.success) {
-        // Store token and user info in localStorage
-        localStorage.setItem('token', response.data.data.token);
-        localStorage.setItem('user', JSON.stringify(response.data.data.user));
-        
+      console.log('✅ Login result:', result);
+
+      if (result.success) {
         message.success('Đăng nhập thành công!');
-        
+
         // Redirect based on role and profile completion
-        const userRole = response.data.data.user.role;
-        const profileCompleted = response.data.data.user.profileCompleted;
-        
+        const userRole = result.user.role;
+        const profileCompleted = result.user.profileCompleted;
+
         if (userRole === 'manager') {
           navigate('/dashboard');
         } else if (userRole === 'employee') {
@@ -87,14 +67,16 @@ const Login = () => {
         } else {
           navigate('/payroll');
         }
+      } else {
+        message.error(result.message || 'Đăng nhập thất bại');
       }
     } catch (error) {
       console.error('❌ Login error:', error);
-      
+
       // Handle different types of errors
       let errorMessage = 'Đăng nhập thất bại.';
-      
-      if (error.code === 'ECONNABORTED' || error.message.includes('timeout')) {
+
+      if (error.code === 'ECONNABORTED' || error.message?.includes('timeout')) {
         errorMessage = 'Kết nối đến server bị timeout. Vui lòng kiểm tra:';
         errorMessage += '\n- Server có đang chạy không?';
         errorMessage += '\n- Địa chỉ IP server có đúng không?';
@@ -103,7 +85,7 @@ const Login = () => {
           content: errorMessage,
           duration: 8
         });
-      } else if (error.code === 'ERR_NETWORK' || error.message.includes('ERR_CONNECTION_TIMED_OUT')) {
+      } else if (error.code === 'ERR_NETWORK' || error.message?.includes('ERR_CONNECTION_TIMED_OUT')) {
         errorMessage = 'Không thể kết nối đến server. Vui lòng kiểm tra:';
         errorMessage += '\n- Server có đang chạy không?';
         errorMessage += '\n- Địa chỉ IP và cổng có đúng không?';

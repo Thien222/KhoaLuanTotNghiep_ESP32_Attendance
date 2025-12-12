@@ -66,11 +66,6 @@ export default function InternalChatScreen({ navigation, route }) {
     try {
       const currentUserRole = user?.role;
       const allowedRoles = getAllowedRolesForChat(currentUserRole);
-
-      // Get employees with user accounts
-      const response = await employeeAPI.getMyProfile();
-      // For now, we'll get users from conversations
-      // In a real scenario, you'd have a users endpoint
     } catch (error) {
       console.error('Error loading users:', error);
     }
@@ -94,7 +89,6 @@ export default function InternalChatScreen({ navigation, route }) {
       const response = await internalChatAPI.getConversations();
       if (response.success) {
         setConversations(response.data || []);
-        // Extract unique users from conversations
         const uniqueUsers = [];
         const userIds = new Set();
         response.data.forEach(conv => {
@@ -126,31 +120,23 @@ export default function InternalChatScreen({ navigation, route }) {
       if (response.success) {
         const newMessages = response.data || [];
 
-        // ✅ SMART DEDUPLICATION - prevent duplicates
         setMessages(prev => {
-          // Create a Set of existing message IDs
           const existingIds = new Set(prev.map(m => m._id));
-
-          // Only add truly new messages
           const uniqueNewMessages = newMessages.filter(m => !existingIds.has(m._id));
 
-          // If we have new messages, append them
           if (uniqueNewMessages.length > 0) {
             return [...prev, ...uniqueNewMessages].sort((a, b) =>
               new Date(a.createdAt) - new Date(b.createdAt)
             );
           }
 
-          // If no new messages and count is same, return prev (avoid re-render)
           if (prev.length === newMessages.length) {
             return prev;
           }
 
-          // Otherwise, use new messages (handles deletes, edits, etc)
           return newMessages;
         });
 
-        // Mark messages as read
         const unreadIds = newMessages
           .filter(msg => !msg.read && msg.receiver?._id === (user?._id || user?.id))
           .map(msg => msg._id);
@@ -169,7 +155,6 @@ export default function InternalChatScreen({ navigation, route }) {
     const messageContent = inputValue.trim();
     const currentUserId = user?._id || user?.id;
 
-    // ✅ OPTIMISTIC UI - Show message instantly
     const optimisticMessage = {
       _id: `temp-${Date.now()}`,
       content: messageContent,
@@ -179,11 +164,9 @@ export default function InternalChatScreen({ navigation, route }) {
       isOptimistic: true
     };
 
-    // Add to UI immediately
     setMessages(prev => [...prev, optimisticMessage]);
     setInputValue('');
 
-    // Scroll to bottom
     setTimeout(() => {
       flatListRef.current?.scrollToEnd({ animated: true });
     }, 100);
@@ -192,16 +175,13 @@ export default function InternalChatScreen({ navigation, route }) {
     try {
       const response = await internalChatAPI.sendMessage(selectedUserId, messageContent);
       if (response.success) {
-        // ⚡ Reload messages instantly
         setTimeout(() => loadMessages(), 100);
       } else {
-        // Remove optimistic message on error
         setMessages(prev => prev.filter(m => m._id !== optimisticMessage._id));
         Alert.alert('Lỗi', response.message || 'Không thể gửi tin nhắn');
       }
     } catch (error) {
       console.error('Error sending message:', error);
-      // Remove optimistic message on error
       setMessages(prev => prev.filter(m => m._id !== optimisticMessage._id));
       Alert.alert('Lỗi', 'Không thể gửi tin nhắn');
     } finally {
@@ -214,7 +194,6 @@ export default function InternalChatScreen({ navigation, route }) {
     setSelectedUserName(userName);
     setMessages([]);
 
-    // ✅ Mark messages as read khi click vào conversation
     try {
       const response = await internalChatAPI.getConversation(userId);
       if (response.success) {
@@ -225,7 +204,6 @@ export default function InternalChatScreen({ navigation, route }) {
 
         if (unreadIds.length > 0) {
           await internalChatAPI.markAsRead(unreadIds);
-          // Reload conversations để cập nhật unread count
           loadConversations();
         }
       }
@@ -288,7 +266,7 @@ export default function InternalChatScreen({ navigation, route }) {
         onPress={() => handleSelectUser(item._id, item.name)}
       >
         <View style={styles.userAvatar}>
-          <Ionicons name="person" size={24} color="#722ed1" />
+          <Ionicons name="person" size={20} color="#722ed1" />
           {unreadCount > 0 && (
             <View style={styles.unreadBadge}>
               <Text style={styles.unreadText}>
@@ -341,7 +319,7 @@ export default function InternalChatScreen({ navigation, route }) {
               }
               ListEmptyComponent={
                 <View style={styles.emptyContainer}>
-                  <Ionicons name="chatbubbles-outline" size={64} color="#ccc" />
+                  <Ionicons name="chatbubbles-outline" size={48} color="#ccc" />
                   <Text style={styles.emptyText}>Chưa có cuộc trò chuyện nào</Text>
                 </View>
               }
@@ -403,7 +381,7 @@ export default function InternalChatScreen({ navigation, route }) {
               >
                 <Ionicons
                   name="send"
-                  size={20}
+                  size={18}
                   color={inputValue.trim() && !sending ? '#fff' : '#999'}
                 />
               </TouchableOpacity>
@@ -424,17 +402,18 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    padding: 16,
-    paddingTop: 60,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    paddingTop: 50,
     backgroundColor: '#fff',
     borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
+    borderBottomColor: '#eee',
   },
   backButton: {
     padding: 4,
   },
   headerTitle: {
-    fontSize: 18,
+    fontSize: 17,
     fontWeight: 'bold',
     color: '#333',
   },
@@ -448,7 +427,8 @@ const styles = StyleSheet.create({
   userItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 16,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
     borderBottomWidth: 1,
     borderBottomColor: '#f0f0f0',
   },
@@ -456,9 +436,9 @@ const styles = StyleSheet.create({
     backgroundColor: '#f0f5ff',
   },
   userAvatar: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     backgroundColor: '#f0f5ff',
     justifyContent: 'center',
     alignItems: 'center',
@@ -467,12 +447,12 @@ const styles = StyleSheet.create({
   },
   unreadBadge: {
     position: 'absolute',
-    top: -2,
-    right: -2,
+    top: -4,
+    right: -4,
     backgroundColor: '#ff4d4f',
-    borderRadius: 10,
-    minWidth: 20,
-    height: 20,
+    borderRadius: 8,
+    minWidth: 16,
+    height: 16,
     justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: 4,
@@ -486,17 +466,17 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   userName: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '600',
     color: '#333',
-    marginBottom: 4,
+    marginBottom: 2,
   },
   lastMessage: {
-    fontSize: 14,
+    fontSize: 13,
     color: '#666',
   },
   messageTimeSmall: {
-    fontSize: 12,
+    fontSize: 11,
     color: '#999',
   },
   chatContainer: {
@@ -506,18 +486,19 @@ const styles = StyleSheet.create({
   chatHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 16,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
     borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
+    borderBottomColor: '#eee',
     backgroundColor: '#fff',
   },
   backToUsersButton: {
     padding: 4,
-    marginRight: 12,
+    marginRight: 8,
   },
   chatHeaderTitle: {
     flex: 1,
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: 'bold',
     color: '#333',
   },
@@ -525,10 +506,11 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   messagesContent: {
-    padding: 16,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
   },
   messageContainer: {
-    marginBottom: 16,
+    marginBottom: 8,
   },
   ownMessage: {
     alignItems: 'flex-end',
@@ -537,13 +519,14 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
   },
   senderName: {
-    fontSize: 12,
+    fontSize: 11,
     color: '#666',
-    marginBottom: 4,
+    marginBottom: 2,
   },
   messageBubble: {
-    maxWidth: '75%',
-    padding: 12,
+    maxWidth: '78%',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
     borderRadius: 16,
   },
   ownBubble: {
@@ -553,7 +536,8 @@ const styles = StyleSheet.create({
     backgroundColor: '#f0f0f0',
   },
   messageText: {
-    fontSize: 15,
+    fontSize: 14,
+    lineHeight: 20,
   },
   ownMessageText: {
     color: '#fff',
@@ -562,60 +546,61 @@ const styles = StyleSheet.create({
     color: '#333',
   },
   messageTime: {
-    fontSize: 11,
+    fontSize: 10,
     color: '#999',
-    marginTop: 4,
+    marginTop: 2,
   },
   inputContainer: {
     flexDirection: 'row',
     alignItems: 'flex-end',
-    padding: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
     borderTopWidth: 1,
-    borderTopColor: '#f0f0f0',
+    borderTopColor: '#eee',
     backgroundColor: '#fff',
   },
   input: {
     flex: 1,
     borderWidth: 1,
-    borderColor: '#d9d9d9',
+    borderColor: '#ddd',
     borderRadius: 20,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
     marginRight: 8,
-    maxHeight: 100,
-    fontSize: 15,
+    maxHeight: 80,
+    fontSize: 14,
+    backgroundColor: '#fafafa',
   },
   sendButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     backgroundColor: '#722ed1',
     justifyContent: 'center',
     alignItems: 'center',
   },
   sendButtonDisabled: {
-    backgroundColor: '#f0f0f0',
+    backgroundColor: '#e0e0e0',
   },
   emptyContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingVertical: 60,
+    paddingVertical: 48,
   },
   emptyText: {
-    fontSize: 16,
+    fontSize: 14,
     color: '#999',
-    marginTop: 16,
+    marginTop: 12,
   },
   emptyChatContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingVertical: 60,
+    paddingVertical: 48,
   },
   emptyChatText: {
-    fontSize: 16,
+    fontSize: 14,
     color: '#999',
   },
 });
-
