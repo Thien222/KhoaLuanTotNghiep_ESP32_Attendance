@@ -490,8 +490,10 @@ int validateAttendanceTime(bool isCheckIn)
   }
 }
 
-// ================== BACKEND URL (DYNAMIC - Tự động lấy từ backend) ==================
-const char *DEFAULT_SERVER_URL = "http://172.20.10.7:3000/api"; // Fallback - Updated to current local server
+// ================== BACKEND URL (PRODUCTION - Render.com) ==================
+// ⚠️ LƯU Ý: Render free tier sẽ ngủ sau 15 phút không hoạt động
+// Request đầu tiên sau khi ngủ có thể mất 30-60 giây
+const char *DEFAULT_SERVER_URL = "https://khoaluantotnghiep-esp32-attendance.onrender.com/api"; // Production Render
 String serverUrl = DEFAULT_SERVER_URL;
 String fingerprintEndpoint = serverUrl + "/fingerprint";
 String attendanceEndpoint = serverUrl + "/attendance/add";
@@ -538,7 +540,6 @@ void saveServerUrl(const String &url)
 // ====== Tự động lấy config từ backend ======
 bool getServerConfigFromBackend()
 {
-  HTTPClient http;
   String esp32IP = WiFi.localIP().toString();
 
   Serial.println("\n==========================================");
@@ -546,33 +547,92 @@ bool getServerConfigFromBackend()
   Serial.println("ESP32 IP: " + esp32IP);
   Serial.println("==========================================");
 
+  // ========== THỬ RENDER PRODUCTION TRƯỚC ==========
+  Serial.println("\n🌐 Trying Render production server first...");
+  String renderUrl = "https://khoaluantotnghiep-esp32-attendance.onrender.com/esp32-discovery";
+  Serial.println("URL: " + renderUrl);
+  oledPrintCenter("Connecting...", "Render Server", "Please wait...");
+  
+  WiFiClientSecure secureClient;
+  secureClient.setInsecure(); // Skip certificate validation
+  secureClient.setTimeout(30000); // 30 seconds timeout (Render có thể cần wake up)
+  
+  HTTPClient https;
+  if (https.begin(secureClient, renderUrl)) {
+    https.setTimeout(30000); // 30 seconds
+    
+    Serial.println("  Connecting to Render (may take 30-60s if sleeping)...");
+    unsigned long startTime = millis();
+    int httpCode = https.GET();
+    unsigned long elapsed = millis() - startTime;
+    
+    if (httpCode == 200) {
+      String payload = https.getString();
+      Serial.println("✅ Render OK (" + String(elapsed) + "ms)");
+      Serial.println("Response: " + payload.substring(0, 150));
+      
+      if (getJsonBoolValue(payload, "success")) {
+        String discoveredUrl = getJsonStringValue(payload, "serverUrl");
+        if (discoveredUrl.length() > 0) {
+          https.end();
+          
+          if (discoveredUrl != serverUrl) {
+            saveServerUrl(discoveredUrl);
+          }
+          
+          String fpEndpoint = getJsonStringValue(payload, "fingerprintEndpoint");
+          String attEndpoint = getJsonStringValue(payload, "attendanceEndpoint");
+          if (fpEndpoint.length() > 0) fingerprintEndpoint = fpEndpoint;
+          if (attEndpoint.length() > 0) attendanceEndpoint = attEndpoint;
+          
+          Serial.println("\n==========================================");
+          Serial.println("✅ CONNECTED TO RENDER PRODUCTION!");
+          Serial.println("==========================================");
+          Serial.println("Server URL: " + serverUrl);
+          Serial.println("Fingerprint: " + fingerprintEndpoint);
+          Serial.println("Attendance: " + attendanceEndpoint);
+          Serial.println("==========================================");
+          oledPrintCenter("Render OK!", "Production", "Ready");
+          return true;
+        }
+      }
+    } else {
+      Serial.println("❌ Render HTTP " + String(httpCode) + " (" + String(elapsed) + "ms)");
+      if (httpCode < 0) {
+        Serial.println("   Error: " + https.errorToString(httpCode));
+      }
+    }
+    https.end();
+  }
+  
+  // ========== FALLBACK: THỬ LOCAL NETWORK ==========
+  Serial.println("\n🔍 Falling back to local network discovery...");
+  
   // Lấy subnet hiện tại (ví dụ: 192.168.2.x)
   IPAddress localIP = WiFi.localIP();
   String subnet = String(localIP[0]) + "." + String(localIP[1]) + "." + String(localIP[2]);
-
   Serial.println("Subnet: " + subnet + ".x");
 
-  // Danh sách server IPs để thử (ưu tiên từ cao xuống thấp)
+  // Danh sách server IPs để thử
   String serverIPs[] = {
-      subnet + ".28",  // Server có thể ở .28 trên cùng subnet (ưu tiên cao nhất)
-      subnet + ".100", // Hoặc .100 trên cùng subnet
-      subnet + ".1",   // Gateway thường là .1
-      subnet + ".2",   // Hoặc .2
-      "172.20.2.28",   // IP cụ thể mới
-      "172.20.10.7",   // IP cũ
-      "192.168.1.100", // IP khác
-      "192.168.0.100"  // IP khác
+      subnet + ".28",  // Server có thể ở .28 trên cùng subnet
+      subnet + ".100", 
+      subnet + ".1",   
+      subnet + ".2",   
+      "172.20.2.28",   
+      "172.20.10.7",   
+      "192.168.1.100", 
+      "192.168.0.100"  
   };
 
-  // Thử discovery endpoint trước (nhanh hơn)
-  Serial.println("\n🔍 Trying discovery endpoint...");
+  HTTPClient http;
   for (int i = 0; i < 8; i++)
   {
     String discoveryUrl = "http://" + serverIPs[i] + ":3000/esp32-discovery";
     Serial.print("  [" + String(i + 1) + "] " + serverIPs[i] + ":3000 ... ");
 
     http.begin(discoveryUrl);
-    http.setTimeout(2000); // 2 seconds timeout
+    http.setTimeout(2000);
     http.setConnectTimeout(2000);
 
     unsigned long startTime = millis();
@@ -583,9 +643,7 @@ bool getServerConfigFromBackend()
     {
       String payload = http.getString();
       Serial.println("✅ OK (" + String(elapsed) + "ms)");
-      Serial.println("     Response: " + payload.substring(0, 100));
 
-      // Parse JSON without ArduinoJson library
       if (getJsonBoolValue(payload, "success"))
       {
         String discoveredUrl = getJsonStringValue(payload, "serverUrl");
@@ -596,145 +654,38 @@ bool getServerConfigFromBackend()
           if (discoveredUrl != serverUrl)
           {
             saveServerUrl(discoveredUrl);
-            String fpEndpoint = getJsonStringValue(payload, "fingerprintEndpoint");
-            String attEndpoint = getJsonStringValue(payload, "attendanceEndpoint");
-            if (fpEndpoint.length() > 0)
-              fingerprintEndpoint = fpEndpoint;
-            if (attEndpoint.length() > 0)
-              attendanceEndpoint = attEndpoint;
-
-            Serial.println("\n==========================================");
-            Serial.println("✅ CONFIG UPDATED VIA DISCOVERY!");
-            Serial.println("==========================================");
-            Serial.println("Server URL: " + serverUrl);
-            Serial.println("Fingerprint: " + fingerprintEndpoint);
-            Serial.println("Attendance: " + attendanceEndpoint);
-            Serial.println("==========================================");
-            oledPrintCenter("Config updated", "Via discovery", serverUrl);
-            return true;
           }
-          else
-          {
-            Serial.println("✅ Config unchanged, using: " + serverUrl);
-            http.end();
-            return true;
-          }
-        }
-      }
-      else
-      {
-        Serial.println("❌ Invalid response format");
-      }
-    }
-    else if (httpCode > 0)
-    {
-      Serial.println("❌ HTTP " + String(httpCode) + " (" + String(elapsed) + "ms)");
-    }
-    else
-    {
-      String errorMsg = http.errorToString(httpCode);
-      Serial.println("❌ " + errorMsg + " (" + String(elapsed) + "ms)");
-    }
-    http.end();
-    delay(100); // Short delay between attempts
-  }
 
-  // Nếu discovery thất bại, thử config endpoint
-  Serial.println("\n🔍 Trying config endpoint...");
-  for (int i = 0; i < 8; i++)
-  {
-    String configUrl = "http://" + serverIPs[i] + ":3000/api/esp32-config?ip=" + esp32IP;
-    Serial.print("  [" + String(i + 1) + "] " + serverIPs[i] + ":3000 ... ");
+          String fpEndpoint = getJsonStringValue(payload, "fingerprintEndpoint");
+          String attEndpoint = getJsonStringValue(payload, "attendanceEndpoint");
+          if (fpEndpoint.length() > 0) fingerprintEndpoint = fpEndpoint;
+          if (attEndpoint.length() > 0) attendanceEndpoint = attEndpoint;
 
-    http.begin(configUrl);
-    http.setTimeout(3000);
-    http.setConnectTimeout(3000);
-
-    unsigned long startTime = millis();
-    int httpCode = http.GET();
-    unsigned long elapsed = millis() - startTime;
-
-    if (httpCode == 200)
-    {
-      String payload = http.getString();
-      Serial.println("✅ OK (" + String(elapsed) + "ms)");
-      Serial.println("     Response: " + payload.substring(0, 150));
-
-      // Parse JSON without ArduinoJson library
-      if (getJsonBoolValue(payload, "success"))
-      {
-        String newServerUrl = getJsonNestedValue(payload, "data", "serverUrl");
-        String newFingerprintEndpoint = getJsonNestedValue(payload, "data", "fingerprintEndpoint");
-        String newAttendanceEndpoint = getJsonNestedValue(payload, "data", "attendanceEndpoint");
-
-        if (newServerUrl.length() > 0)
-        {
-          if (newServerUrl != serverUrl)
-          {
-            saveServerUrl(newServerUrl);
-            if (newFingerprintEndpoint.length() > 0)
-              fingerprintEndpoint = newFingerprintEndpoint;
-            if (newAttendanceEndpoint.length() > 0)
-              attendanceEndpoint = newAttendanceEndpoint;
-
-            Serial.println("\n==========================================");
-            Serial.println("✅ CONFIG UPDATED FROM BACKEND!");
-            Serial.println("==========================================");
-            Serial.println("Server URL: " + serverUrl);
-            Serial.println("Fingerprint: " + fingerprintEndpoint);
-            Serial.println("Attendance: " + attendanceEndpoint);
-            Serial.println("==========================================");
-            oledPrintCenter("Config updated", "From backend", serverUrl);
-          }
-          else
-          {
-            Serial.println("✅ Config unchanged, using: " + serverUrl);
-          }
-          http.end();
+          Serial.println("\n==========================================");
+          Serial.println("✅ CONNECTED TO LOCAL SERVER!");
+          Serial.println("==========================================");
+          Serial.println("Server URL: " + serverUrl);
+          Serial.println("==========================================");
+          oledPrintCenter("Local OK!", serverIPs[i], "Ready");
           return true;
         }
-        else
-        {
-          Serial.println("❌ No serverUrl in response");
-        }
-      }
-      else
-      {
-        Serial.println("❌ success=false or parse error");
       }
     }
     else if (httpCode > 0)
     {
-      Serial.println("❌ HTTP " + String(httpCode) + " (" + String(elapsed) + "ms)");
+      Serial.println("❌ HTTP " + String(httpCode));
     }
     else
     {
-      String errorMsg = http.errorToString(httpCode);
-      Serial.println("❌ " + errorMsg + " (" + String(elapsed) + "ms)");
+      Serial.println("❌ " + http.errorToString(httpCode));
     }
     http.end();
-    delay(100);
+    delay(50);
   }
 
-  // Không tìm thấy server
-  Serial.println("\n⚠️ WARNING: Could not find server!");
-  Serial.println("==========================================");
-  Serial.println("Tried IPs:");
-  for (int i = 0; i < 8; i++)
-  {
-    Serial.println("  - " + serverIPs[i] + ":3000");
-  }
-  Serial.println("==========================================");
-  Serial.println("Using saved/default config: " + serverUrl);
-  Serial.println("\n💡 Tips:");
-  Serial.println("1. Check if backend is running");
-  Serial.println("2. Check if backend IP matches one of the tried IPs");
-  Serial.println("3. Check if ESP32 and Backend are on same WiFi");
-  Serial.println("4. Try updating config manually via:");
-  Serial.println("   http://" + esp32IP + "/config?url=http://<SERVER_IP>:3000/api/fingerprint");
-  Serial.println("==========================================");
-
-  oledPrintCenter("Server not found", "Using saved URL", serverUrl.substring(7, 30));
+  // Không tìm thấy server - dùng default (Render)
+  Serial.println("\n⚠️ No server found. Using default: " + serverUrl);
+  oledPrintCenter("Using default", "Render server", "");
   return false;
 }
 
@@ -1329,6 +1280,42 @@ void setup()
   pinMode(BUZZER_PIN, OUTPUT);
   buzzOff();
 
+  // ====== KHỞI TẠO CẢM BIẾN VÂN TAY TRƯỚC ======
+  // (Trước khi kết nối WiFi/HTTPS để tránh vấn đề RAM/timeout)
+  uint32_t BAUDS[] = {57600, 115200, 38400, 19200, 9600};
+  bool sensorOk = false;
+  
+  oledPrintCenter("Kiem tra sensor...", "", "");
+  Serial.println("Initializing fingerprint sensor...");
+  
+  for (uint8_t i = 0; i < sizeof(BAUDS) / sizeof(BAUDS[0]) && !sensorOk; i++)
+  {
+    fingerSerial.begin(BAUDS[i], SERIAL_8N1, FP_RX_PIN, FP_TX_PIN);
+    finger.begin(BAUDS[i]);
+    delay(150);
+    for (int k = 0; k < 3 && !sensorOk; k++)
+    {
+      if (finger.verifyPassword())
+      {
+        Serial.printf("✓ Sensor ready @ %lu bps (RX=%d,TX=%d)\n", BAUDS[i], FP_RX_PIN, FP_TX_PIN);
+        sensorOk = true;
+      }
+      else
+        delay(150);
+    }
+  }
+
+  if (!sensorOk)
+  {
+    Serial.println("✗ Sensor not found");
+    oledPrintCenter("Sensor NOT FOUND", "Kiem tra RX/TX/nguon");
+    while (true)
+      delay(1000);
+  }
+
+  oledPrintCenter("Sensor OK!", "Ket noi WiFi...", "");
+  delay(500);
+
   // Load server URL from NVS
   loadServerUrl();
   Serial.printf("Current serverUrl: %s\n", serverUrl.c_str());
@@ -1339,40 +1326,12 @@ void setup()
 
   syncTimeOnce();
 
-  // ====== QUAN TRỌNG: Lấy config từ backend ======
+  // ====== Lấy config từ backend (SAU KHI sensor đã OK) ======
   oledPrintCenter("Dang lay config", "tu backend...");
   getServerConfigFromBackend();
   delay(1000);
 
   nextRegisterMs = millis() + 1000;
-
-  // Tìm baud cảm biến
-  uint32_t BAUDS[] = {57600, 115200, 38400, 19200, 9600};
-  bool ok = false;
-  for (uint8_t i = 0; i < sizeof(BAUDS) / sizeof(BAUDS[0]) && !ok; i++)
-  {
-    fingerSerial.begin(BAUDS[i], SERIAL_8N1, FP_RX_PIN, FP_TX_PIN);
-    finger.begin(BAUDS[i]);
-    delay(150);
-    for (int k = 0; k < 3 && !ok; k++)
-    {
-      if (finger.verifyPassword())
-      {
-        Serial.printf("✓ Sensor ready @ %lu bps (RX=%d,TX=%d)\n", BAUDS[i], FP_RX_PIN, FP_TX_PIN);
-        ok = true;
-      }
-      else
-        delay(150);
-    }
-  }
-
-  if (!ok)
-  {
-    Serial.println("✗ Sensor not found");
-    oledPrintCenter("Sensor NOT FOUND", "Kiem tra RX/TX/nguon");
-    while (true)
-      delay(1000);
-  }
 
   // Web server
   webServer.on("/enroll", HTTP_GET, handleEnroll);

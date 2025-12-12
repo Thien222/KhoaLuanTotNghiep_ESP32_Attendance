@@ -122,7 +122,20 @@ let esp32Info = {
 
 // Get current server URL (dynamically from request)
 const getServerUrl = (req) => {
-  // Try to get from request first
+  // Check if in production (Render) - always use HTTPS
+  if (process.env.NODE_ENV === 'production' || process.env.RENDER) {
+    const host = req.get('host');
+    if (host) {
+      return `https://${host}/api`;
+    }
+    // Fallback for Render
+    if (process.env.RENDER_EXTERNAL_HOSTNAME) {
+      return `https://${process.env.RENDER_EXTERNAL_HOSTNAME}/api`;
+    }
+    return 'https://khoaluantotnghiep-esp32-attendance.onrender.com/api';
+  }
+
+  // Local development - use HTTP
   const protocol = req.protocol || 'http';
   const host = req.get('host');
 
