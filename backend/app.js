@@ -376,20 +376,9 @@ app.post('/api/esp32/commands/complete', async (req, res) => {
         );
         console.log(`✅ Employee with fingerprintId ${fingerprintId} marked as enrolled`);
 
-        // Send enrollment email notification
-        console.log('📧 Sending enrollment email notification...');
-        try {
-          const { sendEnrollmentEmailNotification } = require('./controllers/employeeController');
-          const employee = await Employee.findOne({ fingerprintId });
-          if (employee) {
-            await sendEnrollmentEmailNotification(employee);
-          } else {
-            console.error('❌ Employee not found for email notification');
-          }
-        } catch (emailError) {
-          console.error('❌ Error sending enrollment email:', emailError.message);
-          // Don't fail the command completion if email fails
-        }
+        // NOTE: Email notification is now handled in /api/fingerprint endpoint
+        // to avoid sending duplicate emails (password gets reset twice = only last password works)
+        console.log('📧 [SKIPPED] Email handled in /api/fingerprint endpoint');
       }
 
       return res.json({
@@ -412,20 +401,9 @@ app.post('/api/esp32/commands/complete', async (req, res) => {
       );
       console.log(`✅ Employee with fingerprintId ${command.fingerprintId} marked as enrolled`);
 
-      // Send enrollment email notification
-      console.log('📧 Sending enrollment email notification...');
-      try {
-        const { sendEnrollmentEmailNotification } = require('./controllers/employeeController');
-        const employee = await Employee.findOne({ fingerprintId: command.fingerprintId });
-        if (employee) {
-          await sendEnrollmentEmailNotification(employee);
-        } else {
-          console.error('❌ Employee not found for email notification');
-        }
-      } catch (emailError) {
-        console.error('❌ Error sending enrollment email:', emailError.message);
-        // Don't fail the command completion if email fails
-      }
+      // NOTE: Email notification is now handled in /api/fingerprint endpoint
+      // to avoid sending duplicate emails (password gets reset twice = only last password works)
+      console.log('📧 [SKIPPED] Email handled in /api/fingerprint endpoint');
     }
 
     console.log(`✅ Command ${commandId} completed: ${success ? 'SUCCESS' : 'FAILED'}`);
@@ -890,15 +868,9 @@ app.get('/api/enroll', async (req, res) => {
           });
         }
 
-        // Send enrollment email notification
-        console.log('📧 Sending enrollment email notification...');
-        try {
-          const { sendEnrollmentEmailNotification } = require('./controllers/employeeController');
-          await sendEnrollmentEmailNotification(updateResult);
-        } catch (emailError) {
-          console.error('❌ Error sending enrollment email:', emailError.message);
-          // Don't fail the enrollment if email fails
-        }
+        // NOTE: Email notification is now handled in /api/fingerprint endpoint
+        // to avoid sending duplicate emails (password gets reset twice = only last password works)
+        console.log('📧 [SKIPPED] Email handled in /api/fingerprint endpoint');
 
         console.log('✅ Fingerprint enrolled for:', updateResult.name, 'Employee ID:', updateResult.employeeId);
 

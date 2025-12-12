@@ -57,13 +57,27 @@ const sendEmailWithResend = async (mailOptions) => {
       html: mailOptions.html
     });
 
-    console.log('✅ Email sent via Resend!');
-    console.log('📧 Result:', JSON.stringify(result));
+    console.log('📧 Resend API Response:', JSON.stringify(result));
 
-    return { success: true, messageId: result.data?.id || 'sent', result };
+    // FIX: Check if Resend returned an error
+    if (result.error) {
+      console.error('❌ Resend returned error:', result.error.message);
+      console.error('❌ Error details:', JSON.stringify(result.error));
+      return {
+        success: false,
+        error: result.error.message,
+        details: result.error
+      };
+    }
+
+    // Success - email was actually sent
+    console.log('✅ Email ACTUALLY sent via Resend!');
+    console.log('📧 Message ID:', result.data?.id);
+
+    return { success: true, messageId: result.data?.id, result };
 
   } catch (error) {
-    console.error('❌ Resend error:', error.message);
+    console.error('❌ Resend exception:', error.message);
     console.error('❌ Full error:', JSON.stringify(error));
     return { success: false, error: error.message };
   }

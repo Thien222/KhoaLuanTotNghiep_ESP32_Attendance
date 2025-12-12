@@ -188,5 +188,52 @@ router.post('/send-test-email', async (req, res) => {
   }
 });
 
+/**
+ * POST /api/test/reset-password
+ * Reset password for a user (for testing purposes)
+ * Body: { username: "EMP001", newPassword: "test1234" }
+ */
+router.post('/reset-password', async (req, res) => {
+  try {
+    const { username, newPassword } = req.body;
+
+    if (!username || !newPassword) {
+      return res.status(400).json({
+        success: false,
+        message: 'username and newPassword are required'
+      });
+    }
+
+    const User = require('../models/User');
+    const user = await User.findOne({ username });
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: `User not found: ${username}`
+      });
+    }
+
+    // Reset password - pre-save hook will hash it
+    user.password = newPassword;
+    await user.save();
+
+    res.json({
+      success: true,
+      message: `Password reset for user: ${username}`,
+      newPassword: newPassword,
+      note: 'Use this password to login!'
+    });
+
+  } catch (error) {
+    console.error('Error resetting password:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error resetting password',
+      error: error.message
+    });
+  }
+});
+
 module.exports = router;
 
