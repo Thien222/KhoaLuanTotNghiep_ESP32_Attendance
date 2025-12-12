@@ -1,3 +1,4 @@
+// Build version: 2024-12-12T12:40
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import { ConfigProvider, theme, App as AntApp } from 'antd';
