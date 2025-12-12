@@ -1407,25 +1407,33 @@ void pollAndExecuteCommands()
   // Build poll URL
   String pollUrl = serverUrl + "/esp32/commands/poll";
   
-  // Use GET request to poll
+  // Create FRESH client each time to avoid socket reuse issues
   HTTPClient http;
-  bool okBegin = false;
   
   if (pollUrl.startsWith("https://")) {
-    secureClient.setInsecure();
-    secureClient.setTimeout(10000);
-    okBegin = http.begin(secureClient, pollUrl);
+    WiFiClientSecure *client = new WiFiClientSecure();
+    client->setInsecure();
+    client->setTimeout(10000);
+    if (!http.begin(*client, pollUrl)) {
+      delete client;
+      return;
+    }
   } else {
-    plainClient.setTimeout(5000);
-    okBegin = http.begin(plainClient, pollUrl);
+    WiFiClient *client = new WiFiClient();
+    client->setTimeout(5000);
+    if (!http.begin(*client, pollUrl)) {
+      delete client;
+      return;
+    }
   }
-  
-  if (!okBegin) return;
   
   http.setTimeout(10000);
   int httpCode = http.GET();
   
   if (httpCode != 200) {
+    if (httpCode > 0) {
+      Serial.printf("Poll commands: HTTP %d\n", httpCode);
+    }
     http.end();
     return;
   }
@@ -1455,10 +1463,12 @@ void pollAndExecuteCommands()
   }
   
   Serial.printf("\n📥 Received command: %s for ID %d\n", command.c_str(), fingerprintId);
+  Serial.printf("   CommandId: %s\n", commandId.c_str());
   
   if (command == "enroll" && fingerprintId > 0) {
-    oledPrintCenter("ENROLL COMMAND", "ID #" + String(fingerprintId), "Dang xu ly...");
+    oledPrintCenter("ENROLL COMMAND", "ID #" + String(fingerprintId), "Dat ngon tay...");
     beepPrompt();
+    delay(500);
     
     // Execute enrollment
     bool success = enrollFingerprint(fingerprintId);
@@ -1468,8 +1478,10 @@ void pollAndExecuteCommands()
     
     if (success) {
       oledPrintCenter("ENROLL OK!", "ID #" + String(fingerprintId), "Da gui server");
+      beepSuccessEnroll();
     } else {
       oledPrintCenter("ENROLL FAIL", "ID #" + String(fingerprintId), "Thu lai sau");
+      beepError();
     }
     
     delay(2000);

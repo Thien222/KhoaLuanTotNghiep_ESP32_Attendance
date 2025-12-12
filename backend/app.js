@@ -269,32 +269,8 @@ app.post('/api/esp32/commands', async (req, res) => {
   }
 });
 
-// Get pending command status (called by frontend to check progress)
-app.get('/api/esp32/commands/:commandId', async (req, res) => {
-  try {
-    const ESP32Command = require('./models/ESP32Command');
-    const command = await ESP32Command.findById(req.params.commandId);
-
-    if (!command) {
-      return res.status(404).json({
-        success: false,
-        message: 'Command not found'
-      });
-    }
-
-    res.json({
-      success: true,
-      command
-    });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: error.message
-    });
-  }
-});
-
 // ESP32 polls for pending commands (called by ESP32)
+// IMPORTANT: This route MUST be before /:commandId to avoid route conflict
 app.get('/api/esp32/commands/poll', async (req, res) => {
   try {
     const ESP32Command = require('./models/ESP32Command');
@@ -326,6 +302,32 @@ app.get('/api/esp32/commands/poll', async (req, res) => {
     });
   } catch (error) {
     console.error('Error polling commands:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+});
+
+// Get pending command status (called by frontend to check progress)
+// This route must be AFTER /poll to avoid matching "poll" as commandId
+app.get('/api/esp32/commands/:commandId', async (req, res) => {
+  try {
+    const ESP32Command = require('./models/ESP32Command');
+    const command = await ESP32Command.findById(req.params.commandId);
+
+    if (!command) {
+      return res.status(404).json({
+        success: false,
+        message: 'Command not found'
+      });
+    }
+
+    res.json({
+      success: true,
+      command
+    });
+  } catch (error) {
     res.status(500).json({
       success: false,
       message: error.message
