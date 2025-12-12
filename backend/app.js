@@ -919,17 +919,40 @@ app.get('/api/enroll', async (req, res) => {
         // Ensure we have a password to send
         if (!accountPassword) {
           accountPassword = Math.random().toString(36).slice(-8);
-          console.log('⚠️ Generated fallback password for email');
+          console.log('⚠️ Generated fallback password for email:', accountPassword);
         }
 
-        if (updateResult.email) {
+        // Check email validity
+        const employeeEmail = updateResult.email;
+        const isValidEmail = employeeEmail && 
+                            employeeEmail.includes('@') && 
+                            !employeeEmail.includes('@company.com') &&
+                            employeeEmail.includes('.');
+        
+        console.log('📧 ESP32 Enroll - Email check:', {
+          email: employeeEmail,
+          isValidEmail,
+          hasEmailUser: !!process.env.EMAIL_USER,
+          hasEmailPassword: !!process.env.EMAIL_APP_PASSWORD,
+          emailUser: process.env.EMAIL_USER
+        });
+
+        if (isValidEmail) {
           try {
             const { sendEnrollmentNotification } = require('./services/emailService');
-            console.log('📧 Sending enrollment notification with login credentials to:', updateResult.email);
+            console.log('📧 Sending enrollment notification with login credentials to:', employeeEmail);
+            console.log('📧 Email data:', {
+              name: updateResult.name,
+              email: employeeEmail,
+              employeeId: updateResult.employeeId,
+              fingerprintId: updateResult.fingerprintId,
+              username: userAccount ? userAccount.username : updateResult.employeeId,
+              password: accountPassword
+            });
 
             const emailResult = await sendEnrollmentNotification({
               name: updateResult.name,
-              email: updateResult.email,
+              email: employeeEmail,
               employeeId: updateResult.employeeId,
               fingerprintId: updateResult.fingerprintId,
               username: userAccount ? userAccount.username : updateResult.employeeId,
@@ -940,15 +963,17 @@ app.get('/api/enroll', async (req, res) => {
 
             if (emailResult.success) {
               console.log('✅ Enrollment notification with credentials sent successfully!');
+              console.log('📧 Message ID:', emailResult.messageId);
             } else {
               console.error('❌ Failed to send enrollment notification:', emailResult.error);
             }
           } catch (emailError) {
             console.error('❌ Error sending enrollment notification:', emailError);
+            console.error('❌ Error stack:', emailError.stack);
             // Continue even if email fails
           }
-        } else if (updateResult.email && !accountPassword) {
-          console.warn('⚠️ Cannot send email: password not generated');
+        } else {
+          console.warn('⚠️ Skipping email - invalid or auto-generated email:', employeeEmail);
         }
 
         return res.json({
@@ -1111,6 +1136,30 @@ app.post('/api/esp32-attendance', async (req, res) => {
 });
 
 // Test route
+// Check email configuration (for debugging)
+app.get('/api/email-config-check', async (req, res) => {
+  try {
+    const hasEmailUser = !!process.env.EMAIL_USER;
+    const hasEmailPassword = !!process.env.EMAIL_APP_PASSWORD;
+    
+    res.json({
+      success: true,
+      config: {
+        hasEmailUser,
+        hasEmailPassword,
+        emailUser: hasEmailUser ? process.env.EMAIL_USER.substring(0, 5) + '***' : null,
+        passwordLength: hasEmailPassword ? process.env.EMAIL_APP_PASSWORD.length : 0,
+        nodeEnv: process.env.NODE_ENV
+      }
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
 // Test email configuration
 app.post('/api/test-email', async (req, res) => {
   try {
