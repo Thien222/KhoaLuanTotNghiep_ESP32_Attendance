@@ -206,7 +206,7 @@ const EmployeeManagement = () => {
           department: values.department,
           email: values.email,
           phone: values.phone,
-          contractType: values.contractType || 'probation',
+          contractType: values.contractType || 'official',
           salary: salaryValue
           // status will be set to 'active' by default in backend
         });
@@ -397,8 +397,8 @@ const EmployeeManagement = () => {
       key: 'contractType',
       width: 100,
       render: (type) => {
-        const colors = { intern: 'blue', probation: 'orange', official: 'green' };
-        const labels = { intern: 'Thực tập', probation: 'Thử việc', official: 'Chính thức' };
+        const colors = { probation: 'orange', official: 'green' };
+        const labels = { probation: 'Thử việc', official: 'Chính thức' };
         return <Tag color={colors[type] || 'default'}>{labels[type] || type}</Tag>;
       },
     },
@@ -718,7 +718,6 @@ const EmployeeManagement = () => {
             initialValue="probation"
           >
             <Select>
-              <Option value="intern">Thực tập</Option>
               <Option value="probation">Thử việc</Option>
               <Option value="official">Chính thức</Option>
             </Select>

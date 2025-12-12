@@ -106,224 +106,226 @@ export default function PayrollScreen() {
             // Tính toán tổng thu nhập và tổng khấu trừ để hiển thị thực lãnh đúng
             // Bỏ weekendWorkPay vì không có công thức tính lương liên quan
             const totalIncome = (payroll.proratedSalary || payroll.baseSalary || payroll.basicSalary || 0) +
-                              (payroll.generalAllowance || payroll.allowance || 0) +
-                              (payroll.seniorityAllowance || 0) +
-                              (payroll.positionAllowance || 0) +
-                              (payroll.overtimePay || 0) +
-                              (payroll.holidayWorkPay || 0) +
-                              (payroll.bonus || 0) +
-                              (payroll.performanceBonus || 0) +
-                              (payroll.otherAllowances || 0);
-            
+              (payroll.generalAllowance || payroll.allowance || 0) +
+              (payroll.seniorityAllowance || 0) +
+              (payroll.positionAllowance || 0) +
+              (payroll.overtimePay || 0) +
+              (payroll.holidayWorkPay || 0) +
+              (payroll.bonus || 0) +
+              (payroll.performanceBonus || 0) +
+              (payroll.otherAllowances || 0);
+
             // Tổng khấu trừ = Bảo hiểm + thuế + Tiền phạt
-            const taxAmount = payroll.taxAmount || 
-                            payroll.fixedDeduction || 
-                            (payroll.basicSalaryFull || payroll.employee?.baseSalary || 0) * ((payroll.taxRate || 10) / 100) ||
-                            payroll.tax || 
-                            0;
+            const taxAmount = payroll.taxAmount ||
+              payroll.fixedDeduction ||
+              (payroll.basicSalaryFull || payroll.employee?.baseSalary || 0) * ((payroll.taxRate || 10) / 100) ||
+              payroll.tax ||
+              0;
             const totalDeductions = taxAmount + (payroll.latePenalty || 0);
-            
+
             // Thực lãnh = Tổng thu nhập - Khấu trừ (chỉ là bảo hiểm + thuế) - Có thể âm
             // LUÔN tính lại từ totalIncome - totalDeductions để đảm bảo đúng
             const netPay = totalIncome - totalDeductions;
-            
+
             return (
-            <View key={payroll._id} style={styles.payrollCard}>
-              <View style={styles.payrollHeader}>
-                <View>
-                <Text style={styles.payrollMonth}>
-                    Bảng lương tháng {payroll.month || payroll.monthStr || `${selectedMonth}/${selectedYear}`}
-                  </Text>
-                  <Text style={styles.workingDaysText}>
-                    {payroll.workingDays || 0} ngày công • {(payroll.overtimeHours || 0).toFixed(2)}h OT
-                </Text>
+              <View key={payroll._id} style={styles.payrollCard}>
+                <View style={styles.payrollHeader}>
+                  <View>
+                    <Text style={styles.payrollMonth}>
+                      Bảng lương tháng {payroll.month || payroll.monthStr || `${selectedMonth}/${selectedYear}`}
+                    </Text>
+                    <Text style={styles.workingDaysText}>
+                      {payroll.workingDays || 0} ngày công • {(payroll.overtimeHours || 0).toFixed(2)}h OT
+                    </Text>
+                  </View>
+                  <View style={[styles.statusBadge, { backgroundColor: payroll.status === 'paid' ? '#52c41a' : '#faad14' }]}>
+                    <Text style={styles.statusText}>
+                      {payroll.status === 'paid' ? 'Đã thanh toán' : 'Chưa thanh toán'}
+                    </Text>
+                  </View>
                 </View>
-                <View style={[styles.statusBadge, { backgroundColor: payroll.status === 'paid' ? '#52c41a' : '#faad14' }]}>
-                  <Text style={styles.statusText}>
-                    {payroll.status === 'paid' ? 'Đã thanh toán' : 'Chưa thanh toán'}
-                  </Text>
-                </View>
-              </View>
 
-              <View style={styles.payrollSection}>
-                <Text style={styles.sectionTitle}>
-                  <Ionicons name="add-circle" size={18} color="#52c41a" /> Thu nhập
-                </Text>
-                
-                {/* Lương cơ bản tháng - Tham chiếu (chỉ để tham khảo, không tính vào tổng) */}
-                <View style={[styles.amountRow, { opacity: 0.6, borderBottomWidth: 1, borderBottomColor: '#f0f0f0', paddingBottom: 8, marginBottom: 8 }]}>
-                  <Text style={[styles.amountLabel, { fontSize: 12, fontStyle: 'italic' }]}>
-                    💡 Lương cơ bản (tháng) - Tham chiếu:
+                <View style={styles.payrollSection}>
+                  <Text style={styles.sectionTitle}>
+                    <Ionicons name="add-circle" size={18} color="#52c41a" /> Thu nhập
                   </Text>
-                  <Text style={[styles.amountValue, { fontSize: 12, fontStyle: 'italic' }]}>
-                    {formatCurrency(payroll.basicSalaryFull || payroll.employee?.baseSalary || payroll.employee?.salary || 0)}
-                  </Text>
-                </View>
-                
-                {/* Lương theo ngày công - Tính vào thu nhập */}
-                <View style={styles.amountRow}>
-                  <Text style={styles.amountLabel}>
-                    Lương theo ngày công ({payroll.workingDays || 0} ngày):
-                  </Text>
-                  <Text style={[styles.amountValue, { fontWeight: 'bold' }]}>
-                    {formatCurrency(payroll.proratedSalary || payroll.baseSalary || payroll.basicSalary || 0)}
-                  </Text>
-                </View>
-                
-                {/* Luôn hiển thị phụ cấp chung - Dùng giá trị từ backend */}
-                <View style={styles.amountRow}>
-                  <Text style={styles.amountLabel}>Phụ cấp chung (5%):</Text>
-                  <Text style={styles.amountValue}>
-                    {formatCurrency(
-                      payroll.generalAllowance || 
-                      payroll.allowance || 
-                      (payroll.basicSalaryFull || payroll.employee?.baseSalary || 0) * 0.05 || 
-                      0
-                    )}
-                  </Text>
-                </View>
-                {(payroll.seniorityAllowance || 0) > 0 && (
-                  <View style={styles.amountRow}>
-                    <Text style={styles.amountLabel}>PC Thâm niên:</Text>
-                    <Text style={styles.amountValue}>
-                      {formatCurrency(payroll.seniorityAllowance)}
-                    </Text>
-                  </View>
-                )}
-                {(payroll.positionAllowance || 0) > 0 && (
-                <View style={styles.amountRow}>
-                    <Text style={styles.amountLabel}>PC Chức vụ:</Text>
-                  <Text style={styles.amountValue}>
-                      {formatCurrency(payroll.positionAllowance)}
-                  </Text>
-                </View>
-                )}
-                {/* Tiền OT - Luôn hiển thị nếu có */}
-                {(payroll.overtimePay || 0) > 0 && (
-                  <View style={styles.amountRow}>
-                    <Text style={styles.amountLabel}>Tiền OT ({(payroll.overtimeHours || 0).toFixed(2)}h):</Text>
-                    <Text style={styles.amountValue}>
-                      {formatCurrency(payroll.overtimePay)}
-                    </Text>
-                  </View>
-                )}
-                {(payroll.holidayWorkPay || 0) > 0 && (
-                  <View style={styles.amountRow}>
-                    <Text style={styles.amountLabel}>Làm ngày lễ:</Text>
-                    <Text style={styles.amountValue}>
-                      {formatCurrency(payroll.holidayWorkPay)}
-                    </Text>
-                  </View>
-                )}
-                {(payroll.bonus || 0) > 0 && (
-                  <View style={styles.amountRow}>
-                    <Text style={styles.amountLabel}>Thưởng:</Text>
-                    <Text style={styles.amountValue}>
-                      {formatCurrency(payroll.bonus)}
-                    </Text>
-                  </View>
-                )}
-                {(payroll.performanceBonus || 0) > 0 && (
-                  <View style={styles.amountRow}>
-                    <Text style={styles.amountLabel}>Thưởng hiệu suất:</Text>
-                    <Text style={styles.amountValue}>
-                      {formatCurrency(payroll.performanceBonus)}
-                    </Text>
-                  </View>
-                )}
-                {(payroll.otherAllowances || 0) > 0 && (
-                  <View style={styles.amountRow}>
-                    <Text style={styles.amountLabel}>Phụ cấp khác:</Text>
-                    <Text style={styles.amountValue}>
-                      {formatCurrency(payroll.otherAllowances)}
-                    </Text>
-                  </View>
-                )}
-                
-                {/* Tổng thu nhập - Đồng bộ với web */}
-                <View style={[styles.amountRow, { 
-                  backgroundColor: '#f6ffed', 
-                  padding: 12, 
-                  marginTop: 8,
-                  borderRadius: 8,
-                  borderWidth: 2,
-                  borderColor: '#b7eb8f'
-                }]}>
-                  <Text style={[styles.amountLabel, { fontWeight: 'bold', color: '#52c41a' }]}>
-                    Tổng thu nhập:
-                  </Text>
-                  <Text style={[styles.amountValue, { fontWeight: 'bold', color: '#52c41a', fontSize: 16 }]}>
-                    {formatCurrency(totalIncome)}
-                  </Text>
-                </View>
-              </View>
 
-              <View style={[styles.payrollSection, styles.deductionSection]}>
-                <Text style={[styles.sectionTitle, { color: '#ff4d4f' }]}>
-                  <Ionicons name="remove-circle" size={18} color="#ff4d4f" /> Khấu trừ
-                </Text>
-                {/* Bảo hiểm + thuế */}
-                <View style={styles.amountRow}>
-                  <Text style={styles.amountLabel}>Bảo hiểm + Thuế ({payroll.taxRate || 10}%):</Text>
-                  <Text style={[styles.amountValue, { color: '#ff4d4f' }]}>
-                    -{formatCurrency(
-                      payroll.taxAmount || 
-                      payroll.fixedDeduction || 
-                      (payroll.basicSalaryFull || payroll.employee?.baseSalary || 0) * ((payroll.taxRate || 10) / 100) ||
-                      payroll.tax || 
-                      0
-                    )}
-                </Text>
-                </View>
-                
-                {/* Tiền phạt - Hiển thị nếu có */}
-                {(payroll.latePenalty || 0) > 0 && (
+                  {/* Lương cơ bản tháng - Tham chiếu (chỉ để tham khảo, không tính vào tổng) */}
+                  <View style={[styles.amountRow, { opacity: 0.6, borderBottomWidth: 1, borderBottomColor: '#f0f0f0', paddingBottom: 8, marginBottom: 8 }]}>
+                    <Text style={[styles.amountLabel, { fontSize: 12, fontStyle: 'italic' }]}>
+                      💡 Lương cơ bản (tháng) - Tham chiếu:
+                    </Text>
+                    <Text style={[styles.amountValue, { fontSize: 12, fontStyle: 'italic' }]}>
+                      {formatCurrency(payroll.basicSalaryFull || payroll.employee?.baseSalary || payroll.employee?.salary || 0)}
+                    </Text>
+                  </View>
+
+                  {/* Lương theo ngày công - Tính vào thu nhập */}
                   <View style={styles.amountRow}>
                     <Text style={styles.amountLabel}>
-                      Tiền phạt ({payroll.lateMinutes || 0}p, {payroll.lateCount || 0} lần):
+                      Lương theo ngày công ({payroll.workingDays || 0} ngày):
                     </Text>
-                    <Text style={[styles.amountValue, { color: '#ff4d4f' }]}>
-                      -{formatCurrency(payroll.latePenalty)}
-                    </Text>
-                  </View>
-                )}
-                
-                {/* Tổng khấu trừ - Bảo hiểm + thuế + Tiền phạt */}
-                <View style={[styles.amountRow, { 
-                  backgroundColor: '#fff2f0', 
-                  padding: 12, 
-                  marginTop: 8,
-                  borderRadius: 8,
-                  borderWidth: 2,
-                  borderColor: '#ffccc7'
-                }]}>
-                  <Text style={[styles.amountLabel, { fontWeight: 'bold', color: '#ff4d4f' }]}>
-                    Tổng khấu trừ:
-                    </Text>
-                  <Text style={[styles.amountValue, { fontWeight: 'bold', color: '#ff4d4f', fontSize: 16 }]}>
-                    -{formatCurrency(totalDeductions)}
+                    <Text style={[styles.amountValue, { fontWeight: 'bold' }]}>
+                      {formatCurrency(payroll.proratedSalary || payroll.baseSalary || payroll.basicSalary || 0)}
                     </Text>
                   </View>
-              </View>
 
-              <View style={[styles.netSalary, {
-                backgroundColor: netPay < 0 ? '#fff2f0' : '#e6f7ff',
-                borderColor: netPay < 0 ? '#ff4d4f' : '#1890ff',
-              }]}>
-                <Text style={[
-                  styles.netSalaryLabel,
-                  { color: netPay < 0 ? '#ff4d4f' : '#1890ff' }
-                ]}>
-                  THỰC LÃNH (NET PAY):
-                </Text>
-                <Text style={[
-                  styles.netSalaryValue,
-                  { color: netPay < 0 ? '#ff4d4f' : '#1890ff' }
-                ]}>
-                  {formatCurrency(netPay)}
-                </Text>
+                  {/* Luôn hiển thị phụ cấp chung - Dùng giá trị từ backend */}
+                  <View style={styles.amountRow}>
+                    <Text style={styles.amountLabel}>Phụ cấp chung (5%):</Text>
+                    <Text style={styles.amountValue}>
+                      {formatCurrency(
+                        payroll.generalAllowance ||
+                        payroll.allowance ||
+                        (payroll.basicSalaryFull || payroll.employee?.baseSalary || 0) * 0.05 ||
+                        0
+                      )}
+                    </Text>
+                  </View>
+                  {(payroll.seniorityAllowance || 0) > 0 && (
+                    <View style={styles.amountRow}>
+                      <Text style={styles.amountLabel}>PC Thâm niên:</Text>
+                      <Text style={styles.amountValue}>
+                        {formatCurrency(payroll.seniorityAllowance)}
+                      </Text>
+                    </View>
+                  )}
+                  {(payroll.positionAllowance || 0) > 0 && (
+                    <View style={styles.amountRow}>
+                      <Text style={styles.amountLabel}>PC Chức vụ:</Text>
+                      <Text style={styles.amountValue}>
+                        {formatCurrency(payroll.positionAllowance)}
+                      </Text>
+                    </View>
+                  )}
+                  {(payroll.overtimePay || 0) > 0 && (
+                    <View style={styles.amountRow}>
+                      <Text style={styles.amountLabel}>Tiền OT ({(payroll.overtimeHours || 0).toFixed(2)}h):</Text>
+                      <Text style={styles.amountValue}>
+                        {formatCurrency(payroll.overtimePay)}
+                      </Text>
+                    </View>
+                  )}
+                  {/* Highlight tiền làm ngày lễ */}
+                  {(payroll.holidayWorkPay || 0) > 0 && (
+                    <View style={[styles.amountRow, { backgroundColor: '#fffbe6', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 4, marginHorizontal: -8 }]}>
+                      <Text style={[styles.amountLabel, { fontWeight: '600', color: '#faad14' }]}>
+                        ⚡ Làm ngày lễ ({payroll.holidayWorkDays || 0} ngày):
+                      </Text>
+                      <Text style={[styles.amountValue, { color: '#faad14', fontWeight: 'bold' }]}>
+                        {formatCurrency(payroll.holidayWorkPay)}
+                      </Text>
+                    </View>
+                  )}
+                  {(payroll.bonus || 0) > 0 && (
+                    <View style={styles.amountRow}>
+                      <Text style={styles.amountLabel}>Thưởng:</Text>
+                      <Text style={styles.amountValue}>
+                        {formatCurrency(payroll.bonus)}
+                      </Text>
+                    </View>
+                  )}
+                  {(payroll.performanceBonus || 0) > 0 && (
+                    <View style={styles.amountRow}>
+                      <Text style={styles.amountLabel}>Thưởng hiệu suất:</Text>
+                      <Text style={styles.amountValue}>
+                        {formatCurrency(payroll.performanceBonus)}
+                      </Text>
+                    </View>
+                  )}
+                  {(payroll.otherAllowances || 0) > 0 && (
+                    <View style={styles.amountRow}>
+                      <Text style={styles.amountLabel}>Phụ cấp khác:</Text>
+                      <Text style={styles.amountValue}>
+                        {formatCurrency(payroll.otherAllowances)}
+                      </Text>
+                    </View>
+                  )}
+
+                  {/* Tổng thu nhập - Đồng bộ với web */}
+                  <View style={[styles.amountRow, {
+                    backgroundColor: '#f6ffed',
+                    padding: 12,
+                    marginTop: 8,
+                    borderRadius: 8,
+                    borderWidth: 2,
+                    borderColor: '#b7eb8f'
+                  }]}>
+                    <Text style={[styles.amountLabel, { fontWeight: 'bold', color: '#52c41a' }]}>
+                      Tổng thu nhập:
+                    </Text>
+                    <Text style={[styles.amountValue, { fontWeight: 'bold', color: '#52c41a', fontSize: 16 }]}>
+                      {formatCurrency(totalIncome)}
+                    </Text>
+                  </View>
+                </View>
+
+                <View style={[styles.payrollSection, styles.deductionSection]}>
+                  <Text style={[styles.sectionTitle, { color: '#ff4d4f' }]}>
+                    <Ionicons name="remove-circle" size={18} color="#ff4d4f" /> Khấu trừ
+                  </Text>
+                  {/* Bảo hiểm + thuế */}
+                  <View style={styles.amountRow}>
+                    <Text style={styles.amountLabel}>Bảo hiểm + Thuế ({payroll.taxRate || 10}%):</Text>
+                    <Text style={[styles.amountValue, { color: '#ff4d4f' }]}>
+                      -{formatCurrency(
+                        payroll.taxAmount ||
+                        payroll.fixedDeduction ||
+                        (payroll.basicSalaryFull || payroll.employee?.baseSalary || 0) * ((payroll.taxRate || 10) / 100) ||
+                        payroll.tax ||
+                        0
+                      )}
+                    </Text>
+                  </View>
+
+                  {/* Tiền phạt - Hiển thị nếu có */}
+                  {(payroll.latePenalty || 0) > 0 && (
+                    <View style={styles.amountRow}>
+                      <Text style={styles.amountLabel}>
+                        Tiền phạt ({payroll.lateMinutes || 0}p, {payroll.lateCount || 0} lần):
+                      </Text>
+                      <Text style={[styles.amountValue, { color: '#ff4d4f' }]}>
+                        -{formatCurrency(payroll.latePenalty)}
+                      </Text>
+                    </View>
+                  )}
+
+                  {/* Tổng khấu trừ - Bảo hiểm + thuế + Tiền phạt */}
+                  <View style={[styles.amountRow, {
+                    backgroundColor: '#fff2f0',
+                    padding: 12,
+                    marginTop: 8,
+                    borderRadius: 8,
+                    borderWidth: 2,
+                    borderColor: '#ffccc7'
+                  }]}>
+                    <Text style={[styles.amountLabel, { fontWeight: 'bold', color: '#ff4d4f' }]}>
+                      Tổng khấu trừ:
+                    </Text>
+                    <Text style={[styles.amountValue, { fontWeight: 'bold', color: '#ff4d4f', fontSize: 16 }]}>
+                      -{formatCurrency(totalDeductions)}
+                    </Text>
+                  </View>
+                </View>
+
+                <View style={[styles.netSalary, {
+                  backgroundColor: netPay < 0 ? '#fff2f0' : '#e6f7ff',
+                  borderColor: netPay < 0 ? '#ff4d4f' : '#1890ff',
+                }]}>
+                  <Text style={[
+                    styles.netSalaryLabel,
+                    { color: netPay < 0 ? '#ff4d4f' : '#1890ff' }
+                  ]}>
+                    THỰC LÃNH (NET PAY):
+                  </Text>
+                  <Text style={[
+                    styles.netSalaryValue,
+                    { color: netPay < 0 ? '#ff4d4f' : '#1890ff' }
+                  ]}>
+                    {formatCurrency(netPay)}
+                  </Text>
+                </View>
               </View>
-            </View>
             );
           })
         ) : (

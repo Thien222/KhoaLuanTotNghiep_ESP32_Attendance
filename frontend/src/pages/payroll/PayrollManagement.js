@@ -1376,7 +1376,7 @@ const PayrollManagement = () => {
                       ...(selectedPayroll.seniorityAllowance > 0 ? [{ label: 'PC Thâm niên', value: selectedPayroll.seniorityAllowance }] : []),
                       ...(selectedPayroll.positionAllowance > 0 ? [{ label: 'PC Chức vụ', value: selectedPayroll.positionAllowance }] : []),
                       ...(selectedPayroll.overtimePay > 0 ? [{ label: `Làm thêm giờ (${selectedPayroll.overtimeHours || 0}h)`, value: selectedPayroll.overtimePay }] : []),
-                      ...(selectedPayroll.holidayWorkPay > 0 ? [{ label: 'Làm ngày lễ', value: selectedPayroll.holidayWorkPay }] : [])
+                      ...(selectedPayroll.holidayWorkPay > 0 ? [{ label: `⚡ Làm ngày lễ (${selectedPayroll.holidayWorkDays || 0} ngày)`, value: selectedPayroll.holidayWorkPay, isHighlight: true }] : [])
                       // Bỏ "Làm cuối tuần" - không có công thức tính lương liên quan
                     ]}
                     renderItem={item => (
@@ -1385,12 +1385,23 @@ const PayrollManagement = () => {
                         padding: '8px 0',
                         display: 'flex',
                         justifyContent: 'space-between',
-                        opacity: item.isReference ? 0.7 : 1
+                        opacity: item.isReference ? 0.7 : 1,
+                        backgroundColor: item.isHighlight ? '#fffbe6' : 'transparent',
+                        borderRadius: item.isHighlight ? 4 : 0,
+                        paddingLeft: item.isHighlight ? 8 : 0,
+                        paddingRight: item.isHighlight ? 8 : 0
                       }}>
-                        <Text type={item.isReference ? 'secondary' : undefined} style={{ fontSize: item.isReference ? 12 : 14 }}>
+                        <Text type={item.isReference ? 'secondary' : undefined} style={{
+                          fontSize: item.isReference ? 12 : 14,
+                          fontWeight: item.isHighlight ? '600' : 'normal',
+                          color: item.isHighlight ? '#faad14' : undefined
+                        }}>
                           {item.label} {item.isReference && '(Tham chiếu)'}
                         </Text>
-                        <Text strong={!item.isReference} style={{ fontSize: item.isReference ? 12 : 14 }}>
+                        <Text strong={!item.isReference} style={{
+                          fontSize: item.isReference ? 12 : 14,
+                          color: item.isHighlight ? '#faad14' : undefined
+                        }}>
                           {currency(item.value)}
                         </Text>
                       </List.Item>
