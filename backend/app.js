@@ -1094,13 +1094,23 @@ app.post('/api/fingerprint', async (req, res) => {
 
         // THEN send email in background (don't await - non-blocking)
         console.log('📧 Sending enrollment email notification in background...');
+        console.log('📧 Employee data for email:', {
+          _id: updateResult._id,
+          name: updateResult.name,
+          email: updateResult.email,
+          employeeId: updateResult.employeeId,
+          fingerprintId: updateResult.fingerprintId
+        });
+
         (async () => {
           try {
+            console.log('📧 [BACKGROUND] Starting email task...');
             const { sendEnrollmentEmailNotification } = require('./controllers/employeeController');
-            await sendEnrollmentEmailNotification(updateResult);
-            console.log('✅ Background email sent successfully');
+            const emailResult = await sendEnrollmentEmailNotification(updateResult);
+            console.log('✅ [BACKGROUND] Email task completed:', emailResult ? 'success' : 'no result');
           } catch (emailError) {
-            console.error('❌ Background email error:', emailError.message);
+            console.error('❌ [BACKGROUND] Email error:', emailError.message);
+            console.error('❌ [BACKGROUND] Error stack:', emailError.stack);
             // Don't fail the enrollment if email fails
           }
         })();
