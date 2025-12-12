@@ -21,11 +21,19 @@ const createTransporter = () => {
   }
 
   const transporter = nodemailer.createTransport({
-    service: 'gmail',
+    host: 'smtp.gmail.com',
+    port: 587,
+    secure: false, // Use STARTTLS instead of SSL
     auth: {
       user: emailUser,
       pass: emailPassword
-    }
+    },
+    tls: {
+      rejectUnauthorized: false // Allow connections on some hosting providers
+    },
+    connectionTimeout: 10000, // 10 seconds
+    greetingTimeout: 10000,
+    socketTimeout: 15000
   });
 
   console.log('✅ Email transporter created successfully');
