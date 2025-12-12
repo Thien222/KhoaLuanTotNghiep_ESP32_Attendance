@@ -368,13 +368,28 @@ app.post('/api/esp32/commands/complete', async (req, res) => {
       processingCommand.completedAt = new Date();
       await processingCommand.save();
 
-      // If enrollment successful, update employee
+      // If enrollment successful, update employee and send email
       if (success && processingCommand.command === 'enroll') {
         await Employee.findOneAndUpdate(
           { fingerprintId },
           { fingerprintEnrolled: true }
         );
         console.log(`✅ Employee with fingerprintId ${fingerprintId} marked as enrolled`);
+        
+        // Send enrollment email notification
+        console.log('📧 Sending enrollment email notification...');
+        try {
+          const { sendEnrollmentEmailNotification } = require('./controllers/employeeController');
+          const employee = await Employee.findOne({ fingerprintId });
+          if (employee) {
+            await sendEnrollmentEmailNotification(employee);
+          } else {
+            console.error('❌ Employee not found for email notification');
+          }
+        } catch (emailError) {
+          console.error('❌ Error sending enrollment email:', emailError.message);
+          // Don't fail the command completion if email fails
+        }
       }
 
       return res.json({
@@ -389,13 +404,28 @@ app.post('/api/esp32/commands/complete', async (req, res) => {
     command.completedAt = new Date();
     await command.save();
 
-    // If enrollment successful, update employee
+    // If enrollment successful, update employee and send email
     if (success && command.command === 'enroll') {
       await Employee.findOneAndUpdate(
         { fingerprintId: command.fingerprintId },
         { fingerprintEnrolled: true }
       );
       console.log(`✅ Employee with fingerprintId ${command.fingerprintId} marked as enrolled`);
+      
+      // Send enrollment email notification
+      console.log('📧 Sending enrollment email notification...');
+      try {
+        const { sendEnrollmentEmailNotification } = require('./controllers/employeeController');
+        const employee = await Employee.findOne({ fingerprintId: command.fingerprintId });
+        if (employee) {
+          await sendEnrollmentEmailNotification(employee);
+        } else {
+          console.error('❌ Employee not found for email notification');
+        }
+      } catch (emailError) {
+        console.error('❌ Error sending enrollment email:', emailError.message);
+        // Don't fail the command completion if email fails
+      }
     }
 
     console.log(`✅ Command ${commandId} completed: ${success ? 'SUCCESS' : 'FAILED'}`);
@@ -860,6 +890,16 @@ app.get('/api/enroll', async (req, res) => {
           });
         }
 
+        // Send enrollment email notification
+        console.log('📧 Sending enrollment email notification...');
+        try {
+          const { sendEnrollmentEmailNotification } = require('./controllers/employeeController');
+          await sendEnrollmentEmailNotification(updateResult);
+        } catch (emailError) {
+          console.error('❌ Error sending enrollment email:', emailError.message);
+          // Don't fail the enrollment if email fails
+        }
+
         console.log('✅ Fingerprint enrolled for:', updateResult.name, 'Employee ID:', updateResult.employeeId);
 
         // Check if user account exists
@@ -1039,6 +1079,17 @@ app.post('/api/fingerprint', async (req, res) => {
 
       if (updateResult) {
         console.log('Updated employee fingerprint status:', updateResult.name, 'enrolled:', updateResult.fingerprintEnrolled);
+        
+        // Send enrollment email notification
+        console.log('📧 Sending enrollment email notification...');
+        try {
+          const { sendEnrollmentEmailNotification } = require('./controllers/employeeController');
+          await sendEnrollmentEmailNotification(updateResult);
+        } catch (emailError) {
+          console.error('❌ Error sending enrollment email:', emailError.message);
+          // Don't fail the enrollment if email fails
+        }
+        
         return res.json({
           success: true,
           message: 'Fingerprint template received and employee enrolled',

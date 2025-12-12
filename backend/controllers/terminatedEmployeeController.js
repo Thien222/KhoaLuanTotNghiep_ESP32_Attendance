@@ -206,7 +206,8 @@ exports.update = async (req, res) => {
 
 /**
  * DELETE /api/terminated-employees/:id
- * Xóa vĩnh viễn bản ghi nhân viên nghỉ việc
+ * Xóa vĩnh viễn bản ghi nhân viên nghỉ việc (XÓA HOÀN TOÀN)
+ * Đây là nơi duy nhất xóa hoàn toàn nhân viên khỏi hệ thống
  */
 exports.deletePermanently = async (req, res) => {
   try {
@@ -221,11 +222,34 @@ exports.deletePermanently = async (req, res) => {
       });
     }
     
+    console.log(`🗑️  Permanently deleting terminated employee: ${terminatedEmployee.name} (${terminatedEmployee.employeeId})`);
+    
+    // Xóa tất cả attendance records liên quan (nếu còn)
+    const deletedAttendances = await Attendance.deleteMany({ 
+      employee: terminatedEmployee.originalEmployeeId 
+    });
+    if (deletedAttendances.deletedCount > 0) {
+      console.log(`   ✅ Deleted ${deletedAttendances.deletedCount} attendance records`);
+    }
+    
+    // Xóa user account (nếu còn - đã được xóa khi terminate nhưng kiểm tra lại)
+    const deletedUser = await User.findOneAndDelete({ 
+      employee: terminatedEmployee.originalEmployeeId 
+    });
+    if (deletedUser) {
+      console.log(`   ✅ Deleted user account: ${deletedUser.username}`);
+    }
+    
+    // Xóa terminated employee record
     await TerminatedEmployee.findByIdAndDelete(id);
+    
+    console.log(`✅ Permanently deleted terminated employee: ${terminatedEmployee.name}`);
     
     res.json({
       success: true,
-      message: 'Đã xóa vĩnh viễn thông tin nhân viên'
+      message: 'Đã xóa vĩnh viễn thông tin nhân viên',
+      deletedAttendances: deletedAttendances.deletedCount,
+      deletedUser: !!deletedUser
     });
   } catch (error) {
     console.error('Error deleting terminated employee:', error);
