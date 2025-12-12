@@ -1111,6 +1111,69 @@ app.post('/api/esp32-attendance', async (req, res) => {
 });
 
 // Test route
+// Test email configuration
+app.post('/api/test-email', async (req, res) => {
+  try {
+    const { to } = req.body;
+    const emailService = require('./services/emailService');
+    
+    if (!to) {
+      return res.status(400).json({
+        success: false,
+        message: 'Email address is required'
+      });
+    }
+    
+    // Test email config first
+    const configTest = await emailService.testEmailConfig();
+    if (!configTest.success) {
+      return res.status(500).json({
+        success: false,
+        message: 'Email configuration error',
+        error: configTest.error
+      });
+    }
+    
+    // Send test email
+    const result = await emailService.sendWelcomeEmail(
+      {
+        name: 'Test User',
+        email: to,
+        employeeId: 'TEST001',
+        fingerprintId: 999,
+        position: 'Test Position',
+        department: 'Test Department',
+        fingerprintEnrolled: false
+      },
+      {
+        username: 'TEST001',
+        password: 'test123456'
+      }
+    );
+    
+    if (result.success) {
+      res.json({
+        success: true,
+        message: 'Test email sent successfully',
+        messageId: result.messageId
+      });
+    } else {
+      res.status(500).json({
+        success: false,
+        message: 'Failed to send test email',
+        error: result.error
+      });
+    }
+  } catch (error) {
+    console.error('Test email error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error testing email',
+      error: error.message
+    });
+  }
+});
+
 app.get('/api/test', (req, res) => {
   res.json({ message: 'API is working!' });
 });
