@@ -6,12 +6,20 @@ const nodemailer = require('nodemailer');
 const createTransporter = () => {
   const emailUser = process.env.EMAIL_USER;
   const emailPassword = process.env.EMAIL_APP_PASSWORD;
-  
+
+  console.log('📧 createTransporter called with:', {
+    hasEmailUser: !!emailUser,
+    hasEmailPassword: !!emailPassword,
+    emailUserValue: emailUser || 'undefined',
+    passwordLength: emailPassword ? emailPassword.length : 0
+  });
+
   if (!emailUser || !emailPassword) {
     console.error('❌ EMAIL_USER or EMAIL_APP_PASSWORD is not set in environment variables!');
-    throw new Error('Email configuration is required');
+    console.error('❌ Current values: EMAIL_USER=' + (emailUser || 'undefined') + ', EMAIL_APP_PASSWORD=' + (emailPassword ? '[SET]' : 'undefined'));
+    throw new Error('Email configuration is required. Please set EMAIL_USER and EMAIL_APP_PASSWORD.');
   }
-  
+
   const transporter = nodemailer.createTransport({
     service: 'gmail',
     auth: {
@@ -19,7 +27,8 @@ const createTransporter = () => {
       pass: emailPassword
     }
   });
-  
+
+  console.log('✅ Email transporter created successfully');
   return transporter;
 };
 // Send welcome email with login credentials
@@ -31,7 +40,7 @@ exports.sendWelcomeEmail = async (employeeData, credentials) => {
       hasEmailPassword: !!process.env.EMAIL_APP_PASSWORD,
       emailUser: process.env.EMAIL_USER
     });
-    
+
     const transporter = createTransporter();
     console.log('✅ Email transporter created');
 
@@ -137,7 +146,7 @@ exports.sendWelcomeEmail = async (employeeData, credentials) => {
     console.log('📧 Response:', info.response);
     console.log('📧 To:', employeeData.email);
     return { success: true, messageId: info.messageId };
-    
+
   } catch (error) {
     console.error('❌ Error sending email:', error);
     console.error('❌ Error details:', {
@@ -162,7 +171,7 @@ exports.sendEnrollmentNotification = async (employeeData) => {
       fingerprintId: employeeData.fingerprintId,
       hasPassword: !!employeeData.password
     });
-    
+
     const transporter = createTransporter();
     console.log('✅ Email transporter created for enrollment notification');
 
@@ -274,7 +283,7 @@ exports.sendEnrollmentNotification = async (employeeData) => {
     console.log('📧 Response:', info.response);
     console.log('📧 To:', employeeData.email);
     return { success: true, messageId: info.messageId };
-    
+
   } catch (error) {
     console.error('❌ Error sending enrollment notification:', error);
     console.error('❌ Error details:', {

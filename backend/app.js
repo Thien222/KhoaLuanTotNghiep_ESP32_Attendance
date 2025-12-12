@@ -35,6 +35,11 @@ const PORT = process.env.PORT || 3000;
 console.log('MONGO_URI:', process.env.MONGO_URI);
 console.log('NODE_ENV:', process.env.NODE_ENV);
 
+// Debug email configuration
+console.log('📧 Email Configuration:');
+console.log('   EMAIL_USER:', process.env.EMAIL_USER ? process.env.EMAIL_USER.substring(0, 5) + '***' : '❌ NOT SET');
+console.log('   EMAIL_APP_PASSWORD:', process.env.EMAIL_APP_PASSWORD ? '✅ SET (' + process.env.EMAIL_APP_PASSWORD.length + ' chars)' : '❌ NOT SET');
+
 // Middleware
 app.use(cors({
   origin: '*',
@@ -924,11 +929,11 @@ app.get('/api/enroll', async (req, res) => {
 
         // Check email validity
         const employeeEmail = updateResult.email;
-        const isValidEmail = employeeEmail && 
-                            employeeEmail.includes('@') && 
-                            !employeeEmail.includes('@company.com') &&
-                            employeeEmail.includes('.');
-        
+        const isValidEmail = employeeEmail &&
+          employeeEmail.includes('@') &&
+          !employeeEmail.includes('@company.com') &&
+          employeeEmail.includes('.');
+
         console.log('📧 ESP32 Enroll - Email check:', {
           email: employeeEmail,
           isValidEmail,
@@ -1141,7 +1146,7 @@ app.get('/api/email-config-check', async (req, res) => {
   try {
     const hasEmailUser = !!process.env.EMAIL_USER;
     const hasEmailPassword = !!process.env.EMAIL_APP_PASSWORD;
-    
+
     res.json({
       success: true,
       config: {
@@ -1165,14 +1170,14 @@ app.post('/api/test-email', async (req, res) => {
   try {
     const { to } = req.body;
     const emailService = require('./services/emailService');
-    
+
     if (!to) {
       return res.status(400).json({
         success: false,
         message: 'Email address is required'
       });
     }
-    
+
     // Test email config first
     const configTest = await emailService.testEmailConfig();
     if (!configTest.success) {
@@ -1182,7 +1187,7 @@ app.post('/api/test-email', async (req, res) => {
         error: configTest.error
       });
     }
-    
+
     // Send test email
     const result = await emailService.sendWelcomeEmail(
       {
@@ -1199,7 +1204,7 @@ app.post('/api/test-email', async (req, res) => {
         password: 'test123456'
       }
     );
-    
+
     if (result.success) {
       res.json({
         success: true,
