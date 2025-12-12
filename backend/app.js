@@ -1092,35 +1092,32 @@ app.post('/api/fingerprint', async (req, res) => {
           }
         });
 
-        // THEN send email in background (don't await - non-blocking)
-        // Use setTimeout(0) to ensure this runs in next event loop cycle
-        // and cannot block the main thread
+        // THEN send email in background - NO AWAIT, NO BLOCKING!
+        // Sử dụng .then().catch() để hoàn toàn không block
         const ENABLE_ENROLLMENT_EMAIL = process.env.ENABLE_ENROLLMENT_EMAIL === 'true';
 
         if (ENABLE_ENROLLMENT_EMAIL) {
-          console.log('📧 Sending enrollment email notification in background...');
-          console.log('📧 Employee data for email:', {
-            _id: updateResult._id,
-            name: updateResult.name,
-            email: updateResult.email,
-            employeeId: updateResult.employeeId,
-            fingerprintId: updateResult.fingerprintId
-          });
+          console.log('📧 [FIRE & FORGET] Sending email to:', updateResult.email);
 
-          // Use setTimeout to completely detach from request cycle
-          setTimeout(async () => {
-            try {
-              console.log('📧 [BACKGROUND] Starting email task...');
-              const { sendEnrollmentEmailNotification } = require('./controllers/employeeController');
-              const emailResult = await sendEnrollmentEmailNotification(updateResult);
-              console.log('✅ [BACKGROUND] Email task completed:', emailResult ? 'success' : 'no result');
-            } catch (emailError) {
-              console.error('❌ [BACKGROUND] Email error:', emailError.message);
-              // Don't fail the enrollment if email fails
-            }
-          }, 100); // Small delay to ensure response is sent first
+          // Import và gọi KHÔNG ĐỒNG BỘ - fire and forget
+          const { sendEnrollmentEmailNotification } = require('./controllers/employeeController');
+
+          // QUAN TRỌNG: Không có await! Gọi rồi chạy tiếp luôn
+          sendEnrollmentEmailNotification(updateResult)
+            .then((result) => {
+              console.log('>>> ✅ ĐÃ GỬI MAIL THÀNH CÔNG!');
+              console.log('>>> Message ID:', result?.messageId || 'N/A');
+            })
+            .catch((err) => {
+              // Log chi tiết lỗi để xem trên Render Logs
+              console.error('>>> ❌ LỖI GỬI MAIL:');
+              console.error('>>> Error message:', err.message);
+              console.error('>>> Error code:', err.code);
+              console.error('>>> Error response:', err.response);
+              console.error('>>> Full error:', JSON.stringify(err, Object.getOwnPropertyNames(err)));
+            });
         } else {
-          console.log('📧 [SKIPPED] Email notifications disabled (set ENABLE_ENROLLMENT_EMAIL=true to enable)');
+          console.log('📧 [SKIPPED] Email disabled (set ENABLE_ENROLLMENT_EMAIL=true to enable)');
         }
 
         return; // Already sent response
