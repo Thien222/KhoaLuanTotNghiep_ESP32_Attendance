@@ -343,28 +343,91 @@ exports.enrollFingerprint = async (req, res) => {
     console.log('Employee enrolled successfully:', employee.name, 'ID:', employee.employeeId);
     
     // Gửi email thông báo đăng ký vân tay thành công
-    if (employee.email && employee.email.includes('@') && !employee.email.includes('@company.com')) {
+    const isValidEmail = employee.email && 
+                        employee.email.includes('@') && 
+                        !employee.email.includes('@company.com') &&
+                        employee.email.includes('.');
+    
+    console.log('📧 Enrollment email check:', {
+      email: employee.email,
+      isValidEmail,
+      employeeId: employee.employeeId,
+      fingerprintId: employee.fingerprintId
+    });
+    
+    if (isValidEmail) {
       try {
-        // Tìm user account để lấy password (nếu có)
-        const user = await User.findOne({ employee: employee._id });
+        // Tìm user account để lấy thông tin đăng nhập
+        let user = await User.findOne({ employee: employee._id });
+        
+        console.log('📧 User account check:', {
+          hasUser: !!user,
+          username: user?.username,
+          email: user?.email
+        });
+        
+        // Tạo hoặc reset password để gửi cho user
+        // Password mặc định: hrm{fingerprintId}2025
+        const defaultPassword = `hrm${employee.fingerprintId}2025`;
+        let loginPassword = defaultPassword;
+        let username = employee.employeeId;
+        
+        if (!user) {
+          // Nếu chưa có user account, tạo mới
+          console.log('📧 Creating new user account for employee:', employee.employeeId);
+          user = new User({
+            username: employee.employeeId,
+            email: employee.email,
+            password: defaultPassword,
+            role: 'employee',
+            employee: employee._id,
+            isActive: true
+          });
+          await user.save();
+          console.log('✅ User account created:', user.username);
+          username = user.username;
+        } else {
+          // Nếu đã có user, reset password về mặc định và gửi lại
+          console.log('📧 Resetting password for existing user:', user.username);
+          user.password = defaultPassword;
+          await user.save();
+          console.log('✅ Password reset for user:', user.username);
+          username = user.username || employee.employeeId;
+        }
+        
+        console.log('📧 Preparing enrollment email with:', {
+          name: employee.name,
+          email: employee.email,
+          employeeId: employee.employeeId,
+          fingerprintId: employee.fingerprintId,
+          username: username,
+          password: loginPassword
+        });
         
         const emailResult = await emailService.sendEnrollmentNotification({
           name: employee.name,
           email: employee.email,
           employeeId: employee.employeeId,
           fingerprintId: employee.fingerprintId,
-          username: user ? user.username : employee.employeeId,
-          password: user ? null : null // Không gửi password trong email enrollment
+          username: username,
+          password: loginPassword // Gửi password mặc định
         });
         
         if (emailResult.success) {
-          console.log('✅ Enrollment notification sent to:', employee.email);
+          console.log('✅ Enrollment notification sent successfully to:', employee.email);
+          console.log('📧 Email message ID:', emailResult.messageId);
         } else {
           console.warn('⚠️ Failed to send enrollment notification:', emailResult.error);
         }
       } catch (emailError) {
         console.error('❌ Error sending enrollment notification:', emailError);
+        console.error('❌ Error details:', {
+          message: emailError.message,
+          stack: emailError.stack
+        });
       }
+    } else {
+      console.warn('⚠️ Skipping enrollment email - invalid email:', employee.email);
     }
 
     res.status(200).json({

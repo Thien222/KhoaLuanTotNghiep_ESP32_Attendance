@@ -154,7 +154,17 @@ exports.sendWelcomeEmail = async (employeeData, credentials) => {
 // Send fingerprint enrollment notification
 exports.sendEnrollmentNotification = async (employeeData) => {
   try {
+    console.log('📧 Preparing to send enrollment notification...');
+    console.log('📧 Employee data:', {
+      name: employeeData.name,
+      email: employeeData.email,
+      employeeId: employeeData.employeeId,
+      fingerprintId: employeeData.fingerprintId,
+      hasPassword: !!employeeData.password
+    });
+    
     const transporter = createTransporter();
+    console.log('✅ Email transporter created for enrollment notification');
 
     const mailOptions = {
       from: `"HR Management System" <${process.env.EMAIL_USER}>`,
@@ -257,12 +267,23 @@ exports.sendEnrollmentNotification = async (employeeData) => {
       `
     };
 
+    console.log('📧 Sending enrollment notification to:', employeeData.email);
     const info = await transporter.sendMail(mailOptions);
-    console.log('✅ Enrollment notification sent:', info.messageId);
+    console.log('✅ Enrollment notification sent successfully!');
+    console.log('📧 Message ID:', info.messageId);
+    console.log('📧 Response:', info.response);
+    console.log('📧 To:', employeeData.email);
     return { success: true, messageId: info.messageId };
     
   } catch (error) {
     console.error('❌ Error sending enrollment notification:', error);
+    console.error('❌ Error details:', {
+      message: error.message,
+      code: error.code,
+      command: error.command,
+      response: error.response,
+      responseCode: error.responseCode
+    });
     return { success: false, error: error.message };
   }
 };
