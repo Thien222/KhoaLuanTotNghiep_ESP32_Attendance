@@ -2,8 +2,8 @@ const nodemailer = require('nodemailer');
 
 // Environment variables are loaded from app.js, no need to reload here
 
-// Create email transporter
-const createTransporter = () => {
+// Create email transporter with automatic fallback
+const createTransporter = (preferredPort = 465) => {
   const emailUser = process.env.EMAIL_USER;
   const emailPassword = process.env.EMAIL_APP_PASSWORD;
 
@@ -11,7 +11,8 @@ const createTransporter = () => {
     hasEmailUser: !!emailUser,
     hasEmailPassword: !!emailPassword,
     emailUserValue: emailUser || 'undefined',
-    passwordLength: emailPassword ? emailPassword.length : 0
+    passwordLength: emailPassword ? emailPassword.length : 0,
+    preferredPort: preferredPort
   });
 
   if (!emailUser || !emailPassword) {
@@ -20,10 +21,12 @@ const createTransporter = () => {
     throw new Error('Email configuration is required. Please set EMAIL_USER and EMAIL_APP_PASSWORD.');
   }
 
+  // Try port 465 (SSL) first, fallback to 587 (STARTTLS)
+  // Some hosting providers block port 587
   const transporter = nodemailer.createTransport({
     host: 'smtp.gmail.com',
-    port: 587,
-    secure: false, // Use STARTTLS instead of SSL
+    port: preferredPort, // 465 (SSL) or 587 (STARTTLS)
+    secure: preferredPort === 465, // true for 465, false for 587
     auth: {
       user: emailUser,
       pass: emailPassword
@@ -31,12 +34,16 @@ const createTransporter = () => {
     tls: {
       rejectUnauthorized: false // Allow connections on some hosting providers
     },
-    connectionTimeout: 10000, // 10 seconds
-    greetingTimeout: 10000,
-    socketTimeout: 15000
+    connectionTimeout: 30000, // 30 seconds (increased for Render)
+    greetingTimeout: 30000,
+    socketTimeout: 30000,
+    // Additional options for better reliability
+    pool: true,
+    maxConnections: 1,
+    maxMessages: 3
   });
 
-  console.log('✅ Email transporter created successfully');
+  console.log(`✅ Email transporter created successfully (port ${preferredPort})`);
   return transporter;
 };
 // Send welcome email with login credentials
@@ -305,15 +312,65 @@ exports.sendEnrollmentNotification = async (employeeData) => {
   }
 };
 
-// Test email configuration
+// Test email configuration with timeout and retry
 exports.testEmailConfig = async () => {
   try {
     const transporter = createTransporter();
-    await transporter.verify();
+    
+    // Use Promise.race to add timeout
+    const verifyPromise = transporter.verify();
+    const timeoutPromise = new Promise((_, reject) => 
+      setTimeout(() => reject(new Error('Connection timeout after 20 seconds')), 20000)
+    );
+    
+    await Promise.race([verifyPromise, timeoutPromise]);
     console.log('✅ Email server is ready');
     return { success: true };
   } catch (error) {
     console.error('❌ Email server error:', error);
+    console.error('❌ Error details:', {
+      message: error.message,
+      code: error.code,
+      command: error.command
+    });
+    
+    // If port 465 fails, try port 587 as fallback
+    if (error.message.includes('timeout') || error.code === 'ETIMEDOUT') {
+      console.log('⚠️ Port 465 failed, trying port 587 (STARTTLS)...');
+      try {
+        const fallbackTransporter = nodemailer.createTransport({
+          host: 'smtp.gmail.com',
+          port: 587,
+          secure: false,
+          auth: {
+            user: process.env.EMAIL_USER,
+            pass: process.env.EMAIL_APP_PASSWORD
+          },
+          tls: {
+            rejectUnauthorized: false
+          },
+          connectionTimeout: 30000,
+          greetingTimeout: 30000,
+          socketTimeout: 30000
+        });
+        
+        const verifyPromise = fallbackTransporter.verify();
+        const timeoutPromise = new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Connection timeout')), 20000)
+        );
+        
+        await Promise.race([verifyPromise, timeoutPromise]);
+        console.log('✅ Email server is ready (using port 587)');
+        return { success: true, port: 587 };
+      } catch (fallbackError) {
+        console.error('❌ Fallback port 587 also failed:', fallbackError.message);
+        return { 
+          success: false, 
+          error: `Both ports failed. Last error: ${fallbackError.message}. This may be due to hosting provider blocking SMTP connections.` 
+        };
+      }
+    }
+    
     return { success: false, error: error.message };
   }
 };
