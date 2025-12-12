@@ -25,32 +25,37 @@ const createTransporter = () => {
     throw new Error('Email configuration missing. Set EMAIL_USER and EMAIL_APP_PASSWORD.');
   }
 
-  // Create transporter with connection pooling
-  // FIX: Đổi sang port 587 (STARTTLS) thay vì 465 (SMTPS)
-  // Port 587 được Render hỗ trợ tốt hơn, không bị block
+  // Create transporter - FIX cho Render
+  // - family: 4 -> Force IPv4 (tránh lỗi IPv6 trên Render)
+  // - pool: false -> Tạo connection mới mỗi lần gửi (ổn định hơn trên cloud free tier)
   cachedTransporter = nodemailer.createTransport({
     host: 'smtp.gmail.com',
-    port: 587,       // Đổi sang port 587 (STARTTLS) - chuẩn quốc tế
-    secure: false,   // Bắt buộc false cho port 587 (STARTTLS)
-    pool: true,      // Giữ connection pooling
-    maxConnections: 3,
-    maxMessages: 100,
+    port: 587,
+    secure: false,  // Bắt buộc false cho port 587 (STARTTLS)
+
+    // --- CẤU HÌNH QUAN TRỌNG ĐỂ FIX TIMEOUT ---
+    family: 4,      // (QUAN TRỌNG) Bắt buộc dùng IPv4, tránh lỗi IPv6 trên Render
+    pool: false,    // (QUAN TRỌNG) Tắt pooling - connection mới cho mỗi lần gửi
+
     auth: {
       user: emailUser,
       pass: emailPassword
     },
     tls: {
-      rejectUnauthorized: false,  // Tránh lỗi chứng chỉ SSL trên Render
-      ciphers: 'SSLv3'            // Đảm bảo tương thích
+      rejectUnauthorized: false,  // Bỏ qua lỗi chứng chỉ
+      ciphers: 'SSLv3'
     },
-    connectionTimeout: 10000,  // 10 giây - timeout ngắn hơn
-    greetingTimeout: 10000,    // 10 giây
-    socketTimeout: 10000,      // 10 giây
-    debug: true,   // Enable debug output
-    logger: true   // Log to console
+
+    // Tăng thời gian chờ để mạng chậm vẫn gửi được
+    connectionTimeout: 20000,  // 20 giây
+    greetingTimeout: 20000,    // 20 giây
+    socketTimeout: 20000,      // 20 giây
+
+    debug: true,
+    logger: true
   });
 
-  console.log('📧 New transporter created (port 587 - STARTTLS)');
+  console.log('📧 Transporter created (IPv4 only, no pooling, port 587)');
   return cachedTransporter;
 };
 
