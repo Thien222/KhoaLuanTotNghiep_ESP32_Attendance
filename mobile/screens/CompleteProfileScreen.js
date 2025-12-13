@@ -137,12 +137,26 @@ export default function CompleteProfileScreen({ navigation }) {
                 const userData = await AsyncStorage.getItem('user');
                 if (userData) {
                     const parsed = JSON.parse(userData);
+                    // FIX: Set profileCompleted at BOTH root and employee level
+                    parsed.profileCompleted = true;
                     parsed.employee = { ...parsed.employee, profileCompleted: true };
                     await AsyncStorage.setItem('user', JSON.stringify(parsed));
+
+                    console.log('✅ Profile updated in AsyncStorage:', {
+                        profileCompleted: parsed.profileCompleted,
+                        employeeProfileCompleted: parsed.employee?.profileCompleted
+                    });
                 }
 
                 Alert.alert('Thanh cong', 'Da cap nhat thong tin ca nhan', [
-                    { text: 'OK', onPress: () => checkAuth() }
+                    {
+                        text: 'OK',
+                        onPress: async () => {
+                            console.log('🔄 Calling checkAuth to refresh user state...');
+                            await checkAuth();
+                            console.log('✅ checkAuth completed');
+                        }
+                    }
                 ]);
             } else {
                 Alert.alert('Loi', response.message || 'Khong the cap nhat thong tin');
