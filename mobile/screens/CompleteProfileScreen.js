@@ -53,26 +53,36 @@ export default function CompleteProfileScreen({ navigation }) {
         setLoading(true);
         try {
             const response = await employeeAPI.getMyProfile();
+            console.log('📥 Fetched profile response:', JSON.stringify(response, null, 2));
+
             if (response.success && response.data) {
-                const data = response.data;
+                // Backend trả về { employee: {...}, profileCompleted: boolean }
+                const data = response.data.employee || response.data;
+                console.log('📥 Employee data:', JSON.stringify(data, null, 2));
+
                 setProfile({
+                    // Map từ backend fields sang mobile fields
                     name: data.name || '',
                     phone: data.phone || '',
                     email: data.email || '',
                     dateOfBirth: data.dateOfBirth ? new Date(data.dateOfBirth) : null,
                     gender: data.gender || 'male',
                     address: data.address || '',
-                    idCardNumber: data.idCardNumber || '',
+                    // Backend: citizenId -> Mobile: idCardNumber
+                    idCardNumber: data.citizenId || data.idCardNumber || '',
                     idCardIssueDate: data.idCardIssueDate ? new Date(data.idCardIssueDate) : null,
                     idCardIssuePlace: data.idCardIssuePlace || '',
-                    bankAccountNumber: data.bankAccountNumber || '',
-                    bankName: data.bankName || '',
-                    bankBranch: data.bankBranch || '',
+                    // Backend: bankAccount.accountNumber -> Mobile: bankAccountNumber
+                    bankAccountNumber: data.bankAccount?.accountNumber || data.bankAccountNumber || '',
+                    bankName: data.bankAccount?.bankName || data.bankName || '',
+                    bankBranch: data.bankAccount?.accountName || data.bankBranch || '',
                     socialInsuranceNumber: data.socialInsuranceNumber || '',
                     taxCode: data.taxCode || '',
                     emergencyContact: data.emergencyContact || '',
                     emergencyPhone: data.emergencyPhone || '',
                 });
+
+                console.log('✅ Profile pre-loaded successfully');
             }
         } catch (error) {
             console.error('Error fetching profile:', error);
