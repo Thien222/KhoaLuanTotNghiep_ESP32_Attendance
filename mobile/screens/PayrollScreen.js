@@ -114,17 +114,9 @@ export default function PayrollScreen() {
               (payroll.performanceBonus || 0) +
               (payroll.otherAllowances || 0);
 
-            // Tổng khấu trừ = Bảo hiểm + thuế + Tiền phạt
-            const taxAmount = payroll.taxAmount ||
-              payroll.fixedDeduction ||
-              (payroll.basicSalaryFull || payroll.employee?.baseSalary || 0) * ((payroll.taxRate || 10) / 100) ||
-              payroll.tax ||
-              0;
-            const totalDeductions = taxAmount + (payroll.latePenalty || 0);
-
-            // Thực lãnh = Tổng thu nhập - Khấu trừ (chỉ là bảo hiểm + thuế) - Có thể âm
-            // LUÔN tính lại từ totalIncome - totalDeductions để đảm bảo đúng
-            const netPay = totalIncome - totalDeductions;
+            // Thực lãnh = Tổng thu nhập - Tiền phạt (không trừ bảo hiểm + thuế)
+            const latePenalty = payroll.latePenalty || 0;
+            const netPay = totalIncome - latePenalty;
 
             return (
               <View key={payroll._id} style={styles.payrollCard}>
@@ -251,53 +243,28 @@ export default function PayrollScreen() {
                   </View>
                 </View>
 
-                <View style={[styles.payrollSection, styles.deductionSection]}>
-                  <Text style={[styles.sectionTitle, { color: '#ff4d4f' }]}>
-                    <Ionicons name="remove-circle" size={18} color="#ff4d4f" /> Khấu trừ
-                  </Text>
-                  {/* Bảo hiểm + thuế */}
-                  <View style={styles.amountRow}>
-                    <Text style={styles.amountLabel}>Bảo hiểm + Thuế ({payroll.taxRate || 10}%):</Text>
-                    <Text style={[styles.amountValue, { color: '#ff4d4f' }]}>
-                      -{formatCurrency(
-                        payroll.taxAmount ||
-                        payroll.fixedDeduction ||
-                        (payroll.basicSalaryFull || payroll.employee?.baseSalary || 0) * ((payroll.taxRate || 10) / 100) ||
-                        payroll.tax ||
-                        0
-                      )}
-                    </Text>
-                  </View>
-
-                  {/* Tiền phạt - Hiển thị nếu có */}
-                  {(payroll.latePenalty || 0) > 0 && (
-                    <View style={styles.amountRow}>
-                      <Text style={styles.amountLabel}>
-                        Tiền phạt ({payroll.lateMinutes || 0}p, {payroll.lateCount || 0} lần):
+                {/* Tiền phạt đi muộn - Chỉ hiển thị nếu có */}
+                {latePenalty > 0 && (
+                  <View style={[styles.payrollSection, { marginTop: 12 }]}>
+                    <View style={{
+                      backgroundColor: '#fff1f0',
+                      padding: 12,
+                      borderRadius: 8,
+                      borderWidth: 1,
+                      borderColor: '#ffa39e',
+                      flexDirection: 'row',
+                      justifyContent: 'space-between',
+                      alignItems: 'center'
+                    }}>
+                      <Text style={{ color: '#ff4d4f', fontSize: 14 }}>
+                        Tiền phạt đi muộn ({payroll.lateMinutes || 0}p, {payroll.lateCount || 0} lần):
                       </Text>
-                      <Text style={[styles.amountValue, { color: '#ff4d4f' }]}>
-                        -{formatCurrency(payroll.latePenalty)}
+                      <Text style={{ color: '#ff4d4f', fontWeight: 'bold', fontSize: 16 }}>
+                        -{formatCurrency(latePenalty)}
                       </Text>
                     </View>
-                  )}
-
-                  {/* Tổng khấu trừ - Bảo hiểm + thuế + Tiền phạt */}
-                  <View style={[styles.amountRow, {
-                    backgroundColor: '#fff2f0',
-                    padding: 12,
-                    marginTop: 8,
-                    borderRadius: 8,
-                    borderWidth: 2,
-                    borderColor: '#ffccc7'
-                  }]}>
-                    <Text style={[styles.amountLabel, { fontWeight: 'bold', color: '#ff4d4f' }]}>
-                      Tổng khấu trừ:
-                    </Text>
-                    <Text style={[styles.amountValue, { fontWeight: 'bold', color: '#ff4d4f', fontSize: 16 }]}>
-                      -{formatCurrency(totalDeductions)}
-                    </Text>
                   </View>
-                </View>
+                )}
 
                 <View style={[styles.netSalary, {
                   backgroundColor: netPay < 0 ? '#fff2f0' : '#e6f7ff',

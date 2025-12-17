@@ -71,7 +71,6 @@ const SystemSettings = () => {
             'leave-policy': { annualDays: 12, carryOverDays: 3, resetMonth: 1 },
             'auto-checkout': { enabled: true, defaultTime: '17:00', applyAfterHours: 2 },
             'ot-rate': { ratePerHour: 100000, startTime: '19:00' },
-            'tax-config': { enabled: true, taxRate: 10 },
             'salary-structure': { generalAllowanceRate: 5 }
           };
           if (defaults[types[index]]) {
@@ -111,9 +110,6 @@ const SystemSettings = () => {
         otRatePerHour: settingsData['ot-rate']?.ratePerHour || 100000,
         otStartTime: settingsData['ot-rate']?.startTime ? moment(settingsData['ot-rate'].startTime, 'HH:mm') : moment('19:00', 'HH:mm'),
 
-        // Tax Config (NEW)
-        taxEnabled: settingsData['tax-config']?.enabled !== false,
-        taxRate: settingsData['tax-config']?.taxRate || 10,
 
         // Allowance Config (NEW)
         generalAllowanceRate: settingsData['salary-structure']?.generalAllowanceRate || 5,
@@ -184,16 +180,6 @@ const SystemSettings = () => {
               start: '18:00',
               end: '18:59'
             }
-          }
-        },
-        // Tax Config
-        {
-          type: 'tax-config',
-          value: {
-            enabled: values.taxEnabled !== false,
-            taxRate: values.taxRate || 10,
-            applyTo: 'gross-minus-penalty',
-            description: 'Thuế TNCN + Bảo hiểm'
           }
         },
         // Salary Structure (Update allowance rate)
@@ -379,52 +365,6 @@ const SystemSettings = () => {
                   help="18h00-18h59 không tính OT, từ 19h00 mới tính"
                 >
                   <TimePicker format="HH:mm" style={{ width: '100%' }} placeholder="19:00" />
-                </Form.Item>
-              </Col>
-            </Row>
-          </Panel>
-
-          {/* NEW: Tax Config Panel */}
-          <Panel
-            header={
-              <Space>
-                <DollarOutlined />
-                <Text strong>Cấu hình Thuế (Mới)</Text>
-              </Space>
-            }
-            key="2c"
-          >
-            <Alert
-              message="Thuế 10% bao gồm: Thuế TNCN + Bảo hiểm xã hội. Tính trên (Gross - Phạt)."
-              type="warning"
-              showIcon
-              style={{ marginBottom: 6 }}
-              size="small"
-            />
-            <Row gutter={8}>
-              <Col span={12}>
-                <Form.Item
-                  name="taxEnabled"
-                  label="Bật tính thuế"
-                  valuePropName="checked"
-                >
-                  <Switch checkedChildren="Bật" unCheckedChildren="Tắt" />
-                </Form.Item>
-              </Col>
-              <Col span={12}>
-                <Form.Item
-                  name="taxRate"
-                  label="Tỷ lệ thuế (%)"
-                  help="Mặc định 10% (bao gồm thuế + TNCN + bảo hiểm)"
-                >
-                  <InputNumber
-                    min={0}
-                    max={50}
-                    step={1}
-                    style={{ width: '100%' }}
-                    addonAfter="%"
-                    placeholder="10"
-                  />
                 </Form.Item>
               </Col>
             </Row>

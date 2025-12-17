@@ -87,9 +87,6 @@ exports.listMonthly = async (req, res) => {
         otherAllowances: doc.otherAllowances || 0,
 
         // Thành phần giảm - Đảm bảo trả về đầy đủ
-        taxAmount: doc.taxAmount || Math.round((doc.basicSalaryFull || employee.baseSalary || employee.salary || 0) * 0.1),
-        taxRate: doc.taxRate || 10,
-        fixedDeduction: doc.taxAmount || Math.round((doc.basicSalaryFull || employee.baseSalary || employee.salary || 0) * 0.1), // Alias
         latePenalty: doc.latePenalty || 0,
         absentDeduction: doc.absentDeduction || 0,
         unpaidLeaveDeduction: doc.unpaidLeaveDeduction || 0,
@@ -204,7 +201,7 @@ exports.calculateMonthly = async (req, res) => {
             { new: true, upsert: true, runValidators: true, setDefaultsOnInsert: true }
           );
           
-          console.log(`✅ [PAYROLL] Updated ${employee.name}: Net = ${payroll.netSalary.toLocaleString()}đ (Base: ${payroll.baseSalary?.toLocaleString()}đ, Allowance: ${payroll.generalAllowance?.toLocaleString()}đ, Tax: ${payroll.taxAmount?.toLocaleString()}đ)`);
+          console.log(`✅ [PAYROLL] Updated ${employee.name}: Net = ${payroll.netSalary.toLocaleString()}đ (Base: ${payroll.baseSalary?.toLocaleString()}đ, Allowance: ${payroll.generalAllowance?.toLocaleString()}đ)`);
           
           results.push({
             employee: employee.name,

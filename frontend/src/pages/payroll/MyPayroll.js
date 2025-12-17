@@ -4,7 +4,6 @@ import {
   Row,
   Col,
   Statistic,
-  Table,
   DatePicker,
   Spin,
   Alert,
@@ -18,9 +17,7 @@ import {
   DollarOutlined,
   CalendarOutlined,
   RiseOutlined,
-  FallOutlined,
-  ClockCircleOutlined,
-  WarningOutlined
+  ClockCircleOutlined
 } from '@ant-design/icons';
 import axios from 'axios';
 import moment from 'moment';
@@ -34,7 +31,6 @@ const MyPayroll = () => {
   const [loading, setLoading] = useState(true);
   const [payrollData, setPayrollData] = useState(null);
   const [selectedMonth, setSelectedMonth] = useState(moment());
-  const [payrollHistory, setPayrollHistory] = useState([]);
 
   useEffect(() => {
     fetchPayroll();
@@ -61,7 +57,6 @@ const MyPayroll = () => {
           p.employee === user?.employee?._id
         );
         setPayrollData(myPayroll || null);
-        setPayrollHistory(data.slice(0, 6)); // Last 6 months for history
       }
     } catch (error) {
       console.error('Error fetching payroll:', error);
@@ -98,14 +93,10 @@ const MyPayroll = () => {
     const totalOTPay = (payrollData.overtimePay || 0) +
       (payrollData.holidayWorkPay || 0);
     const totalBonus = (payrollData.bonus || 0) + (payrollData.performanceBonus || 0);
-    // FIX: Tính tổng khấu trừ bao gồm cả taxAmount (bảo hiểm + thuế) từ backend
-    const taxAmount = payrollData.taxAmount || payrollData.fixedDeduction || 0;
-    // Tổng khấu trừ = Bảo hiểm + Thuế + Tiền phạt - đồng bộ với salaryCalculator.js
-    const totalDeductions = taxAmount + (payrollData.latePenalty || 0);
     const totalIncome = proratedSalary + totalAllowances + totalOTPay + totalBonus;
-    // FIX: Tính lại netSalary theo đúng công thức từ salaryCalculator.js
-    // Net = Base + Allowances + OT - Fines - Tax
-    const calculatedNetSalary = totalIncome - totalDeductions;
+    // Lương thực lãnh = Tổng thu nhập - Tiền phạt (không trừ bảo hiểm + thuế)
+    const latePenalty = payrollData.latePenalty || 0;
+    const calculatedNetSalary = totalIncome - latePenalty;
 
     const items = [
       {
@@ -180,45 +171,13 @@ const MyPayroll = () => {
         icon: <RiseOutlined />,
         isTotal: true
       },
-      ...(payrollData.latePenalty > 0 ? [{
-        label: `Phạt muộn (${payrollData.lateCount || 0} lần)`,
-        value: payrollData.latePenalty,
+      // Tiền phạt đi muộn - chỉ hiển thị nếu có
+      ...(latePenalty > 0 ? [{
+        label: `Phạt đi muộn (${payrollData.lateMinutes || 0}p, ${payrollData.lateCount || 0} lần)`,
+        value: latePenalty,
         type: 'negative',
-        icon: <WarningOutlined />
+        icon: <ClockCircleOutlined />
       }] : []),
-      {
-        label: `Bảo hiểm + Thuế (${payrollData.taxRate || 10}%)`,
-        value: taxAmount,
-        type: 'negative',
-        icon: <FallOutlined />,
-        alwaysShow: true // Luôn hiển thị dù = 0
-      },
-      ...(payrollData.halfDayDeduction > 0 ? [{
-        label: 'Nghỉ nửa ngày',
-        value: payrollData.halfDayDeduction,
-        type: 'negative',
-        icon: <FallOutlined />
-      }] : []),
-      ...(payrollData.absentDeduction > 0 ? [{
-        label: 'Nghỉ không lương',
-        value: payrollData.absentDeduction,
-        type: 'negative',
-        icon: <FallOutlined />
-      }] : []),
-      ...(payrollData.unpaidLeaveDeduction > 0 ? [{
-        label: 'Nghỉ phép không lương',
-        value: payrollData.unpaidLeaveDeduction,
-        type: 'negative',
-        icon: <FallOutlined />
-      }] : []),
-      // Bỏ "Khấu trừ khác" - không hiển thị
-      {
-        label: 'Tổng khấu trừ',
-        value: totalDeductions,
-        type: 'negative',
-        icon: <FallOutlined />,
-        isTotal: true
-      },
     ];
 
     return (
@@ -247,17 +206,7 @@ const MyPayroll = () => {
               />
             </Card>
           </Col>
-          <Col xs={24} sm={12} md={6}>
-            <Card>
-              <Statistic
-                title="Tổng khấu trừ"
-                value={payrollData.totalDeductions || 0}
-                formatter={(val) => formatCurrency(val)}
-                prefix={<FallOutlined style={{ color: '#ff4d4f' }} />}
-                valueStyle={{ color: '#ff4d4f', fontSize: 18 }}
-              />
-            </Card>
-          </Col>
+
           <Col xs={24} sm={12} md={6}>
             <Card style={{
               background: calculatedNetSalary < 0
