@@ -72,7 +72,7 @@ async function computeSalaryFor(emp, year, month, extraLeaveDays = 0) {
       weekendWorkPay: 0,
       latePenalty: 0,
       generalAllowance: 0,
-      taxAmount: 0,
+      // Bỏ taxAmount - không còn sử dụng
       leaveDays: 0,
       extraLeaveDays: 0,
       total: 0
@@ -98,7 +98,7 @@ async function computeSalaryFor(emp, year, month, extraLeaveDays = 0) {
   const holidayWorkPay = Number(snap.holidayWorkPay ?? 0);   // Làm ngày lễ
   const weekendWorkPay = Number(snap.weekendWorkPay ?? 0);   // Chỉ hiển thị tham khảo, KHÔNG cộng net
   const latePenalty = Number(snap.latePenalty ?? 0);         // Tổng phạt
-  const taxAmount = Number(snap.taxAmount ?? 0);             // Thuế
+  // Bỏ taxAmount - không còn sử dụng
 
   const STANDARD_WORKING_DAYS = 26;
   const dailyRate = Number(
@@ -146,7 +146,7 @@ async function computeSalaryFor(emp, year, month, extraLeaveDays = 0) {
     weekendWorkPay,          // chỉ để tham khảo nếu muốn show chi tiết
     latePenalty,
     generalAllowance,
-    taxAmount,
+    // Bỏ taxAmount - không còn sử dụng
     leaveDays: leaveDaysNow, // nghỉ hiện tại trong tháng
     extraLeaveDays,
     total: finalNet          // alias để các chỗ khác dùng
@@ -183,8 +183,8 @@ async function handleMySalary(user, entities) {
     if (info.generalAllowance > 0) parts.push(`• Phụ cấp: +${fmtVND(info.generalAllowance)}`);
     if (info.overtimePay > 0) parts.push(`• OT (${info.overtimeHours}h): +${fmtVND(info.overtimePay)}`);
     if (info.holidayWorkPay > 0) parts.push(`• Làm ngày lễ: +${fmtVND(info.holidayWorkPay)}`);
-    if (info.latePenalty > 0) parts.push(`• Phạt: -${fmtVND(info.latePenalty)}`);
-    if (info.taxAmount > 0) parts.push(`• Thuế: -${fmtVND(info.taxAmount)}`);
+    if (info.latePenalty > 0) parts.push(`• Phạt đi muộn: -${fmtVND(info.latePenalty)}`);
+    // Bỏ hiển thị thuế (bảo hiểm + thuế) theo yêu cầu
 
     parts.push(`→ Thực lãnh: ${fmtVND(info.netSalary)}`);
     return parts.join('\n');
@@ -299,8 +299,8 @@ async function handleEmployeeSalary(user, entities, rawText) {
   }
   if (info.mode === 'snapshot') {
     if (privileged) {
-      // Admin/KT xem: Hiển thị chi tiết gọn
-      return `Lương ${month}/${year} của ${emp.name}${codePart}: ${fmtVND(info.netSalary)} (CB: ${fmtVND(info.baseSalaryFull)}, Công: ${fmtVND(info.base)}, Phụ cấp: ${fmtVND(info.generalAllowance)}, OT: ${fmtVND(info.overtimePay)}, Lễ: ${fmtVND(info.holidayWorkPay)}, Phạt: -${fmtVND(info.latePenalty)}, Thuế: -${fmtVND(info.taxAmount)})`;
+      // Admin/KT xem: Hiển thị chi tiết gọn (bỏ thuế, giữ tiền phạt)
+      return `Lương ${month}/${year} của ${emp.name}${codePart}: ${fmtVND(info.netSalary)} (CB: ${fmtVND(info.baseSalaryFull)}, Công: ${fmtVND(info.base)}, Phụ cấp: ${fmtVND(info.generalAllowance)}, OT: ${fmtVND(info.overtimePay)}, Lễ: ${fmtVND(info.holidayWorkPay)}, Phạt: -${fmtVND(info.latePenalty)})`;
     }
     // Nhân viên xem (fallback): Hiển thị chi tiết đầy đủ
     const parts = [
@@ -311,8 +311,8 @@ async function handleEmployeeSalary(user, entities, rawText) {
     if (info.generalAllowance > 0) parts.push(`• Phụ cấp: +${fmtVND(info.generalAllowance)}`);
     if (info.overtimePay > 0) parts.push(`• OT (${info.overtimeHours}h): +${fmtVND(info.overtimePay)}`);
     if (info.holidayWorkPay > 0) parts.push(`• Làm ngày lễ: +${fmtVND(info.holidayWorkPay)}`);
-    if (info.latePenalty > 0) parts.push(`• Phạt: -${fmtVND(info.latePenalty)}`);
-    if (info.taxAmount > 0) parts.push(`• Thuế: -${fmtVND(info.taxAmount)}`);
+    if (info.latePenalty > 0) parts.push(`• Phạt đi muộn: -${fmtVND(info.latePenalty)}`);
+    // Bỏ hiển thị thuế (bảo hiểm + thuế) theo yêu cầu
 
     parts.push(`→ Thực lãnh: ${fmtVND(info.netSalary)}`);
     return parts.join('\n');

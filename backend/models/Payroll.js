@@ -47,8 +47,6 @@ const PayrollSchema = new Schema({
   absentDeduction: { type: Number, default: 0 },      // Trừ nghỉ không lương
   unpaidLeaveDeduction: { type: Number, default: 0 },   // Trừ nghỉ không lương
   halfDayDeduction: { type: Number, default: 0 },      // Trừ nửa ngày
-  taxAmount: { type: Number, default: 0 },             // NEW: Thuế (10%)
-  taxRate: { type: Number, default: 10 },              // NEW: Tỷ lệ thuế (%)
   otherDeductions: { type: Number, default: 0 },        // Khấu trừ khác
 
   // === CHẾ ĐỘ ĐẶC BIỆT ===
@@ -104,41 +102,37 @@ PayrollSchema.index({ employee: 1, month: 1 }, { unique: true });
 PayrollSchema.index({ status: 1 });
 PayrollSchema.index({ month: 1 });
 
-// Method: Tính toán tự động
-// CÔNG THỨC (Cách 1 - Chia cho 26 ngày công chuẩn): Net = (Base × Days/26) + Allowances + OT - Fines - Tax
-PayrollSchema.methods.calculate = function () {
-  // Tổng phụ cấp
-  const totalAllowances = (this.generalAllowance || 0) +
-    (this.seniorityAllowance || 0) +
-    (this.positionAllowance || 0);
+  // Method: Tính toán tự động
+  // CÔNG THỨC (Cách 1 - Chia cho 26 ngày công chuẩn): Net = (Base × Days/26) + Allowances + OT - Fines
+  PayrollSchema.methods.calculate = function () {
+    // Tổng phụ cấp
+    const totalAllowances = (this.generalAllowance || 0) +
+      (this.seniorityAllowance || 0) +
+      (this.positionAllowance || 0);
 
-  // Tổng OT (BỎ weekendWorkPay - phiếu lương gốc không có khoản này)
-  const totalOT = (this.overtimePay || 0) +
-    (this.holidayWorkPay || 0);
+    // Tổng OT (BỎ weekendWorkPay - phiếu lương gốc không có khoản này)
+    const totalOT = (this.overtimePay || 0) +
+      (this.holidayWorkPay || 0);
 
-  // Tổng phạt (chỉ latePenalty, các khấu trừ khác đã tính trong baseSalary prorated)
-  const totalFines = this.latePenalty || 0;
+    // Tổng phạt (chỉ latePenalty, các khấu trừ khác đã tính trong baseSalary prorated)
+    const totalFines = this.latePenalty || 0;
 
-  // Gross = Base + Allowances + OT + Special Pays
-  this.grossSalary = (this.baseSalary || 0) +
-    totalAllowances +
-    totalOT +
-    (this.bonus || 0) +
-    (this.performanceBonus || 0) +
-    (this.otherAllowances || 0) +
-    (this.maternityPay || 0) +
-    (this.sickLeavePay || 0) +
-    (this.annualLeavePay || 0);
+    // Gross = Base + Allowances + OT + Special Pays
+    this.grossSalary = (this.baseSalary || 0) +
+      totalAllowances +
+      totalOT +
+      (this.bonus || 0) +
+      (this.performanceBonus || 0) +
+      (this.otherAllowances || 0) +
+      (this.maternityPay || 0) +
+      (this.sickLeavePay || 0) +
+      (this.annualLeavePay || 0);
 
-  // Tính thuế (trên Base + Allowances + OT - Fines)
-  const taxableIncome = (this.baseSalary || 0) + totalAllowances + totalOT - totalFines;
-  this.taxAmount = Math.round((taxableIncome * (this.taxRate || 10)) / 100);
+    // Tổng khấu trừ = Fines (bỏ otherDeductions)
+    this.totalDeductions = totalFines;
 
-  // Tổng khấu trừ = Fines + Tax (bỏ otherDeductions)
-  this.totalDeductions = totalFines + this.taxAmount;
-
-  // NET = Base + Allowances + OT - Fines - Tax
-  this.netSalary = (this.baseSalary || 0) + totalAllowances + totalOT - totalFines - this.taxAmount;
+    // NET = Base + Allowances + OT - Fines
+    this.netSalary = (this.baseSalary || 0) + totalAllowances + totalOT - totalFines;
 
   // Backward compatibility
   this.basePay = this.baseSalary;

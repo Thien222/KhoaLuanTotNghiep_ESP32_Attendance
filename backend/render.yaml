@@ -15,8 +15,10 @@ services:
         sync: false  # You'll set this manually in Render dashboard
       - key: JWT_SECRET
         sync: false  # You'll set this manually in Render dashboard
-      - key: EMAIL_USER
+      - key: SENDGRID_API_KEY
         sync: false
-      - key: EMAIL_APP_PASSWORD
+      - key: SENDGRID_FROM_EMAIL
+        sync: false
+      - key: EMAIL_USER
         sync: false
     healthCheckPath: /healthz

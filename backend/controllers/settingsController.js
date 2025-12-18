@@ -123,7 +123,7 @@ exports.updateSetting = async (req, res) => {
     }
     
     // Validate type
-    const validTypes = ['working-hours', 'overtime', 'late-policy', 'early-checkin', 'salary-structure', 'leave-policy', 'auto-checkout', 'tax-config', 'ot-rate'];
+    const validTypes = ['working-hours', 'overtime', 'late-policy', 'early-checkin', 'salary-structure', 'leave-policy', 'auto-checkout', 'ot-rate'];
     if (!validTypes.includes(type)) {
       return res.status(400).json({
         success: false,
@@ -183,7 +183,7 @@ exports.updateSettingByBody = async (req, res) => {
     }
     
     // Validate type
-    const validTypes = ['working-hours', 'overtime', 'late-policy', 'early-checkin', 'salary-structure', 'leave-policy', 'auto-checkout', 'tax-config', 'ot-rate'];
+    const validTypes = ['working-hours', 'overtime', 'late-policy', 'early-checkin', 'salary-structure', 'leave-policy', 'auto-checkout', 'ot-rate'];
     if (!validTypes.includes(type)) {
       return res.status(400).json({
         success: false,

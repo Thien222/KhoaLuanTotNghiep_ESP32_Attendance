@@ -1,5 +1,6 @@
 const Employee = require('../models/Employee');
 const User = require('../models/User');
+const emailService = require('../services/emailService');
 
 // Get next employee ID
 const getNextEmployeeId = async () => {
@@ -34,7 +35,7 @@ const getNextFingerprintId = async () => {
 exports.addEmployee = async (req, res) => {
   try {
     console.log('Received request body:', req.body);
-    
+
     const { name, position, department, email, phone, contractType, salary: salaryRaw } = req.body;
 
     // Validate required fields
@@ -49,18 +50,18 @@ exports.addEmployee = async (req, res) => {
     let generatedEmployeeId, generatedFingerprintId, generatedEmail;
     let retryCount = 0;
     const maxRetries = 3;
-    
+
     do {
       generatedEmployeeId = await getNextEmployeeId();
       generatedFingerprintId = await getNextFingerprintId();
       generatedEmail = email || `employee${Date.now()}${retryCount}@company.com`;
-      
+
       console.log('Generated IDs (attempt', retryCount + 1, '):', {
         employeeId: generatedEmployeeId,
         fingerprintId: generatedFingerprintId,
         email: generatedEmail
       });
-      
+
       try {
         // Parse salary to number
         let parsedSalary = 0;
@@ -70,7 +71,7 @@ exports.addEmployee = async (req, res) => {
             parsedSalary = 0;
           }
         }
-        
+
         // Create new employee
         const employee = new Employee({
           name,
@@ -91,14 +92,85 @@ exports.addEmployee = async (req, res) => {
         console.log('Creating employee:', employee);
         await employee.save();
         console.log('Employee saved successfully');
-        
+
+        // Tự động tạo tài khoản User cho nhân viên
+        const defaultPassword = `hrm${generatedFingerprintId}2025`; // Mật khẩu mặc định
+
+        try {
+          const newUser = new User({
+            username: generatedEmployeeId, // Username = Mã nhân viên
+            email: generatedEmail,
+            password: defaultPassword,
+            role: 'employee',
+            employee: employee._id,
+            isActive: true
+          });
+
+          await newUser.save();
+          console.log('✅ User account created for employee:', generatedEmployeeId);
+
+          // Gửi email thông báo với thông tin đăng nhập
+          // Kiểm tra email hợp lệ (có @ và không phải email tự động @company.com)
+          const isValidEmail = generatedEmail &&
+            generatedEmail.includes('@') &&
+            !generatedEmail.includes('@company.com') &&
+            generatedEmail.includes('.');
+
+          console.log('📧 Email check:', {
+            generatedEmail,
+            isValidEmail,
+            originalEmail: email
+          });
+
+          if (isValidEmail) {
+            try {
+              console.log('📧 Attempting to send welcome email to:', generatedEmail);
+              const emailResult = await emailService.sendWelcomeEmail(
+                {
+                  name: employee.name,
+                  email: generatedEmail,
+                  employeeId: generatedEmployeeId,
+                  fingerprintId: generatedFingerprintId,
+                  position: employee.position,
+                  department: employee.department,
+                  fingerprintEnrolled: false
+                },
+                {
+                  username: generatedEmployeeId,
+                  password: defaultPassword
+                }
+              );
+
+              if (emailResult.success) {
+                console.log('✅ Welcome email sent successfully to:', generatedEmail);
+                console.log('📧 Email message ID:', emailResult.messageId);
+              } else {
+                console.warn('⚠️ Failed to send welcome email:', emailResult.error);
+              }
+            } catch (emailError) {
+              console.error('❌ Error sending welcome email:', emailError);
+              console.error('❌ Error details:', {
+                message: emailError.message,
+                stack: emailError.stack
+              });
+              // Không throw error, vẫn tiếp tục tạo nhân viên
+            }
+          } else {
+            console.warn('⚠️ Skipping email send - invalid email:', generatedEmail);
+          }
+        } catch (userError) {
+          console.error('⚠️ Error creating user account:', userError);
+          // Không throw error, nhân viên vẫn được tạo thành công
+        }
+
         res.status(201).json({
           success: true,
           data: employee,
-          message: 'Employee added successfully'
+          message: 'Employee added successfully',
+          accountCreated: true
         });
         return;
-        
+
       } catch (saveError) {
         if (saveError.code === 11000 && retryCount < maxRetries - 1) {
           console.log('Duplicate key error, retrying...', saveError.keyValue);
@@ -111,7 +183,7 @@ exports.addEmployee = async (req, res) => {
 
   } catch (error) {
     console.error('Error in addEmployee:', error);
-    
+
     // Handle duplicate key errors
     if (error.code === 11000) {
       const field = Object.keys(error.keyValue)[0];
@@ -121,7 +193,7 @@ exports.addEmployee = async (req, res) => {
         error: error.message
       });
     }
-    
+
     // Handle validation errors
     if (error.name === 'ValidationError') {
       const errors = Object.values(error.errors).map(err => err.message);
@@ -131,7 +203,7 @@ exports.addEmployee = async (req, res) => {
         errors: errors
       });
     }
-    
+
     res.status(500).json({
       success: false,
       message: 'Error adding employee',
@@ -147,7 +219,7 @@ exports.getAllEmployees = async (req, res) => {
       .select('-fingerprintTemplate')
       .sort({ employeeId: 1 })
       .lean();
-    
+
     // Get users for each employee
     const User = require('../models/User');
     const employeesWithUsers = await Promise.all(
@@ -161,7 +233,7 @@ exports.getAllEmployees = async (req, res) => {
         };
       })
     );
-    
+
     res.status(200).json({
       success: true,
       data: employeesWithUsers
@@ -217,7 +289,7 @@ exports.updateEmployee = async (req, res) => {
         });
       }
     }
-    
+
     const employee = await Employee.findByIdAndUpdate(
       req.params.id,
       updateData,
@@ -244,16 +316,149 @@ exports.updateEmployee = async (req, res) => {
   }
 };
 
+// Helper function to send enrollment email notification (can be called from multiple places)
+async function sendEnrollmentEmailNotification(employee) {
+  console.log('📧 ========== ENROLLMENT EMAIL PROCESS START ==========');
+  console.log('📧 Employee email:', employee.email);
+  console.log('📧 Employee ID:', employee.employeeId);
+  console.log('📧 Fingerprint ID:', employee.fingerprintId);
+
+  // Gửi email thông báo đăng ký vân tay thành công
+  const isValidEmail = employee.email &&
+    employee.email.includes('@') &&
+    !employee.email.includes('@company.com') &&
+    employee.email.includes('.');
+
+  console.log('📧 Enrollment email check:', {
+    email: employee.email,
+    hasEmail: !!employee.email,
+    hasAt: employee.email?.includes('@'),
+    notCompanyEmail: !employee.email?.includes('@company.com'),
+    hasDot: employee.email?.includes('.'),
+    isValidEmail,
+    employeeId: employee.employeeId,
+    fingerprintId: employee.fingerprintId
+  });
+
+  if (isValidEmail) {
+    try {
+      // Tìm user account để lấy thông tin đăng nhập
+      let user = await User.findOne({ employee: employee._id });
+
+      console.log('📧 User account check:', {
+        hasUser: !!user,
+        username: user?.username,
+        email: user?.email
+      });
+
+      if (user) {
+        // Nếu có user account, reset password mới và gửi email cho nhân viên với username và password
+        console.log('📧 User account exists, resetting password and sending enrollment email to employee');
+
+        // Tạo password mới ngẫu nhiên (8 ký tự)
+        const newPassword = Math.random().toString(36).slice(-8);
+
+        // Reset password cho user
+        user.password = newPassword;
+        await user.save();
+        console.log('✅ Password reset for user:', user.username);
+
+        console.log('📧 Preparing enrollment email with:', {
+          name: employee.name,
+          email: employee.email,
+          employeeId: employee.employeeId,
+          fingerprintId: employee.fingerprintId,
+          username: user.username,
+          password: newPassword
+        });
+
+        // Gửi email enrollment với username và password mới
+        const emailResult = await emailService.sendEnrollmentNotification({
+          name: employee.name,
+          email: employee.email,
+          employeeId: employee.employeeId,
+          fingerprintId: employee.fingerprintId,
+          username: user.username,
+          password: newPassword // Gửi password mới
+        });
+
+        if (emailResult.success) {
+          console.log('✅ Enrollment notification sent successfully to:', employee.email);
+          console.log('📧 Email message ID:', emailResult.messageId);
+          console.log('📧 ========== ENROLLMENT EMAIL SENT SUCCESSFULLY ==========');
+        } else {
+          console.error('❌ Failed to send enrollment notification:', emailResult.error);
+          console.error('📧 ========== ENROLLMENT EMAIL FAILED ==========');
+        }
+      } else {
+        // Nếu không có user account, gửi email thông báo cho admin
+        console.log('📧 User account NOT found, sending notification to admin');
+
+        const adminEmail = process.env.EMAIL_USER || 'farenabc123@gmail.com';
+
+        const adminNotificationResult = await emailService.sendAdminNotification({
+          adminEmail: adminEmail,
+          employeeName: employee.name,
+          employeeEmail: employee.email,
+          employeeId: employee.employeeId,
+          fingerprintId: employee.fingerprintId,
+          message: 'Nhân viên chưa có tài khoản đăng nhập. Vui lòng tạo tài khoản trước khi enroll vân tay.'
+        });
+
+        if (adminNotificationResult.success) {
+          console.log('✅ Admin notification sent successfully to:', adminEmail);
+          console.log('📧 Email message ID:', adminNotificationResult.messageId);
+        } else {
+          console.error('❌ Failed to send admin notification:', adminNotificationResult.error);
+        }
+      }
+    } catch (emailError) {
+      console.error('❌❌❌ ERROR SENDING ENROLLMENT EMAIL ❌❌❌');
+      console.error('Error message:', emailError.message);
+      console.error('Error code:', emailError.code);
+      console.error('Error stack:', emailError.stack);
+      console.error('Full error object:', JSON.stringify(emailError, Object.getOwnPropertyNames(emailError), 2));
+      console.error('📧 ========== ENROLLMENT EMAIL ERROR ==========');
+      // KHÔNG throw error - tiếp tục trả về success để không block enroll process
+    }
+  } else {
+    console.warn('⚠️⚠️⚠️ SKIPPING EMAIL - INVALID EMAIL ⚠️⚠️⚠️');
+    console.warn('Email:', employee.email);
+    console.warn('Reason: Email validation failed');
+    console.warn('📧 ========== ENROLLMENT EMAIL SKIPPED (INVALID EMAIL) ==========');
+  }
+}
+
+// Export helper function for use in other files
+exports.sendEnrollmentEmailNotification = sendEnrollmentEmailNotification;
+
 // Enroll employee fingerprint (mark as enrolled)
 exports.enrollFingerprint = async (req, res) => {
   try {
+    console.log('========================================');
+    console.log('🔵 ENROLL FINGERPRINT ENDPOINT CALLED');
+    console.log('========================================');
+    console.log('Request body:', JSON.stringify(req.body, null, 2));
+    console.log('Request headers:', {
+      'content-type': req.headers['content-type'],
+      'authorization': req.headers['authorization'] ? 'Present' : 'Missing'
+    });
+
     const { fingerprintId } = req.body;
-    
-    console.log('Enrolling fingerprint for ID:', fingerprintId);
-    
+
+    if (!fingerprintId) {
+      console.error('❌ Missing fingerprintId in request body');
+      return res.status(400).json({
+        success: false,
+        message: 'Fingerprint ID is required'
+      });
+    }
+
+    console.log('🔵 Enrolling fingerprint for ID:', fingerprintId);
+
     const employee = await Employee.findOneAndUpdate(
       { fingerprintId: fingerprintId },
-      { 
+      {
         fingerprintEnrolled: true,
         fingerprintTemplate: 'enrolled'
       },
@@ -268,7 +473,14 @@ exports.enrollFingerprint = async (req, res) => {
       });
     }
 
-    console.log('Employee enrolled successfully:', employee.name, 'ID:', employee.employeeId);
+    console.log('✅ Employee enrolled successfully:', employee.name, 'ID:', employee.employeeId);
+
+    // Send enrollment email notification
+    await sendEnrollmentEmailNotification(employee);
+
+    console.log('========================================');
+    console.log('✅ ENROLL FINGERPRINT COMPLETED');
+    console.log('========================================');
 
     res.status(200).json({
       success: true,
@@ -290,16 +502,43 @@ exports.enrollFingerprint = async (req, res) => {
 // Delete employee
 exports.deleteEmployee = async (req, res) => {
   try {
-    const employee = await Employee.findByIdAndDelete(req.params.id);
+    const employee = await Employee.findById(req.params.id);
     if (!employee) {
       return res.status(404).json({
         success: false,
         message: 'Employee not found'
       });
     }
+
+    console.log(`🗑️  Deleting employee: ${employee.name} (${employee.employeeId})`);
+
+    // Xóa tất cả attendance records liên quan
+    const Attendance = require('../models/Attendance');
+    const deletedAttendances = await Attendance.deleteMany({
+      employee: employee._id
+    });
+    if (deletedAttendances.deletedCount > 0) {
+      console.log(`   ✅ Deleted ${deletedAttendances.deletedCount} attendance records`);
+    }
+
+    // Xóa user account liên kết (nếu có)
+    const deletedUser = await User.findOneAndDelete({ employee: employee._id });
+    if (deletedUser) {
+      console.log(`   ✅ Deleted user account: ${deletedUser.username}`);
+    } else {
+      console.log(`   ℹ️  No user account found for this employee`);
+    }
+
+    // Xóa employee
+    await Employee.findByIdAndDelete(req.params.id);
+
+    console.log(`✅ Employee deleted successfully: ${employee.name}`);
+
     res.status(200).json({
       success: true,
-      message: 'Employee deleted successfully'
+      message: 'Employee deleted successfully',
+      deletedUser: !!deletedUser,
+      deletedAttendances: deletedAttendances.deletedCount
     });
   } catch (error) {
     console.error('Error deleting employee:', error);
@@ -386,7 +625,7 @@ exports.completeProfile = async (req, res) => {
     // Mark profile as completed
     employee.profileCompleted = true;
     employee.profileCompletedAt = new Date();
-    
+
     // Save the employee
     await employee.save();
 
@@ -445,16 +684,16 @@ exports.getMyProfile = async (req, res) => {
   try {
     const userId = req.user.id;
     const user = await User.findById(userId).populate('employee');
-    
+
     if (!user || !user.employee) {
       return res.status(404).json({
         success: false,
         message: 'Không tìm thấy thông tin nhân viên'
       });
     }
-    
+
     const employee = await Employee.findById(user.employee._id || user.employee).select('-fingerprintTemplate');
-    
+
     res.json({
       success: true,
       data: {
@@ -480,16 +719,18 @@ exports.updateMyProfile = async (req, res) => {
   try {
     const userId = req.user.id;
     const user = await User.findById(userId).populate('employee');
-    
+
     if (!user || !user.employee) {
       return res.status(404).json({
         success: false,
         message: 'Không tìm thấy thông tin nhân viên'
       });
     }
-    
+
     const employeeId = user.employee._id || user.employee;
-    
+
+    console.log('📝 updateMyProfile - Request body:', req.body);
+
     // Chỉ cho phép cập nhật các field cá nhân
     const allowedFields = [
       'address',
@@ -498,34 +739,72 @@ exports.updateMyProfile = async (req, res) => {
       'gender',
       'bankAccount',
       'socialInsuranceNumber',
-      'phone' // Cho phép cập nhật số điện thoại
+      'phone',
+      'profileCompleted', // FIX: Cho phép cập nhật profileCompleted
+      'name',
+      'email',
+      'taxCode',
+      'emergencyContact',
+      'emergencyPhone',
+      'idCardIssueDate',
+      'idCardIssuePlace'
     ];
-    
+
     const updateData = {};
+
+    // Map các field từ mobile sang backend
+    // Mobile: idCardNumber -> Backend: citizenId
+    if (req.body.idCardNumber !== undefined) {
+      updateData.citizenId = req.body.idCardNumber;
+    }
+
+    // Mobile: bankAccountNumber, bankName, bankBranch -> Backend: bankAccount {}
+    if (req.body.bankAccountNumber || req.body.bankName || req.body.bankBranch) {
+      updateData.bankAccount = {
+        accountNumber: req.body.bankAccountNumber || '',
+        bankName: req.body.bankName || '',
+        accountName: req.body.bankBranch || req.body.name || '' // bankBranch as accountName
+      };
+    }
+
+    // Copy các field đơn giản
     allowedFields.forEach(field => {
       if (req.body[field] !== undefined) {
         updateData[field] = req.body[field];
       }
     });
-    
-    // Nếu có bankAccount, validate
-    if (updateData.bankAccount) {
-      if (!updateData.bankAccount.bankName || 
-          !updateData.bankAccount.accountNumber || 
-          !updateData.bankAccount.accountName) {
-        return res.status(400).json({
-          success: false,
-          message: 'Thông tin tài khoản ngân hàng không đầy đủ'
-        });
-      }
+
+    // Nếu profileCompleted = true, set profileCompletedAt
+    if (updateData.profileCompleted === true) {
+      updateData.profileCompletedAt = new Date();
     }
-    
+
+    console.log('📝 updateMyProfile - Update data:', updateData);
+
+    // Nếu có bankAccount từ request body trực tiếp, validate
+    if (req.body.bankAccount) {
+      const ba = req.body.bankAccount;
+      // Không bắt buộc đầy đủ, chỉ cập nhật những gì có
+      updateData.bankAccount = {
+        bankName: ba.bankName || '',
+        accountNumber: ba.accountNumber || '',
+        accountName: ba.accountName || ''
+      };
+    }
+
     const employee = await Employee.findByIdAndUpdate(
       employeeId,
       updateData,
       { new: true, runValidators: true }
     ).select('-fingerprintTemplate');
-    
+
+    console.log('✅ Profile updated:', {
+      employeeId: employee.employeeId,
+      profileCompleted: employee.profileCompleted,
+      citizenId: employee.citizenId,
+      bankAccount: employee.bankAccount
+    });
+
     res.json({
       success: true,
       message: 'Cập nhật thông tin thành công',

@@ -2,12 +2,12 @@ const mongoose = require('mongoose');
 
 
 const settingsSchema = new mongoose.Schema({
-  type: {
-    type: String,
-    enum: ['working-hours', 'overtime', 'late-policy', 'early-checkin', 'salary-structure', 'leave-policy', 'auto-checkout', 'tax-config', 'ot-rate'],
-    required: true,
-    unique: true
-  },
+    type: {
+      type: String,
+      enum: ['working-hours', 'overtime', 'late-policy', 'early-checkin', 'salary-structure', 'leave-policy', 'auto-checkout', 'ot-rate'],
+      required: true,
+      unique: true
+    },
   config: {
     type: mongoose.Schema.Types.Mixed,
     required: true
@@ -61,12 +61,6 @@ settingsSchema.statics.getDefaultSettings = function() {
         start: '18:00',
         end: '18:59'
       }
-    },
-    'tax-config': {
-      enabled: true,
-      taxRate: 10,               // NEW: 10% (bao gồm thuế + TNCN + bảo hiểm)
-      applyTo: 'gross-minus-penalty', // Tính thuế trên (Gross - Phạt)
-      description: 'Thuế TNCN + Bảo hiểm (10%)'
     },
     'early-checkin': {
       allowed: true,

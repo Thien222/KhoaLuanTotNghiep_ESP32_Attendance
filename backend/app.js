@@ -35,6 +35,11 @@ const PORT = process.env.PORT || 3000;
 console.log('MONGO_URI:', process.env.MONGO_URI);
 console.log('NODE_ENV:', process.env.NODE_ENV);
 
+// Debug email configuration
+console.log('📧 Email Configuration:');
+console.log('   EMAIL_USER:', process.env.EMAIL_USER ? process.env.EMAIL_USER.substring(0, 5) + '***' : '❌ NOT SET');
+console.log('   EMAIL_APP_PASSWORD:', process.env.EMAIL_APP_PASSWORD ? '✅ SET (' + process.env.EMAIL_APP_PASSWORD.length + ' chars)' : '❌ NOT SET');
+
 // Middleware
 app.use(cors({
   origin: '*',
@@ -363,13 +368,17 @@ app.post('/api/esp32/commands/complete', async (req, res) => {
       processingCommand.completedAt = new Date();
       await processingCommand.save();
 
-      // If enrollment successful, update employee
+      // If enrollment successful, update employee and send email
       if (success && processingCommand.command === 'enroll') {
         await Employee.findOneAndUpdate(
           { fingerprintId },
           { fingerprintEnrolled: true }
         );
         console.log(`✅ Employee with fingerprintId ${fingerprintId} marked as enrolled`);
+
+        // NOTE: Email notification is now handled in /api/fingerprint endpoint
+        // to avoid sending duplicate emails (password gets reset twice = only last password works)
+        console.log('📧 [SKIPPED] Email handled in /api/fingerprint endpoint');
       }
 
       return res.json({
@@ -384,13 +393,17 @@ app.post('/api/esp32/commands/complete', async (req, res) => {
     command.completedAt = new Date();
     await command.save();
 
-    // If enrollment successful, update employee
+    // If enrollment successful, update employee and send email
     if (success && command.command === 'enroll') {
       await Employee.findOneAndUpdate(
         { fingerprintId: command.fingerprintId },
         { fingerprintEnrolled: true }
       );
       console.log(`✅ Employee with fingerprintId ${command.fingerprintId} marked as enrolled`);
+
+      // NOTE: Email notification is now handled in /api/fingerprint endpoint
+      // to avoid sending duplicate emails (password gets reset twice = only last password works)
+      console.log('📧 [SKIPPED] Email handled in /api/fingerprint endpoint');
     }
 
     console.log(`✅ Command ${commandId} completed: ${success ? 'SUCCESS' : 'FAILED'}`);
@@ -855,6 +868,10 @@ app.get('/api/enroll', async (req, res) => {
           });
         }
 
+        // NOTE: Email notification is now handled in /api/fingerprint endpoint
+        // to avoid sending duplicate emails (password gets reset twice = only last password works)
+        console.log('📧 [SKIPPED] Email handled in /api/fingerprint endpoint');
+
         console.log('✅ Fingerprint enrolled for:', updateResult.name, 'Employee ID:', updateResult.employeeId);
 
         // Check if user account exists
@@ -919,17 +936,40 @@ app.get('/api/enroll', async (req, res) => {
         // Ensure we have a password to send
         if (!accountPassword) {
           accountPassword = Math.random().toString(36).slice(-8);
-          console.log('⚠️ Generated fallback password for email');
+          console.log('⚠️ Generated fallback password for email:', accountPassword);
         }
 
-        if (updateResult.email) {
+        // Check email validity
+        const employeeEmail = updateResult.email;
+        const isValidEmail = employeeEmail &&
+          employeeEmail.includes('@') &&
+          !employeeEmail.includes('@company.com') &&
+          employeeEmail.includes('.');
+
+        console.log('📧 ESP32 Enroll - Email check:', {
+          email: employeeEmail,
+          isValidEmail,
+          hasEmailUser: !!process.env.EMAIL_USER,
+          hasEmailPassword: !!process.env.EMAIL_APP_PASSWORD,
+          emailUser: process.env.EMAIL_USER
+        });
+
+        if (isValidEmail) {
           try {
             const { sendEnrollmentNotification } = require('./services/emailService');
-            console.log('📧 Sending enrollment notification with login credentials to:', updateResult.email);
+            console.log('📧 Sending enrollment notification with login credentials to:', employeeEmail);
+            console.log('📧 Email data:', {
+              name: updateResult.name,
+              email: employeeEmail,
+              employeeId: updateResult.employeeId,
+              fingerprintId: updateResult.fingerprintId,
+              username: userAccount ? userAccount.username : updateResult.employeeId,
+              password: accountPassword
+            });
 
             const emailResult = await sendEnrollmentNotification({
               name: updateResult.name,
-              email: updateResult.email,
+              email: employeeEmail,
               employeeId: updateResult.employeeId,
               fingerprintId: updateResult.fingerprintId,
               username: userAccount ? userAccount.username : updateResult.employeeId,
@@ -940,15 +980,17 @@ app.get('/api/enroll', async (req, res) => {
 
             if (emailResult.success) {
               console.log('✅ Enrollment notification with credentials sent successfully!');
+              console.log('📧 Message ID:', emailResult.messageId);
             } else {
               console.error('❌ Failed to send enrollment notification:', emailResult.error);
             }
           } catch (emailError) {
             console.error('❌ Error sending enrollment notification:', emailError);
+            console.error('❌ Error stack:', emailError.stack);
             // Continue even if email fails
           }
-        } else if (updateResult.email && !accountPassword) {
-          console.warn('⚠️ Cannot send email: password not generated');
+        } else {
+          console.warn('⚠️ Skipping email - invalid or auto-generated email:', employeeEmail);
         }
 
         return res.json({
@@ -992,6 +1034,7 @@ app.get('/api/enroll', async (req, res) => {
 });
 
 // Special route for ESP32 fingerprint device
+// OPTIMIZED: Send response immediately, then send email in background to avoid ESP32 timeout
 app.post('/api/fingerprint', async (req, res) => {
   try {
     const { fingerId, action, template } = req.body;
@@ -1009,7 +1052,9 @@ app.post('/api/fingerprint', async (req, res) => {
 
       if (updateResult) {
         console.log('Updated employee fingerprint status:', updateResult.name, 'enrolled:', updateResult.fingerprintEnrolled);
-        return res.json({
+
+        // SEND RESPONSE IMMEDIATELY to ESP32 to avoid timeout
+        res.json({
           success: true,
           message: 'Fingerprint template received and employee enrolled',
           data: {
@@ -1018,6 +1063,36 @@ app.post('/api/fingerprint', async (req, res) => {
             action: 'template-received'
           }
         });
+
+        // THEN send email in background - NO AWAIT, NO BLOCKING!
+        // Sử dụng .then().catch() để hoàn toàn không block
+        const ENABLE_ENROLLMENT_EMAIL = process.env.ENABLE_ENROLLMENT_EMAIL === 'true';
+
+        if (ENABLE_ENROLLMENT_EMAIL) {
+          console.log('📧 [FIRE & FORGET] Sending email to:', updateResult.email);
+
+          // Import và gọi KHÔNG ĐỒNG BỘ - fire and forget
+          const { sendEnrollmentEmailNotification } = require('./controllers/employeeController');
+
+          // QUAN TRỌNG: Không có await! Gọi rồi chạy tiếp luôn
+          sendEnrollmentEmailNotification(updateResult)
+            .then((result) => {
+              console.log('>>> ✅ ĐÃ GỬI MAIL THÀNH CÔNG!');
+              console.log('>>> Message ID:', result?.messageId || 'N/A');
+            })
+            .catch((err) => {
+              // Log chi tiết lỗi để xem trên Render Logs
+              console.error('>>> ❌ LỖI GỬI MAIL:');
+              console.error('>>> Error message:', err.message);
+              console.error('>>> Error code:', err.code);
+              console.error('>>> Error response:', err.response);
+              console.error('>>> Full error:', JSON.stringify(err, Object.getOwnPropertyNames(err)));
+            });
+        } else {
+          console.log('📧 [SKIPPED] Email disabled (set ENABLE_ENROLLMENT_EMAIL=true to enable)');
+        }
+
+        return; // Already sent response
       } else {
         return res.status(404).json({
           success: false,
@@ -1111,6 +1186,93 @@ app.post('/api/esp32-attendance', async (req, res) => {
 });
 
 // Test route
+// Check email configuration (for debugging)
+app.get('/api/email-config-check', async (req, res) => {
+  try {
+    const hasEmailUser = !!process.env.EMAIL_USER;
+    const hasEmailPassword = !!process.env.EMAIL_APP_PASSWORD;
+
+    res.json({
+      success: true,
+      config: {
+        hasEmailUser,
+        hasEmailPassword,
+        emailUser: hasEmailUser ? process.env.EMAIL_USER.substring(0, 5) + '***' : null,
+        passwordLength: hasEmailPassword ? process.env.EMAIL_APP_PASSWORD.length : 0,
+        nodeEnv: process.env.NODE_ENV
+      }
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// Test email configuration
+app.post('/api/test-email', async (req, res) => {
+  try {
+    const { to } = req.body;
+    const emailService = require('./services/emailService');
+
+    if (!to) {
+      return res.status(400).json({
+        success: false,
+        message: 'Email address is required'
+      });
+    }
+
+    // Test email config first
+    const configTest = await emailService.testEmailConfig();
+    if (!configTest.success) {
+      return res.status(500).json({
+        success: false,
+        message: 'Email configuration error',
+        error: configTest.error
+      });
+    }
+
+    // Send test email
+    const result = await emailService.sendWelcomeEmail(
+      {
+        name: 'Test User',
+        email: to,
+        employeeId: 'TEST001',
+        fingerprintId: 999,
+        position: 'Test Position',
+        department: 'Test Department',
+        fingerprintEnrolled: false
+      },
+      {
+        username: 'TEST001',
+        password: 'test123456'
+      }
+    );
+
+    if (result.success) {
+      res.json({
+        success: true,
+        message: 'Test email sent successfully',
+        messageId: result.messageId
+      });
+    } else {
+      res.status(500).json({
+        success: false,
+        message: 'Failed to send test email',
+        error: result.error
+      });
+    }
+  } catch (error) {
+    console.error('Test email error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error testing email',
+      error: error.message
+    });
+  }
+});
+
 app.get('/api/test', (req, res) => {
   res.json({ message: 'API is working!' });
 });

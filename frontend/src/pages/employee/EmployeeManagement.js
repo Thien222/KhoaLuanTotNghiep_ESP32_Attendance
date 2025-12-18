@@ -139,7 +139,10 @@ const EmployeeManagement = () => {
 
       // Call API to delete employee
       const API_URL = getAPIUrl();
-      const response = await axios.delete(`${API_URL}/debug/employees/${id}`);
+      const token = localStorage.getItem('token');
+      const response = await axios.delete(`${API_URL}/employees/${id}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
 
       if (response.data.success) {
         // Remove from local state
@@ -206,7 +209,7 @@ const EmployeeManagement = () => {
           department: values.department,
           email: values.email,
           phone: values.phone,
-          contractType: values.contractType || 'probation',
+          contractType: values.contractType || 'official',
           salary: salaryValue
           // status will be set to 'active' by default in backend
         });
@@ -397,8 +400,8 @@ const EmployeeManagement = () => {
       key: 'contractType',
       width: 100,
       render: (type) => {
-        const colors = { intern: 'blue', probation: 'orange', official: 'green' };
-        const labels = { intern: 'Thực tập', probation: 'Thử việc', official: 'Chính thức' };
+        const colors = { probation: 'orange', official: 'green' };
+        const labels = { probation: 'Thử việc', official: 'Chính thức' };
         return <Tag color={colors[type] || 'default'}>{labels[type] || type}</Tag>;
       },
     },
@@ -511,6 +514,22 @@ const EmployeeManagement = () => {
 
         actionItems.push(
           { type: 'divider' },
+          {
+            key: 'delete',
+            label: 'Xóa',
+            icon: <DeleteOutlined />,
+            danger: true,
+            onClick: () => {
+              Modal.confirm({
+                title: 'Xóa nhân viên',
+                content: `Bạn có chắc chắn muốn xóa nhân viên "${record.name}"? Hành động này sẽ xóa user account và chỉ dùng để test.`,
+                okText: 'Xóa',
+                okType: 'danger',
+                cancelText: 'Hủy',
+                onOk: () => handleDelete(record._id)
+              });
+            }
+          },
           {
             key: 'terminate',
             label: 'Cho nghỉ việc',
@@ -718,7 +737,6 @@ const EmployeeManagement = () => {
             initialValue="probation"
           >
             <Select>
-              <Option value="intern">Thực tập</Option>
               <Option value="probation">Thử việc</Option>
               <Option value="official">Chính thức</Option>
             </Select>
@@ -798,7 +816,7 @@ const EmployeeManagement = () => {
         title={
           <Space>
             <UserDeleteOutlined style={{ color: '#ff4d4f' }} />
-            <span>Xử lý nghỉ việc</span>
+            <span>Cho nhân viên nghỉ việc</span>
           </Space>
         }
         open={terminateModalVisible}
@@ -824,6 +842,7 @@ const EmployeeManagement = () => {
               </p>
               <p style={{ margin: '8px 0 0 0', fontSize: 12, color: '#8c8c8c' }}>
                 • Thông tin nhân viên sẽ được lưu vào danh sách nghỉ việc<br />
+                • Bạn có thể xem lại thông tin trong phần Quản lý nghỉ việc<br />
                 • Vân tay sẽ bị vô hiệu hóa<br />
                 • Tài khoản đăng nhập sẽ bị xóa
               </p>
