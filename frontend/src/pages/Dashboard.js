@@ -399,8 +399,12 @@ const Dashboard = () => {
                 borderRadius: 12,
                 border: '1px solid #f0f0f0',
                 boxShadow: '0 2px 8px rgba(0,0,0,0.04)',
-                background: '#ffffff'
+                background: '#ffffff',
+                cursor: 'pointer',
+                transition: 'all 0.3s ease'
               }}
+              onClick={() => setAttendanceModalVisible(true)}
+              hoverable
             >
               <Statistic
                 title={<span style={{ color: '#8c8c8c', fontSize: 13, fontWeight: 500 }}>Chấm công hôm nay 👆</span>}
@@ -419,8 +423,12 @@ const Dashboard = () => {
                 borderRadius: 12,
                 border: '1px solid #f0f0f0',
                 boxShadow: '0 2px 8px rgba(0,0,0,0.04)',
-                background: '#ffffff'
+                background: '#ffffff',
+                cursor: 'pointer',
+                transition: 'all 0.3s ease'
               }}
+              onClick={() => setLateModalVisible(true)}
+              hoverable
             >
               <Statistic
                 title={<span style={{ color: '#8c8c8c', fontSize: 13, fontWeight: 500 }}>Đi muộn 👆</span>}
