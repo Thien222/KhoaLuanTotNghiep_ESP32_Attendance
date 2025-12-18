@@ -44,6 +44,15 @@ exports.applyLeave = async (req, res) => {
     // Validate dates
     const start = moment.tz(startDate, 'Asia/Ho_Chi_Minh').startOf('day');
     const end = moment.tz(endDate, 'Asia/Ho_Chi_Minh').endOf('day');
+    const today = moment.tz('Asia/Ho_Chi_Minh').startOf('day');
+    
+    // Validate: không cho tạo đơn nghỉ phép cho ngày quá khứ
+    if (start.isBefore(today)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Không thể tạo đơn nghỉ phép cho ngày quá khứ'
+      });
+    }
     
     if (end.isBefore(start)) {
       return res.status(400).json({
@@ -65,6 +74,88 @@ exports.applyLeave = async (req, res) => {
         success: false,
         message: 'Tài khoản của bạn chưa được liên kết với nhân viên. Vui lòng liên hệ admin.'
       });
+    }
+    
+    // Validate: số ngày nghỉ không vượt quá số ngày còn lại
+    const employee = await Employee.findById(employeeId);
+    if (!employee) {
+      return res.status(400).json({
+        success: false,
+        message: 'Không tìm thấy thông tin nhân viên'
+      });
+    }
+    
+    // Tính số ngày đã sử dụng từ các đơn nghỉ phép đã được approved
+    const currentYear = moment().year();
+    const yearStart = moment.tz(`${currentYear}-01-01`, 'Asia/Ho_Chi_Minh').startOf('day');
+    const yearEnd = moment.tz(`${currentYear}-12-31`, 'Asia/Ho_Chi_Minh').endOf('day');
+    
+    const approvedLeaves = await Leave.find({
+      employee: employeeId,
+      leaveType: finalLeaveType,
+      status: 'approved',
+      startDate: { $gte: yearStart.toDate(), $lte: yearEnd.toDate() }
+    });
+    
+    let usedDays = 0;
+    approvedLeaves.forEach(leave => {
+      usedDays += leave.totalDays || 0;
+    });
+    
+    // Lấy quota dựa trên loại nghỉ
+    let quota = 0;
+    let remaining = 0;
+    let isUnlimited = false;
+    
+    if (finalLeaveType === 'annual') {
+      quota = employee?.leaveQuotas?.annual?.total || employee?.annualLeaveDays || 12;
+      remaining = Math.max(0, quota - usedDays); // Đảm bảo không âm
+    } else if (finalLeaveType === 'sick') {
+      // Nghỉ ốm tính theo giờ, nhưng có thể chuyển đổi sang ngày (1 ngày = 8 giờ)
+      const quotaHours = employee?.leaveQuotas?.sick?.totalHours || 72;
+      const usedHours = approvedLeaves.reduce((sum, leave) => {
+        return sum + (leave.totalDays || 0) * 8; // Giả sử 1 ngày = 8 giờ
+      }, 0);
+      const remainingHours = Math.max(0, quotaHours - usedHours); // Đảm bảo không âm
+      remaining = Math.floor(remainingHours / 8); // Chuyển giờ sang ngày
+      quota = Math.floor(quotaHours / 8); // Quota tính theo ngày để hiển thị
+    } else if (finalLeaveType === 'maternity') {
+      quota = employee?.leaveQuotas?.maternity?.totalDays || 180;
+      remaining = Math.max(0, quota - usedDays); // Đảm bảo không âm
+    } else if (finalLeaveType === 'wfh') {
+      quota = employee?.leaveQuotas?.wfh?.totalDays || 0;
+      // WFH có thể không giới hạn (quota = 0)
+      if (quota === 0) {
+        isUnlimited = true;
+      } else {
+        remaining = Math.max(0, quota - usedDays); // Đảm bảo không âm
+      }
+    } else if (finalLeaveType === 'unpaid') {
+      // Nghỉ không lương không giới hạn
+      isUnlimited = true;
+    } else {
+      // Loại khác (other) không giới hạn
+      isUnlimited = true;
+    }
+    
+    // Log để debug
+    console.log(`[Leave Validation] Type: ${finalLeaveType}, Total Days: ${totalDays}, Used: ${usedDays}, Quota: ${quota}, Remaining: ${remaining}, Unlimited: ${isUnlimited}`);
+    
+    // Kiểm tra nếu số ngày nghỉ vượt quá số ngày còn lại (trừ khi không giới hạn)
+    if (!isUnlimited) {
+      if (remaining <= 0) {
+        return res.status(400).json({
+          success: false,
+          message: `Bạn đã sử dụng hết số ngày nghỉ ${finalLeaveType === 'annual' ? 'phép năm' : finalLeaveType === 'sick' ? 'ốm' : finalLeaveType === 'maternity' ? 'thai sản' : ''} (${usedDays}/${quota} ngày). Không thể tạo thêm đơn nghỉ phép.`
+        });
+      }
+      
+      if (totalDays > remaining) {
+        return res.status(400).json({
+          success: false,
+          message: `Số ngày nghỉ (${totalDays} ngày) vượt quá số ngày còn lại (${remaining} ngày). Bạn đã sử dụng ${usedDays}/${quota} ngày.`
+        });
+      }
     }
     
     // Create leave request
@@ -325,7 +416,7 @@ exports.updateLeave = async (req, res) => {
 
 // @desc    Cancel leave request
 // @route   DELETE /api/leave/:id
-// @access  Private (Employee)
+// @access  Private (Employee & Admin/Manager)
 exports.cancelLeave = async (req, res) => {
   try {
     const leave = await Leave.findById(req.params.id);
@@ -337,12 +428,18 @@ exports.cancelLeave = async (req, res) => {
       });
     }
     
-    // Check if employee owns this leave
-    if (leave.employee.toString() !== req.user.employee._id.toString() && req.user.role !== 'admin') {
-      return res.status(403).json({
-        success: false,
-        message: 'Bạn không có quyền hủy đơn nghỉ này'
-      });
+    const isManager = req.user.role === 'manager' || req.user.role === 'admin';
+    const employee = req.user.employee;
+    
+    // Check if employee owns this leave or user is admin/manager
+    if (!isManager && employee) {
+      const employeeId = employee._id || employee;
+      if (leave.employee.toString() !== employeeId.toString()) {
+        return res.status(403).json({
+          success: false,
+          message: 'Bạn không có quyền hủy đơn nghỉ này'
+        });
+      }
     }
     
     // Only pending or approved leaves can be cancelled

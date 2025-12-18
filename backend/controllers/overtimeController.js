@@ -355,22 +355,36 @@ exports.getMyOTRequests = async (req, res) => {
 exports.cancelOTRequest = async (req, res) => {
   try {
     const { id } = req.params;
-    const employee = req.user.employee;
+    const user = req.user;
+    const isManager = user.role === 'manager' || user.role === 'admin';
     
-    if (!employee) {
-      return res.status(400).json({
-        success: false,
-        message: 'Không tìm thấy thông tin nhân viên'
+    // Tìm request
+    let request;
+    if (isManager) {
+      // Manager/Admin có thể hủy bất kỳ đơn pending nào
+      request = await OvertimeRequest.findOne({
+        _id: id,
+        status: 'pending'
+      });
+    } else {
+      // Employee chỉ có thể hủy đơn của chính mình
+      const employee = user.employee;
+      
+      if (!employee) {
+        return res.status(400).json({
+          success: false,
+          message: 'Không tìm thấy thông tin nhân viên'
+        });
+      }
+      
+      const employeeId = employee._id || employee;
+      
+      request = await OvertimeRequest.findOne({
+        _id: id,
+        employee: employeeId,
+        status: 'pending'
       });
     }
-    
-    const employeeId = employee._id || employee;
-    
-    const request = await OvertimeRequest.findOne({
-      _id: id,
-      employee: employeeId,
-      status: 'pending'
-    });
     
     if (!request) {
       return res.status(404).json({

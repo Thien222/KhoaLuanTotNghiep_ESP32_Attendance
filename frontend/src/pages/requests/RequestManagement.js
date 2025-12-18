@@ -252,13 +252,17 @@ const RequestManagement = () => {
       if (type === 'leave') {
         await axios.delete(`${API_URL}/leave/${id}`, { headers });
       } else {
-        await axios.delete(`${API_URL}/overtime/request/${id}`, { headers });
+        // Encode ID để tránh lỗi với ký tự đặc biệt
+        const encodedId = encodeURIComponent(id);
+        await axios.delete(`${API_URL}/overtime/request/${encodedId}`, { headers });
       }
 
       message.success('Đã hủy đơn!');
       fetchAllData();
     } catch (error) {
-      message.error('Lỗi khi hủy đơn');
+      console.error('Error canceling request:', error);
+      const errorMessage = error.response?.data?.message || 'Lỗi khi hủy đơn';
+      message.error(errorMessage);
     }
   };
 

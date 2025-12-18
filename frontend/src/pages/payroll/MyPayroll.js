@@ -98,10 +98,8 @@ const MyPayroll = () => {
     const totalOTPay = (payrollData.overtimePay || 0) +
       (payrollData.holidayWorkPay || 0);
     const totalBonus = (payrollData.bonus || 0) + (payrollData.performanceBonus || 0);
-    // FIX: Tính tổng khấu trừ bao gồm cả taxAmount (bảo hiểm + thuế) từ backend
-    const taxAmount = payrollData.taxAmount || payrollData.fixedDeduction || 0;
-    // Tổng khấu trừ = Bảo hiểm + Thuế + Tiền phạt - đồng bộ với salaryCalculator.js
-    const totalDeductions = taxAmount + (payrollData.latePenalty || 0);
+    // Tổng khấu trừ = Chỉ Tiền phạt (đã bỏ Bảo hiểm + Thuế) - đồng bộ với salaryCalculator.js
+    const totalDeductions = (payrollData.latePenalty || 0);
     const totalIncome = proratedSalary + totalAllowances + totalOTPay + totalBonus;
     // FIX: Tính lại netSalary theo đúng công thức từ salaryCalculator.js
     // Net = Base + Allowances + OT - Fines - Tax
@@ -186,13 +184,6 @@ const MyPayroll = () => {
         type: 'negative',
         icon: <WarningOutlined />
       }] : []),
-      {
-        label: `Bảo hiểm + Thuế (${payrollData.taxRate || 10}%)`,
-        value: taxAmount,
-        type: 'negative',
-        icon: <FallOutlined />,
-        alwaysShow: true // Luôn hiển thị dù = 0
-      },
       ...(payrollData.halfDayDeduction > 0 ? [{
         label: 'Nghỉ nửa ngày',
         value: payrollData.halfDayDeduction,

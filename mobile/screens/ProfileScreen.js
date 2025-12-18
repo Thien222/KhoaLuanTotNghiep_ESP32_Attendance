@@ -173,11 +173,6 @@ export default function ProfileScreen({ navigation }) {
             label="Số CCCD/CMND"
             value={employee?.citizenId}
           />
-          <InfoRow
-            icon="shield-checkmark-outline"
-            label="Mã số BHXH"
-            value={employee?.socialInsuranceNumber}
-          />
         </View>
       </View>
 
@@ -205,11 +200,7 @@ export default function ProfileScreen({ navigation }) {
             label="Ngày vào làm"
             value={formatDate(employee?.joinDate)}
           />
-          <InfoRow
-            icon="time-outline"
-            label="Thâm niên"
-            value={employee?.seniorityYears ? `${employee.seniorityYears} năm` : 'Chưa cập nhật'}
-          />
+      
         </View>
       </View>
 

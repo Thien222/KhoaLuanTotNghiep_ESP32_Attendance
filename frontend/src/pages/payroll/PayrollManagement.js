@@ -151,22 +151,17 @@ const PayrollManagement = () => {
             (p.positionAllowance || 0) +
             (p.otherAllowances || 0);
 
-          // Thuế (10%) - Ưu tiên dùng taxAmount từ backend
-          const taxAmount = p.taxAmount || Math.round((proratedSalary + totalAllowances + (p.overtimePay || 0) - (p.latePenalty || 0)) * 0.1);
-
-          // Net Salary = Prorated + Allowances + OT - Late Penalties - Tax
+          // Net Salary = Prorated + Allowances + OT - Late Penalties (BỎ thuế và bảo hiểm)
           // FIX: BỎ weekendWorkPay - phiếu lương gốc không có khoản này
           const grossIncome = proratedSalary + totalAllowances + (p.overtimePay || 0) + (p.holidayWorkPay || 0);
-          // Đồng bộ với phiếu lương
-          const netSalary = grossIncome - (p.latePenalty || 0) - taxAmount;
+          // Đồng bộ với phiếu lương - chỉ trừ tiền phạt
+          const netSalary = grossIncome - (p.latePenalty || 0);
 
           return {
             ...p,
             department: p.employee?.department || 'Chưa phân loại',
             allowance: totalAllowances, // Tổng phụ cấp
             generalAllowance: generalAllowance, // Phụ cấp chung (5%)
-            fixedDeduction: taxAmount, // Bảo hiểm + Thuế (10%)
-            taxAmount: taxAmount, // Đảm bảo có taxAmount
             netSalary: netSalary, // FIX: Cho phép hiển thị số âm
             grossIncome: grossIncome,
             // NEW: Thêm cả 2 loại lương
@@ -566,7 +561,7 @@ const PayrollManagement = () => {
     }
 
     // Create CSV content
-    const headers = ['STT', 'Họ tên', 'Phòng ban', 'Lương cơ bản', 'Ngày công', 'Giờ OT', 'Ngày đi trễ', 'Tiền OT', 'Tiền phạt', 'Phụ cấp', 'Khấu trừ', 'Thực lãnh'];
+    const headers = ['STT', 'Họ tên', 'Phòng ban', 'Lương cơ bản', 'Ngày công', 'Giờ OT', 'Ngày đi trễ', 'Tiền OT', 'Tiền phạt', 'Phụ cấp', 'Thực lãnh'];
     const rows = payrolls.map((p, index) => [
       index + 1,
       p.employee?.name || '',
@@ -578,7 +573,6 @@ const PayrollManagement = () => {
       p.overtimePay || 0,
       p.latePenalty || 0,
       p.allowance || 0,
-      p.fixedDeduction || 0,
       p.netSalary || 0
     ]);
 
@@ -874,16 +868,6 @@ const PayrollManagement = () => {
       }
     },
     {
-      title: 'Khấu trừ (10%)',
-      dataIndex: 'taxAmount',
-      key: 'taxAmount',
-      width: 120,
-      render: (val, record) => {
-        const tax = record.taxAmount || record.fixedDeduction || 0;
-        return <Text type="danger">-{currency(tax)}</Text>;
-      }
-    },
-    {
       title: <span style={{ color: '#1890ff', fontWeight: 'bold' }}>Thực lãnh</span>,
       dataIndex: 'netSalary',
       key: 'net',
@@ -1042,7 +1026,7 @@ const PayrollManagement = () => {
   // Calculate totals
   const totalNetSalary = payrolls.reduce((sum, p) => sum + (p.netSalary || 0), 0);
   const totalBasicSalary = payrolls.reduce((sum, p) => sum + (p.basicSalary || 0), 0);
-  const totalDeductions = payrolls.reduce((sum, p) => sum + (p.fixedDeduction || 0) + (p.latePenalty || 0), 0);
+  const totalDeductions = payrolls.reduce((sum, p) => sum + (p.latePenalty || 0), 0);
 
   return (
     <div style={{ width: '100%', maxWidth: '100%', overflowX: 'hidden' }}>
@@ -1433,7 +1417,6 @@ const PayrollManagement = () => {
                     size="small"
                     split={false}
                     dataSource={[
-                      { label: `Bảo hiểm + Thuế (${selectedPayroll.taxRate || 10}%)`, value: selectedPayroll.taxAmount || selectedPayroll.fixedDeduction || 0 },
                       ...(selectedPayroll.latePenalty > 0 ? [{ label: `Phạt đi muộn (${selectedPayroll.lateMinutes || 0}p, ${selectedPayroll.lateCount || 0} lần)`, value: selectedPayroll.latePenalty }] : []),
                       ...(selectedPayroll.absentDeduction > 0 ? [{ label: 'Nghỉ không lương', value: selectedPayroll.absentDeduction }] : []),
                       ...(selectedPayroll.unpaidLeaveDeduction > 0 ? [{ label: 'Nghỉ phép không lương', value: selectedPayroll.unpaidLeaveDeduction }] : [])
@@ -1459,9 +1442,8 @@ const PayrollManagement = () => {
                     <Text strong style={{ color: '#ff4d4f' }}>Tổng khấu trừ:</Text>
                     <Text strong style={{ color: '#ff4d4f', fontSize: 16 }}>
                       -{currency(
-                        (selectedPayroll.taxAmount || selectedPayroll.fixedDeduction || 0) +
                         (selectedPayroll.latePenalty || 0)
-                        // Bỏ các khoản khấu trừ khác - chỉ giữ Bảo hiểm + Thuế và Tiền phạt
+                        // Chỉ giữ Tiền phạt - đã bỏ Bảo hiểm + Thuế
                       )}
                     </Text>
                   </div>
@@ -1484,10 +1466,8 @@ const PayrollManagement = () => {
                   (selectedPayroll.performanceBonus || 0) +
                   (selectedPayroll.otherAllowances || 0);
 
-                // Tính lại tổng khấu trừ (chỉ Bảo hiểm + Thuế và Tiền phạt)
-                const totalDeductions =
-                  (selectedPayroll.taxAmount || selectedPayroll.fixedDeduction || 0) +
-                  (selectedPayroll.latePenalty || 0);
+                // Tính lại tổng khấu trừ (chỉ Tiền phạt - đã bỏ Bảo hiểm + Thuế)
+                const totalDeductions = (selectedPayroll.latePenalty || 0);
 
                 // Thực lãnh = Tổng thu nhập - Tổng khấu trừ
                 const netPay = totalIncome - totalDeductions;

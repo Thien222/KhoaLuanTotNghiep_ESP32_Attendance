@@ -8,7 +8,7 @@ import moment from 'moment';
 
 const { Text } = Typography;
 
-const InternalChat = ({ receiverId, receiverName, receiverAvatar, currentUserId }) => {
+const InternalChat = ({ receiverId, receiverName, receiverAvatar, currentUserId, onConversationRead }) => {
   const [messages, setMessages] = useState([]);
   const [inputValue, setInputValue] = useState('');
   const [typing, setTyping] = useState(false);
@@ -20,9 +20,14 @@ const InternalChat = ({ receiverId, receiverName, receiverAvatar, currentUserId 
   const { socket, connected } = useSocket();
 
   useEffect(() => {
-    if (!socket || !receiverId) return;
+    if (!receiverId) {
+      setMessages([]);
+      return;
+    }
+    
+    if (!socket) return;
 
-    // Load message history
+    // Load message history (sẽ tự động mark as read)
     loadMessages();
 
     // Listen for new messages
@@ -80,6 +85,13 @@ const InternalChat = ({ receiverId, receiverName, receiverAvatar, currentUserId 
         scrollToBottom();
         // Backup scroll after 10ms to ensure DOM updated
         setTimeout(() => scrollToBottom(), 10);
+        
+        // ✅ Refresh conversations khi nhận tin nhắn mới trong conversation đang mở
+        if (onConversationRead) {
+          setTimeout(() => {
+            onConversationRead();
+          }, 200);
+        }
       } else {
         console.log('❌ Message is not for this conversation, ignoring');
       }
@@ -162,6 +174,49 @@ const InternalChat = ({ receiverId, receiverName, receiverAvatar, currentUserId 
         } else {
           setMessages(newMessages);
         }
+        
+        // ✅ Mark unread messages as read (giống mobile) - chỉ khi không phải merge mode
+        // Nếu đã mark as read trong handleSelectUser, sẽ không có unreadIds nào ở đây
+        if (!merge) {
+          const unreadIds = newMessages
+            .filter(msg => {
+              const receiverIdFromMsg = msg.receiver?._id || msg.receiver;
+              return !msg.read && receiverIdFromMsg === currentUserId;
+            })
+            .map(msg => msg._id);
+          
+          if (unreadIds.length > 0) {
+            try {
+              const markReadResponse = await axios.post(`${API_URL}/internal-chat/mark-read`, 
+                { messageIds: unreadIds },
+                { headers: { Authorization: `Bearer ${token}` } }
+              );
+              
+              if (markReadResponse.data.success) {
+                // ✅ Update messages state to reflect read status
+                setMessages(prev => prev.map(msg => {
+                  if (unreadIds.includes(msg._id)) {
+                    return { ...msg, read: true };
+                  }
+                  return msg;
+                }));
+                
+                // ✅ Callback để refresh conversations list (để cập nhật badge) - gọi ngay lập tức
+                if (onConversationRead) {
+                  onConversationRead();
+                }
+              }
+            } catch (error) {
+              console.error('Error marking messages as read:', error);
+            }
+          } else {
+            // ✅ Nếu không có unread messages, vẫn refresh conversations để đảm bảo UI đúng
+            if (onConversationRead) {
+              onConversationRead();
+            }
+          }
+        }
+        
         scrollToBottom();
       }
     } catch (error) {
@@ -198,6 +253,13 @@ const InternalChat = ({ receiverId, receiverName, receiverAvatar, currentUserId 
         content: messageContent
       });
       socket.emit('stop_typing', { receiverId });
+      
+      // ✅ Refresh conversations sau khi gửi tin nhắn để cập nhật badge real-time
+      if (onConversationRead) {
+        setTimeout(() => {
+          onConversationRead();
+        }, 300); // Delay nhỏ để đảm bảo message đã được lưu vào DB
+      }
     } catch (error) {
       console.error('Error sending message:', error);
       setMessages(prev => prev.filter(m => m._id !== tempId));
@@ -240,9 +302,7 @@ const InternalChat = ({ receiverId, receiverName, receiverAvatar, currentUserId 
     <Card
       title={
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <Badge dot={connected} color={connected ? '#52c41a' : '#ff4d4f'}>
-            <Avatar icon={<UserOutlined />} src={receiverAvatar} />
-          </Badge>
+          <Avatar icon={<UserOutlined />} src={receiverAvatar} />
           <Text strong>{receiverName}</Text>
           {!connected && <Text type="secondary" style={{ fontSize: '12px' }}>(Đang kết nối...)</Text>}
         </div>

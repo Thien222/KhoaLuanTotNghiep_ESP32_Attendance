@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -21,27 +21,68 @@ const CHAT_HISTORY_KEY = 'chatbot_history';
 const QUICK_QUESTIONS = [
   'Lương tháng này của tôi?',
   'Còn bao nhiêu ngày phép?',
-  'Hôm nay tôi đã điểm danh chưa?',
+  'Tôi điểm danh chưa?',
   'Chính sách nghỉ phép?',
 ];
 
+/**
+ * ✅ Lọc câu trả lời bot để:
+ * - loại bỏ “lương cuối tuần” nếu backend lỡ trả về text đó
+ * - loại bỏ các dòng có từ khóa weekendWorkPay/weekend
+ * (an toàn 2 lớp, BE vẫn nên bỏ weekendWorkPay như mình hướng dẫn trước)
+ */
+function sanitizeBotReply(text) {
+  if (!text) return '';
+
+  const lines = String(text).split('\n');
+
+  const filtered = lines.filter(line => {
+    const l = line.toLowerCase();
+    if (l.includes('weekendworkpay')) return false;
+    if (l.includes('lương cuối tuần')) return false;
+    if (l.includes('làm cuối tuần')) return false;
+    // nếu bạn muốn mạnh tay hơn thì bỏ luôn từ "cuối tuần":
+    // if (l.includes('cuối tuần')) return false;
+    return true;
+  });
+
+  // nếu bị lọc hết thì trả về text gốc (tránh rỗng)
+  const out = filtered.join('\n').trim();
+  return out || String(text).trim();
+}
+
 export default function ChatBotScreen() {
-  // Lấy lịch sử chat từ AsyncStorage khi component mount
+  const [messages, setMessages] = useState([]);
+  const [inputText, setInputText] = useState('');
+  const [loading, setLoading] = useState(false);
+  const flatListRef = useRef(null);
+
+  // ✅ Scroll an toàn hơn (Android hay lỗi scrollToEnd)
+  const scrollToBottom = useCallback(() => {
+    if (!flatListRef.current) return;
+    setTimeout(() => {
+      try {
+        flatListRef.current.scrollToOffset({ offset: 999999, animated: true });
+      } catch (e) {
+        // ignore
+      }
+    }, 80);
+  }, []);
+
   const getInitialMessages = async () => {
     try {
       const saved = await AsyncStorage.getItem(CHAT_HISTORY_KEY);
       if (saved) {
         const parsed = JSON.parse(saved);
-        // Parse lại timestamp từ string về Date object
         return parsed.map(msg => ({
           ...msg,
-          timestamp: new Date(msg.timestamp)
+          timestamp: new Date(msg.timestamp),
         }));
       }
     } catch (error) {
       console.error('Error loading chat history:', error);
     }
-    // Message mặc định nếu không có lịch sử
+
     return [
       {
         id: '1',
@@ -51,11 +92,6 @@ export default function ChatBotScreen() {
       },
     ];
   };
-
-  const [messages, setMessages] = useState([]);
-  const [inputText, setInputText] = useState('');
-  const [loading, setLoading] = useState(false);
-  const flatListRef = useRef(null);
 
   // Load lịch sử khi component mount
   useEffect(() => {
@@ -81,16 +117,11 @@ export default function ChatBotScreen() {
   }, [messages]);
 
   useEffect(() => {
-    // Scroll to bottom when new message arrives
-    if (flatListRef.current && messages.length > 0) {
-      setTimeout(() => {
-        flatListRef.current.scrollToEnd({ animated: true });
-      }, 100);
-    }
-  }, [messages]);
+    scrollToBottom();
+  }, [messages, scrollToBottom]);
 
   const sendMessage = async (text) => {
-    if (!text.trim()) return;
+    if (!text.trim() || loading) return;
 
     const userMessage = {
       id: Date.now().toString(),
@@ -105,10 +136,12 @@ export default function ChatBotScreen() {
 
     try {
       const response = await chatAPI.sendMessage(text.trim());
-      
+
+      const botText = sanitizeBotReply(response?.reply || 'Xin lỗi, tôi không hiểu câu hỏi của bạn.');
+
       const botMessage = {
         id: (Date.now() + 1).toString(),
-        text: response.reply || 'Xin lỗi, tôi không hiểu câu hỏi của bạn.',
+        text: botText,
         isBot: true,
         timestamp: new Date(),
       };
@@ -116,6 +149,7 @@ export default function ChatBotScreen() {
       setMessages((prev) => [...prev, botMessage]);
     } catch (error) {
       console.error('Chat error:', error);
+
       const errorMessage = {
         id: (Date.now() + 1).toString(),
         text: 'Xin lỗi, đã có lỗi xảy ra. Vui lòng thử lại sau.',
@@ -128,20 +162,14 @@ export default function ChatBotScreen() {
     }
   };
 
-  const handleQuickQuestion = (question) => {
-    sendMessage(question);
-  };
+  const handleQuickQuestion = (question) => sendMessage(question);
 
-  // Xóa sạch lịch sử chat
   const handleClearHistory = () => {
     Alert.alert(
       'Xóa lịch sử chat',
       'Bạn có chắc muốn xóa toàn bộ lịch sử chat?',
       [
-        {
-          text: 'Hủy',
-          style: 'cancel',
-        },
+        { text: 'Hủy', style: 'cancel' },
         {
           text: 'Xóa',
           style: 'destructive',
@@ -178,6 +206,7 @@ export default function ChatBotScreen() {
           <Ionicons name="chatbubble-ellipses" size={20} color="#fff" />
         </View>
       )}
+
       <View
         style={[
           styles.messageBubble,
@@ -187,6 +216,7 @@ export default function ChatBotScreen() {
         <Text style={[styles.messageText, item.isBot ? styles.botText : styles.userText]}>
           {item.text}
         </Text>
+
         <Text style={styles.timestamp}>
           {new Date(item.timestamp).toLocaleTimeString('vi-VN', {
             hour: '2-digit',
@@ -205,14 +235,13 @@ export default function ChatBotScreen() {
           <View style={styles.headerIcon}>
             <Ionicons name="chatbubble-ellipses" size={24} color="#fff" />
           </View>
+
           <View style={{ flex: 1 }}>
             <Text style={styles.headerTitle}>ChatBot Hỗ trợ</Text>
             <Text style={styles.headerSubtitle}>Luôn sẵn sàng hỗ trợ bạn</Text>
           </View>
-          <TouchableOpacity
-            onPress={handleClearHistory}
-            style={styles.refreshButton}
-          >
+
+          <TouchableOpacity onPress={handleClearHistory} style={styles.refreshButton}>
             <Ionicons name="refresh" size={20} color="#fff" />
           </TouchableOpacity>
         </View>
@@ -226,10 +255,7 @@ export default function ChatBotScreen() {
           keyExtractor={(item, index) => index.toString()}
           showsHorizontalScrollIndicator={false}
           renderItem={({ item }) => (
-            <TouchableOpacity
-              style={styles.quickQuestion}
-              onPress={() => handleQuickQuestion(item)}
-            >
+            <TouchableOpacity style={styles.quickQuestion} onPress={() => handleQuickQuestion(item)}>
               <Text style={styles.quickQuestionText}>{item}</Text>
             </TouchableOpacity>
           )}
@@ -243,7 +269,7 @@ export default function ChatBotScreen() {
         renderItem={renderMessage}
         keyExtractor={(item) => item.id}
         contentContainerStyle={styles.messagesList}
-        onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: true })}
+        keyboardShouldPersistTaps="handled"
       />
 
       {/* Loading indicator */}
@@ -270,7 +296,7 @@ export default function ChatBotScreen() {
             maxLength={500}
           />
           <TouchableOpacity
-            style={[styles.sendButton, !inputText.trim() && styles.sendButtonDisabled]}
+            style={[styles.sendButton, (!inputText.trim() || loading) && styles.sendButtonDisabled]}
             onPress={() => sendMessage(inputText)}
             disabled={!inputText.trim() || loading}
           >
@@ -283,10 +309,8 @@ export default function ChatBotScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#f5f5f5',
-  },
+  container: { flex: 1, backgroundColor: '#f5f5f5' },
+
   header: {
     backgroundColor: '#1890ff',
     paddingVertical: 16,
@@ -315,16 +339,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginRight: 12,
   },
-  headerTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#fff',
-  },
+  headerTitle: { fontSize: 18, fontWeight: '700', color: '#fff' },
   headerSubtitle: {
     fontSize: 13,
     color: 'rgba(255,255,255,0.8)',
     marginTop: 2,
   },
+
   quickQuestionsContainer: {
     backgroundColor: '#fff',
     paddingVertical: 12,
@@ -341,26 +362,18 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#91d5ff',
   },
-  quickQuestionText: {
-    color: '#1890ff',
-    fontSize: 13,
-    fontWeight: '500',
-  },
-  messagesList: {
-    padding: 16,
-    paddingBottom: 8,
-  },
+  quickQuestionText: { color: '#1890ff', fontSize: 13, fontWeight: '500' },
+
+  messagesList: { padding: 16, paddingBottom: 8 },
+
   messageContainer: {
     flexDirection: 'row',
     marginBottom: 12,
     alignItems: 'flex-end',
   },
-  botMessage: {
-    justifyContent: 'flex-start',
-  },
-  userMessage: {
-    justifyContent: 'flex-end',
-  },
+  botMessage: { justifyContent: 'flex-start' },
+  userMessage: { justifyContent: 'flex-end' },
+
   botAvatar: {
     width: 32,
     height: 32,
@@ -370,6 +383,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginRight: 8,
   },
+
   messageBubble: {
     maxWidth: '75%',
     paddingHorizontal: 14,
@@ -390,33 +404,26 @@ const styles = StyleSheet.create({
     borderBottomRightRadius: 4,
     marginLeft: 'auto',
   },
-  messageText: {
-    fontSize: 15,
-    lineHeight: 20,
-  },
-  botText: {
-    color: '#333',
-  },
-  userText: {
-    color: '#fff',
-  },
+
+  messageText: { fontSize: 15, lineHeight: 20 },
+  botText: { color: '#333' },
+  userText: { color: '#fff' },
+
   timestamp: {
     fontSize: 10,
     color: '#999',
     marginTop: 4,
     textAlign: 'right',
   },
+
   loadingContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 16,
     paddingVertical: 8,
   },
-  loadingText: {
-    marginLeft: 8,
-    color: '#666',
-    fontSize: 13,
-  },
+  loadingText: { marginLeft: 8, color: '#666', fontSize: 13 },
+
   inputContainer: {
     flexDirection: 'row',
     alignItems: 'flex-end',
@@ -445,17 +452,5 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginLeft: 8,
   },
-  sendButtonDisabled: {
-    backgroundColor: '#bfbfbf',
-  },
+  sendButtonDisabled: { backgroundColor: '#bfbfbf' },
 });
-
-
-
-
-
-
-
-
-
-
