@@ -537,7 +537,7 @@ async function handleMyProfile(user) {
     me.position ? `• Chức danh: ${me.position}` : null,
     me.department ? `• Phòng ban: ${me.department}` : null,
     `• Lương cơ bản (hồ sơ): ${fmtVND(me.salary || 0)}`,
-    (me.bankAccount?.bankName && me.bankAccount?.accountNumber) ? `• Tài khoản: ${me.bankAccount.bankName} – ${me.bankAccount.accountNumber}` : null
+    (me.bankAccount?.bankName && me.bankAccount?.accountNumber) ? `• Tài khoản ngân hàng: ${me.bankAccount.bankName} – ${me.bankAccount.accountNumber}` : null
   ].filter(Boolean).join('\n');
 }
 
@@ -606,7 +606,7 @@ function handlePolicySummary() {
   return [
     'Tổng hợp chính sách nhân sự (mặc định):',
     '• Nghỉ phép năm: 12 ngày/năm (tích luỹ theo tháng).',
-    '• OT: tính theo hệ số 150%/200%/300% tuỳ khung giờ.',
+    '• OT: Bắt đầu từ lúc 18 giờ. Tính theo hệ số 150%/200%/300% tuỳ khung giờ.',
     '• Đi trễ/ về sớm: có thể bị phạt hoặc trừ lương theo quy định.',
     '• Chấm công: điểm danh khi vào/ra, nghỉ trưa không tính công.',
     '→ Bạn có thể hỏi: "nếu tôi nghỉ 2 ngày thì lương còn bao nhiêu?", "checkin ngày 2025-11-12 có những ai", "số ngày phép còn lại của tôi"...'
@@ -660,8 +660,24 @@ exports.postMessage = async (req, res) => {
       case 'MY_ATTENDANCE_YESTERDAY': reply = await handleMyAttendanceYesterday(user, entities); break;
       case 'HR_POLICY_SUMMARY': reply = handlePolicySummary(); break;
       default:
+        // Fallback: Câu hỏi về thông tin cá nhân/hồ sơ của tôi → MY_PROFILE
+        if (/(thông tin cá nhân|hồ sơ|profile)/i.test(text) && 
+            /(của tôi|của tui|của mình|tôi|tui|mình)\b/i.test(text) &&
+            !/nhân\s*viên/i.test(text)) {
+          reply = await handleMyProfile(user);
+        }
+        // Fallback: Câu hỏi về tổng lương/quỹ lương → TOTAL_PAYROLL
+        else if (/(tổng lương|quỹ lương|chi phí lương|lương tổng)/i.test(text) && 
+                 (/(tháng này|tháng \d+|tất cả|toàn công ty|toàn bộ)/i.test(text) || 
+                  /bao nhiêu/i.test(text))) {
+          reply = await handleTotalPayroll(user, entities);
+        }
+        // Fallback: Câu hỏi về quy định giờ OT → HR_POLICY_SUMMARY
+        else if (/(quy định giờ ot|giờ ot|ot bắt đầu|giờ làm thêm|chính sách ot|quy định về ot)/i.test(text)) {
+          reply = handlePolicySummary();
+        }
         // Fallback: Nếu câu có "hôm qua" và "tui/tôi" và "check in/điểm danh" → MY_ATTENDANCE_YESTERDAY
-        if (/(hom qua|hôm qua|yesterday)/i.test(text) &&
+        else if (/(hom qua|hôm qua|yesterday)/i.test(text) &&
           /(toi|tui|m[iì]nh|t[ôo]i|em)\b/i.test(text) &&
           /(da|đã|chưa|chua|check|diem danh|điểm danh|cham cong|chấm công)/i.test(text)) {
           reply = await handleMyAttendanceYesterday(user, entities);

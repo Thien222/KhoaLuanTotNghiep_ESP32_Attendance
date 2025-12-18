@@ -26,7 +26,14 @@ const EX = {
     "quỹ lương tháng này là bao nhiêu",
     "tháng 10 tổng tiền lương toàn công ty",
     "chi phí lương tháng 11",
-    "tổng payroll tháng này"
+    "tổng payroll tháng này",
+    "lương tổng tháng này bao nhiêu",
+    "tổng lương tháng này",
+    "quỹ lương tháng này",
+    "tổng lương tháng này của tất cả",
+    "tổng lương toàn công ty tháng này",
+    "quỹ lương toàn công ty",
+    "chi phí lương tháng này"
   ],
   CHECKED_IN_ON_DATE: [
     "hôm nay ai đã điểm danh rồi",
@@ -101,7 +108,16 @@ const EX = {
     "my profile",
     "thông tin nhân viên của tôi",
     "profile của tui",
-    "xem thông tin của tôi"
+    "xem thông tin của tôi",
+    "thông tin cá nhân của tôi",
+    "thông tin cá nhân",
+    "xem thông tin cá nhân",
+    "thông tin của tôi",
+    "hồ sơ tôi",
+    "profile tôi",
+    "thông tin cá nhân tôi",
+    "cho tôi xem thông tin cá nhân",
+    "xem hồ sơ của tôi"
   ],
   MY_LEAVE_BALANCE: [
     "số ngày phép còn lại của tôi",
@@ -136,7 +152,21 @@ const EX = {
     "policy nghỉ phép",
     "quy định OT",
     "đi trễ/ về sớm tính sao",
-    "quy định chấm công giờ nghỉ trưa"
+    "quy định chấm công giờ nghỉ trưa",
+    "quy định giờ ot",
+    "giờ ot bắt đầu từ mấy giờ",
+    "ot tính từ mấy giờ",
+    "ot bắt đầu từ lúc nào",
+    "giờ làm thêm bắt đầu từ mấy giờ",
+    "hỏi quy định giờ ot",
+    "quy định về giờ làm thêm",
+    "chính sách làm thêm giờ",
+    "quy định giờ làm thêm",
+    "ot bắt đầu lúc mấy giờ",
+    "làm thêm giờ bắt đầu từ mấy giờ",
+    "giờ ot là gì",
+    "quy định về ot",
+    "chính sách ot"
   ]
 };
 
@@ -154,15 +184,40 @@ async function classifyIntent({ text, user }) {
   if (!client || now < breakerUntil) return null;
 
   const system = `
-Bạn là NLU tiếng Việt cho hệ thống HR. Trả về JSON duy nhất:
+Bạn là NLU tiếng Việt cho hệ thống HR. Phân loại câu hỏi và trả về JSON duy nhất:
 {
   "intent": "MY_SALARY | WHAT_IF_LEAVE | TOTAL_PAYROLL | CHECKED_IN_ON_DATE | UNATTENDED_TODAY | MY_ATTENDANCE_TODAY | MY_ATTENDANCE_YESTERDAY | TODAY_DATE | EMPLOYEE_SALARY | EMPLOYEE_INFO | EMPLOYEE_ATTENDANCE_BY_CODE | MY_PROFILE | MY_LEAVE_BALANCE | LEAVE_APPROVER | IS_LATE_DEDUCTED | LATE_PENALTY_RULE | HR_POLICY_SUMMARY | UNKNOWN",
   "entities": { "month": <1..12>, "year": <YYYY>, "dateISO": "YYYY-MM-DD", "days": <int>, "employeeName": "<string>", "employeeCode": "<EMP###>" }
 }
-- Có ngày (YYYY-MM-DD hoặc YYYY/MM/DD) → "dateISO".
-- Có “tháng X” → "month".
-- “nếu nghỉ X ngày” → "days".
-- Không thêm chữ ngoài JSON.
+
+QUAN TRỌNG:
+- Câu hỏi về "lương của tôi/của tui/của mình" → MY_SALARY
+- Câu hỏi về "tổng lương/quỹ lương/chi phí lương" của tất cả → TOTAL_PAYROLL
+- Câu hỏi về "thông tin cá nhân/hồ sơ của tôi" → MY_PROFILE
+- Câu hỏi về "quy định giờ OT/giờ làm thêm" → HR_POLICY_SUMMARY
+- Câu hỏi về "nếu nghỉ X ngày" → WHAT_IF_LEAVE
+- Câu hỏi về "hôm nay tôi đã điểm danh" → MY_ATTENDANCE_TODAY
+- Câu hỏi về "hôm qua tôi đã check in" → MY_ATTENDANCE_YESTERDAY
+- Câu hỏi về "ai đã điểm danh hôm nay" → CHECKED_IN_ON_DATE
+- Câu hỏi về "ai chưa điểm danh" → UNATTENDED_TODAY
+- Câu hỏi về "lương nhân viên X" → EMPLOYEE_SALARY
+- Câu hỏi về "thông tin nhân viên X" → EMPLOYEE_INFO
+- Câu hỏi về "nhân viên X đã check in" → EMPLOYEE_ATTENDANCE_BY_CODE
+- Câu hỏi về "số ngày phép còn lại" → MY_LEAVE_BALANCE
+- Câu hỏi về "ai duyệt đơn nghỉ" → LEAVE_APPROVER
+- Câu hỏi về "đi trễ có bị trừ lương" → IS_LATE_DEDUCTED
+- Câu hỏi về "mức phạt đi muộn" → LATE_PENALTY_RULE
+- Câu hỏi về "tổng hợp chính sách/quy định" → HR_POLICY_SUMMARY
+
+Entities:
+- Có ngày (YYYY-MM-DD hoặc YYYY/MM/DD) → "dateISO"
+- Có "tháng X" → "month" (1-12)
+- "nếu nghỉ X ngày" → "days" (số nguyên)
+- Có mã nhân viên (EMP###, NV###) → "employeeCode"
+- Có tên nhân viên → "employeeName"
+
+Chỉ trả về JSON, không thêm text khác.
+
 Ví dụ map:
 ${buildFewShot()}
 `.trim();

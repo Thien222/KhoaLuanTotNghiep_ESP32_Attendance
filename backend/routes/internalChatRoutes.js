@@ -6,7 +6,8 @@ const {
   getGroupMessages,
   markAsRead,
   getUnreadCount,
-  sendMessage
+  sendMessage,
+  markConversationAsRead 
 } = require('../controllers/internalChatController');
 
 // Import auth middleware
@@ -37,6 +38,9 @@ router.post('/send', sendMessage);
 
 // Get unread message count
 router.get('/unread-count', getUnreadCount);
+
+router.put('/conversations/:otherUserId/mark-read', markConversationAsRead);
+
 
 module.exports = router;
 

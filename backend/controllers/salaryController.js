@@ -34,7 +34,8 @@ function formatSalaryResponse(employee, payroll, calcMonth, calcYear) {
       totalWorkingDays: payroll.actualWorkingDays || payroll.workingDays || 0,
       realWorkSalary: payroll.baseSalary || 0,
       allowance: (payroll.generalAllowance || 0) + (payroll.seniorityAllowance || 0) + (payroll.positionAllowance || 0),
-      totalOTPay: (payroll.overtimePay || 0) + (payroll.holidayWorkPay || 0) + (payroll.weekendWorkPay || 0),
+      // ✅ BỎ weekendWorkPay - không cộng vào totalOTPay (giống web và mobile)
+      totalOTPay: (payroll.overtimePay || 0) + (payroll.holidayWorkPay || 0),
       totalFines: payroll.latePenalty || 0,
       grossIncome: payroll.grossSalary || 0,
       tax: payroll.taxAmount || 0,

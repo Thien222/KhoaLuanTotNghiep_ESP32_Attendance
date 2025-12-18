@@ -77,7 +77,6 @@ const Profile = () => {
               phone: employee.phone || user.phone || '',
               address: employee.address || user.address || '',
               citizenId: employee.citizenId || user.citizenId || '',
-              socialInsuranceNumber: employee.socialInsuranceNumber || user.socialInsuranceNumber || '',
               dateOfBirth: employee.dateOfBirth || user.dateOfBirth || '',
               gender: employee.gender || user.gender || '',
               bankAccount: employee.bankAccount || user.bankAccount || {},
@@ -96,7 +95,6 @@ const Profile = () => {
               phone: updatedUser.phone || employee.phone || '',
               address: updatedUser.address || employee.address || '',
               citizenId: updatedUser.citizenId || employee.citizenId || '',
-              socialInsuranceNumber: updatedUser.socialInsuranceNumber || employee.socialInsuranceNumber || '',
               dateOfBirth: employee.dateOfBirth ? moment(employee.dateOfBirth) : (user.dateOfBirth ? moment(user.dateOfBirth) : null),
               gender: updatedUser.gender || employee.gender || '',
               bankName: employee.bankAccount?.bankName || user.bankAccount?.bankName || '',
@@ -115,7 +113,6 @@ const Profile = () => {
               phone: user.phone || '',
               address: user.address || '',
               citizenId: user.citizenId || '',
-              socialInsuranceNumber: user.socialInsuranceNumber || '',
               dateOfBirth: user.dateOfBirth ? moment(user.dateOfBirth) : null,
               gender: user.gender || '',
               bankName: user.bankAccount?.bankName || '',
@@ -131,7 +128,6 @@ const Profile = () => {
           phone: user.phone || '',
           address: user.address || '',
           citizenId: user.citizenId || '',
-          socialInsuranceNumber: user.socialInsuranceNumber || '',
           dateOfBirth: user.dateOfBirth ? moment(user.dateOfBirth) : null,
           gender: user.gender || '',
           bankName: user.bankAccount?.bankName || '',
@@ -167,7 +163,6 @@ const Profile = () => {
           phone: values.phone,
           address: values.address,
           citizenId: values.citizenId,
-          socialInsuranceNumber: values.socialInsuranceNumber,
           dateOfBirth: values.dateOfBirth ? values.dateOfBirth.format('YYYY-MM-DD') : null,
           gender: values.gender,
           bankAccount: {
@@ -304,13 +299,7 @@ const Profile = () => {
                   <Text strong style={{ fontSize: 13 }}>{userInfo?.employeeId || 'N/A'}</Text>
                 </div>
                 
-                {userInfo?.socialInsuranceNumber && (
-                  <div style={{ marginBottom: 12 }}>
-                    <Text type="secondary" style={{ fontSize: 12 }}>Mã BHXH:</Text>
-                    <br />
-                    <Text strong style={{ fontSize: 13 }}>{userInfo.socialInsuranceNumber}</Text>
-                  </div>
-                )}
+              
                 
                 <div style={{ marginBottom: 12 }}>
                   <Text type="secondary" style={{ fontSize: 12 }}>Trạng thái:</Text>
@@ -464,27 +453,18 @@ const Profile = () => {
                       label={<span style={{ fontSize: 12 }}>Số CCCD/CMND</span>}
                       rules={[
                         { required: true, message: 'Vui lòng nhập số CCCD' },
-                        { len: 12, message: 'CCCD phải có 12 số' }
+                        { len: 12, message: 'CCCD phải có 12 số' },
+                        {
+                          pattern: /^0\d{11}$/,
+                          message: 'CCCD phải bắt đầu bằng số 0 và có đúng 12 số'
+                        }
                       ]}
                       style={{ marginBottom: 8 }}
                     >
                       <Input 
                         prefix={<IdcardOutlined style={{ fontSize: 12 }} />} 
-                        placeholder="Nhập số CCCD (12 số)"
+                        placeholder="Nhập số CCCD (bắt đầu bằng 0, 12 số)"
                         maxLength={12}
-                        size="small"
-                      />
-                    </Form.Item>
-                  </Col>
-                  
-                  <Col xs={24} sm={12}>
-                    <Form.Item
-                      name="socialInsuranceNumber"
-                      label={<span style={{ fontSize: 12 }}>Mã số BHXH</span>}
-                      style={{ marginBottom: 8 }}
-                    >
-                      <Input 
-                        placeholder="Nhập mã số BHXH"
                         size="small"
                       />
                     </Form.Item>

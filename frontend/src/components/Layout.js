@@ -81,21 +81,21 @@ const MainLayout = ({ children }) => {
     const handleNewLeaveRequest = (data) => {
       console.log('📢 New leave request notification:', data);
       setNotificationCount(prev => prev + 1);
-      message.info({
-        content: data.message || 'Có đơn nghỉ phép mới cần duyệt',
-        duration: 5,
-        onClick: () => navigate('/requests')
-      });
+      // message.info({
+      //   content: data.message || 'Có đơn nghỉ phép mới cần duyệt',
+      //   duration: 5,
+      //   onClick: () => navigate('/requests')
+      // });
     };
 
     const handleNewOTRequest = (data) => {
       console.log('📢 New OT request notification:', data);
       setNotificationCount(prev => prev + 1);
-      message.info({
-        content: data.message || 'Có đơn OT mới cần duyệt',
-        duration: 5,
-        onClick: () => navigate('/requests')
-      });
+      // message.info({
+      //   content: data.message || 'Có đơn OT mới cần duyệt',
+      //   duration: 5,
+      //   onClick: () => navigate('/requests')
+      // });
     };
 
     // ✅ Thông báo chấm công real-time (chỉ cho admin)
@@ -128,18 +128,13 @@ const MainLayout = ({ children }) => {
     const currentUserId = user._id || user.id;
 
     const handleNewMessage = (msg) => {
-      // Chỉ tăng badge nếu không đang ở trang chat và tin nhắn gửi tới mình
+      // Kiểm tra tin nhắn có gửi tới mình không
       const receiverId = msg.receiver?._id || msg.receiver;
-      if (receiverId === currentUserId && location.pathname !== '/internal-chat') {
+      const senderId = msg.sender?._id || msg.sender;
+      
+      // ✅ Tăng unread count nếu tin nhắn gửi tới mình (không phải tin nhắn mình gửi)
+      if (receiverId === currentUserId && senderId !== currentUserId) {
         setUnreadChatCount(prev => prev + 1);
-        message.info({
-          content: `💬 Tin nhắn mới từ ${msg.sender?.username || msg.sender?.email || 'Ai đó'}`,
-          duration: 3,
-          onClick: () => {
-            setUnreadChatCount(0);
-            navigate('/internal-chat');
-          }
-        });
       }
     };
 
@@ -148,7 +143,7 @@ const MainLayout = ({ children }) => {
     return () => {
       socket.off('new_message', handleNewMessage);
     };
-  }, [socket, connected, user, location.pathname, navigate]);
+  }, [socket, connected, user, navigate]);
 
   // Reset chat badge khi vào trang chat
   useEffect(() => {
