@@ -61,7 +61,7 @@ exports.getConversation = async (req, res) => {
     })
       .populate('sender', 'username email employee')
       .populate('receiver', 'username email employee')
-      .sort({ createdAt: 1 })
+      .sort({ createdAt: -1 })
       .limit(100); // Limit to last 100 messages
 
     res.json({
@@ -77,6 +77,37 @@ exports.getConversation = async (req, res) => {
     });
   }
 };
+
+// Mark ALL messages in a conversation as read (from otherUser -> me)
+exports.markConversationAsRead = async (req, res) => {
+  try {
+    const userId = req.user._id || req.user.id;
+    const { otherUserId } = req.params;
+
+    if (!otherUserId) {
+      return res.status(400).json({ success: false, message: 'Other user ID is required' });
+    }
+
+    await InternalMessage.updateMany(
+      {
+        sender: otherUserId,
+        receiver: userId,
+        read: false
+      },
+      { $set: { read: true, readAt: new Date() } }
+    );
+
+    return res.json({ success: true, message: 'Conversation marked as read' });
+  } catch (error) {
+    console.error('Error marking conversation as read:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Error marking conversation as read',
+      error: error.message
+    });
+  }
+};
+
 
 // Get all conversations for current user
 exports.getConversations = async (req, res) => {
